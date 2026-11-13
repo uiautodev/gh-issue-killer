@@ -749,6 +749,7 @@ func doCloseIssue(ctx context.Context, app *AppContext, issue Issue, st IssueSta
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "cancelled"
 		state.CancelledAt = nowISO()
+		state.IssueClosed = true
 	})
 	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:cancelled")
 }
@@ -767,6 +768,7 @@ func doCancel(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "cancelled"
 		state.CancelledAt = nowISO()
+		state.IssueClosed = false
 	})
 	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:cancelled")
 }

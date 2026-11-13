@@ -184,6 +184,14 @@ func (r *Router) waitInactive(ctx context.Context, key string, timeout time.Dura
 	}
 }
 
+// wasReopened reports whether an open issue left a terminal state. A done
+// issue was closed by its merge, so still being open means it was reopened.
+// A cancelled issue only resumes when the user had closed it (a cancel
+// comment keeps the issue open).
+func wasReopened(st IssueState) bool {
+	return st.Phase == "done" || (st.Phase == "cancelled" && st.IssueClosed)
+}
+
 func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Trigger) {
 	app := r.contexts[fullName]
 	if app == nil {
@@ -417,11 +425,13 @@ func (r *Router) HandleReopened(ctx context.Context, fullName string, issue Issu
 			state.Worktree = ""
 			state.SessionID = ""
 			state.MergedAt = ""
+			state.IssueClosed = false
 		})
 	} else if st.Plan != "" {
 		app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {
 			state.Phase = "awaiting_approval"
 			state.CancelledAt = ""
+			state.IssueClosed = false
 		})
 		app.GH.SetPhaseLabel(ctx, fullName, issue.Number, "agent:awaiting-approval")
 		return
@@ -429,6 +439,7 @@ func (r *Router) HandleReopened(ctx context.Context, fullName string, issue Issu
 		app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {
 			state.Phase = "new"
 			state.CancelledAt = ""
+			state.IssueClosed = false
 		})
 	}
 	r.HandleTrigger(ctx, fullName, Trigger{
@@ -458,6 +469,10 @@ func (r *Router) StartupScan(ctx context.Context) {
 		for _, issue := range issues {
 			number := issue.Number
 			st := r.store.Issue(fullName, number)
+			if wasReopened(st) {
+				r.HandleReopened(ctx, fullName, issue)
+				continue
+			}
 
 			if (st.Phase == "" || st.Phase == "new" || st.Phase == "planning") && isRelevantIssue(issue, r.agentLogin) {
 				if st.Phase == "" {
@@ -559,6 +574,10 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 	for _, issue := range issues {
 		number := issue.Number
 		st := r.store.Issue(fullName, number)
+		if issue.State == "open" && wasReopened(st) {
+			r.HandleReopened(ctx, fullName, issue)
+			continue
+		}
 		if issue.State == "closed" {
 			if closablePhase(st.Phase) {
 				r.HandleClosed(ctx, fullName, issue)

@@ -55,6 +55,7 @@ type IssueState struct {
 	StartedAt         string        `json:"startedAt,omitempty"`
 	MergedAt          string        `json:"mergedAt,omitempty"`
 	CancelledAt       string        `json:"cancelledAt,omitempty"`
+	IssueClosed       bool          `json:"issueClosed,omitempty"`
 }
 
 type RepoMeta struct {

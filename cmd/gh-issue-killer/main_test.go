@@ -176,3 +176,20 @@ func TestResolveCommandApproverOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestWasReopened(t *testing.T) {
+	if !wasReopened(IssueState{Phase: "done"}) {
+		t.Fatal("an open done issue was reopened")
+	}
+	if wasReopened(IssueState{Phase: "cancelled"}) {
+		t.Fatal("cancel via comment keeps the issue open; must not resume")
+	}
+	if !wasReopened(IssueState{Phase: "cancelled", IssueClosed: true}) {
+		t.Fatal("cancelled by closing the issue should resume when reopened")
+	}
+	for _, phase := range []string{"", "new", "planning", "implementing", "pr_open", "blocked"} {
+		if wasReopened(IssueState{Phase: phase}) {
+			t.Fatalf("%q must not count as reopened", phase)
+		}
+	}
+}
