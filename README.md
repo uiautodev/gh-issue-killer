@@ -14,6 +14,33 @@ owner: @agent cancel     →     abort, keep the issue open
 > runbook written for an AI operator: preflight checks, agent account and
 > token, non-interactive config, verification, upgrades, failure → action.
 
+## Deploy it without reading anything
+
+Copy this into Claude Code, Codex or opencode **inside this repository**. It
+follows `DEPLOY.md`, picks every default itself, and asks at most one question.
+
+```text
+Deploy gh-issue-killer on this machine by following DEPLOY.md §0–§5 (skip §6
+unless I ask for boot persistence). Work autonomously and ask at most one
+question, only if a value truly cannot be inferred.
+
+Defaults, use them without confirming:
+- repos: the origin remote of this git checkout; if there is none, ask me once
+- approver: my GitHub login from `gh api user --jq .login`
+- codingAgent: the first of opencode, claude, codex found on PATH
+- model: the CLI default (leave it empty)
+- proxy: $https_proxy or $ALL_PROXY if set, otherwise none
+- binary: ~/.local/bin/gh-issue-killer, config: ~/.config/gh-issue-killer/config.json
+
+Do not create GitHub accounts or tokens. Granting this bot push/admin on the
+repos above with my gh is allowed (DEPLOY.md §2). If no gh-agent credential
+exists (~/.config/gh-agent or $GH_AGENT_TOKEN), stop after printing the exact
+single command I must run, then continue from §2.
+
+Finish with the §10 checks and paste the status lines. Do not ask me to confirm
+steps you can verify yourself.
+```
+
 ## Why Go, no curl/ffmpeg
 
 The daemon is a single static Go binary. It talks to GitHub over `net/http`, uploads screenshots through GitHub's user-attachments endpoint with a plain request body, composes before/after images with `image/draw`, and implements the SOCKS5 client itself. At runtime it only shells out to the tools that are inherently part of the job:

@@ -7,9 +7,14 @@ command and the output you should see; if it does not match, go to
 
 Markers:
 
-- **ASK** — stop and ask the human (permissions, credentials, optional extras).
+- **ASK** — only when a value cannot be inferred. Prefer a default and say what
+  you assumed.
 - **ENSURE** — safe to re-run; make the state match.
 - **NEVER** — an invariant; violating it breaks the deployment.
+
+Ask the human **at most once**: for the repositories when they cannot be
+inferred, or for the bot token/login when no credential exists. Everything else
+is detectable.
 
 Behaviour facts you may need: one static Go binary, outbound HTTPS only (no
 inbound port), one instance per state directory, and the workflow commands are
@@ -17,8 +22,9 @@ inbound port), one instance per state directory, and the workflow commands are
 
 ## 0. Variables
 
-Set these once in the shell that runs every step. Ask the human for the values
-you do not know.
+Set these once in the shell that runs every step. Fill them from §0.1; ask the
+human only for `REPOS` when the current checkout has no GitHub origin and for
+`AGENT_LOGIN` when no gh-agent credential exists yet.
 
 ```bash
 AGENT_LOGIN=yourname-agent                       # dedicated bot account
@@ -29,6 +35,21 @@ STATE="$HOME/.gh-issue-killer"
 LOG="$STATE/logs/daemon.log"
 HB="gh-issue-killer"                             # binary name on PATH
 ```
+
+## 0.1 Defaults — infer, do not ask
+
+| value | default |
+| --- | --- |
+| `REPOS` | `git remote get-url origin` of the current checkout, if it is a GitHub repo |
+| `AGENT_LOGIN` | `gh-agent api user --jq .login` |
+| approver | the human's login from `gh api user --jq .login` |
+| `codingAgent` | first of `opencode`, `claude`, `codex` on `PATH` |
+| model | empty (CLI default) |
+| proxy | `$https_proxy` / `$ALL_PROXY` if set, otherwise none |
+| `BIN_DIR` | `$HOME/.local/bin` |
+| `CONFIG` | `$HOME/.config/gh-issue-killer/config.json` |
+
+Write down every assumption in the final report instead of asking about it.
 
 ## 1. Preflight — ENSURE
 
@@ -42,9 +63,9 @@ command -v opencode claude codex             # at least one
 
 | result | action |
 | --- | --- |
-| Go or git missing | **ASK** the human to install them |
-| no coding-agent CLI | **ASK** which one to install; do not pick silently |
-| token unset | check `~/.config/gh-agent/hosts.yml`; if absent → step 2 |
+| Go or git missing | install with the platform package manager; if that needs sudo, **ASK** once and include the exact command |
+| no coding-agent CLI | install `opencode` by default and say so; **ASK** only if the human has a stated preference |
+| token unset | check `~/.config/gh-agent/hosts.yml`; if absent → step 2 (this is the one allowed question) |
 | OS not macOS/Linux | stop: unsupported |
 
 The coding agent must work unattended on this machine, as the same user
@@ -75,7 +96,9 @@ gh-agent api user --jq .login                # must print $AGENT_LOGIN
 for r in $REPOS; do gh-agent api "repos/$r" --jq '{repo:.full_name,push:.permissions.push,admin:.permissions.admin}'; done
 ```
 
-`push:true` is mandatory. If `push:false`, **ASK** the human to run:
+`push:true` is mandatory. If `push:false`, run the grant yourself with the
+human's `gh` (setup is allowed to use it; runtime is not). If it fails, **ASK**
+once and print the exact command:
 
 ```bash
 gh api -X PUT "repos/<owner>/<repo>/collaborators/$AGENT_LOGIN" -f permission=admin
