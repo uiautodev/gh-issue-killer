@@ -157,3 +157,9 @@ Tag a release with `v*` (for example `git tag v0.1.0 && git push --tags`):
 GitHub Actions runs the tests, builds linux/darwin amd64+arm64 archives with
 the version injected, and publishes them with checksums to the GitHub release.
 The prompts are embedded in the binary, so the archives are self-contained.
+
+## License
+
+Released under the [MIT License](LICENSE). You may use, modify and
+redistribute it, including commercially, as long as the copyright notice and
+permission notice are retained.
