@@ -339,7 +339,7 @@ func (r *Router) enqueueApprove(ctx context.Context, app *AppContext, fullName s
 	// The owner already approved: clear the waiting label now, even if the
 	// implementation is still queued behind another job. Otherwise the issue
 	// keeps looking like it needs confirmation.
-	app.GH.SetWaitingLabel(ctx, fullName, number, false)
+	app.GH.SetAgentState(ctx, fullName, number, workingLabel)
 	trigger := Trigger{
 		Type:        "reaction",
 		IssueNumber: number,
@@ -538,7 +538,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 				state.CancelledAt = nowISO()
 				state.IssueClosed = false
 			})
-			app.GH.SetWaitingLabel(ctx, fullName, trigger.IssueNumber, false)
+			app.GH.SetAgentState(ctx, fullName, trigger.IssueNumber, "")
 			r.cancelActive(fullName, trigger.IssueNumber)
 			go func() {
 				jobCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -570,7 +570,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		}
 
 		if command == "approve" && (st.Phase == "awaiting_approval" || st.Phase == "blocked") {
-			app.GH.SetWaitingLabel(ctx, fullName, trigger.IssueNumber, false)
+			app.GH.SetAgentState(ctx, fullName, trigger.IssueNumber, workingLabel)
 			r.enqueue(key, stageWork, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
@@ -757,7 +757,7 @@ func (r *Router) HandleReopened(ctx context.Context, fullName string, issue Issu
 			state.CancelledAt = ""
 			state.IssueClosed = false
 		})
-		app.GH.SetWaitingLabel(ctx, fullName, issue.Number, true)
+		app.GH.SetAgentState(ctx, fullName, issue.Number, awaitingLabel)
 		return
 	} else {
 		app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {

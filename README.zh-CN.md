@@ -105,8 +105,9 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 | plan 评论上的 👍 | 等同 `@agent lgtm` |
 | PR 公告评论上的 👍 | 等同 `@agent 合并` |
 
-批准（评论或 👍）后会立刻摘掉 `agent:awaiting-approval` 标签，即使实现任务还在
-排队等前一个 issue 跑完。
+流程用两个标签表示状态：`agent:working` 表示 agent 正在规划、实现或合并（你
+不用管），`agent:awaiting-approval` 只在确实需要你操作时出现。批准（评论或 👍）
+后会立刻摘掉待确认标签，即使实现任务还在排队等前一个 issue 跑完。
 
 命令必须来自 approver、@ 了 agent，并且**整条评论就是命令**——「把按钮合并到
 input-group 里」不会触发合并。其他 @ 了 agent 的评论会被当作反馈。daemon

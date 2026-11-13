@@ -117,8 +117,10 @@ Open an issue that mentions the bot (or assign it to the bot). Then:
 | 👍 on the plan comment | same as `@agent lgtm` |
 | 👍 on the PR-announcement comment | same as `@agent 合并` |
 
-Approving (comment or 👍) clears the `agent:awaiting-approval` label right
-away, even while the implementation is still queued behind another issue.
+Two labels track the flow: `agent:working` while the agent plans, implements or
+merges (nothing for you to do), and `agent:awaiting-approval` only while it is
+actually waiting for you. Approving clears the waiting label immediately, even
+while the implementation is still queued behind another issue.
 
 Commands must come from an approver, mention the agent, and be the **whole
 comment** — “把按钮合并到 input-group 里” never merges anything. Any other

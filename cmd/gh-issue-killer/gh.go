@@ -473,36 +473,46 @@ func (g *GH) ReactReviewComment(ctx context.Context, fullName string, commentID 
 	return g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/pulls/comments/%d/reactions", fullName, commentID), map[string]string{"content": content}, nil)
 }
 
-// awaitingLabel is the only label the daemon manages. It is on an issue exactly
-// while the flow is stopped waiting for the user to act.
-const awaitingLabel = "agent:awaiting-approval"
+// The daemon manages exactly two lifecycle labels: one while the flow waits
+// for the user, one while the agent works. They are mutually exclusive.
+const (
+	awaitingLabel = "agent:awaiting-approval"
+	workingLabel  = "agent:working"
+)
 
-var awaitingLabelSpec = [3]string{awaitingLabel, "fbca04", "waiting for user confirmation"}
-
-func (g *GH) EnsureLabels(ctx context.Context, fullName string) {
-	name, color, description := awaitingLabelSpec[0], awaitingLabelSpec[1], awaitingLabelSpec[2]
-	err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/labels/%s", fullName, url.PathEscape(name)), nil, nil)
-	if err == nil {
-		return
-	}
-	if !isStatus(err, http.StatusNotFound) {
-		return
-	}
-	_ = g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/labels", fullName), map[string]string{
-		"name":        name,
-		"color":       color,
-		"description": description,
-	}, nil)
+var agentLabelSpecs = [][3]string{
+	{awaitingLabel, "fbca04", "waiting for user confirmation"},
+	{workingLabel, "1d76db", "the agent is working, no action needed"},
 }
 
-// SetWaitingLabel puts the single awaiting label on the issue, or takes it off.
-// Other labels are left untouched.
-func (g *GH) SetWaitingLabel(ctx context.Context, fullName string, number int, waiting bool) {
-	_ = g.do(ctx, http.MethodDelete, fmt.Sprintf("/repos/%s/issues/%d/labels/%s", fullName, number, url.PathEscape(awaitingLabel)), nil, nil)
-	if !waiting {
+func (g *GH) EnsureLabels(ctx context.Context, fullName string) {
+	for _, spec := range agentLabelSpecs {
+		name, color, description := spec[0], spec[1], spec[2]
+		err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/labels/%s", fullName, url.PathEscape(name)), nil, nil)
+		if err == nil {
+			continue
+		}
+		if !isStatus(err, http.StatusNotFound) {
+			continue
+		}
+		_ = g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/labels", fullName), map[string]string{
+			"name":        name,
+			"color":       color,
+			"description": description,
+		}, nil)
+	}
+}
+
+// SetAgentState puts exactly one lifecycle label on the issue, or none, and
+// leaves every other label untouched.
+func (g *GH) SetAgentState(ctx context.Context, fullName string, number int, label string) {
+	for _, name := range []string{awaitingLabel, workingLabel} {
+		_ = g.do(ctx, http.MethodDelete, fmt.Sprintf("/repos/%s/issues/%d/labels/%s", fullName, number, url.PathEscape(name)), nil, nil)
+	}
+	if label == "" {
 		return
 	}
-	_ = g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/labels", fullName, number), map[string][]string{"labels": {awaitingLabel}}, nil)
+	_ = g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/labels", fullName, number), map[string][]string{"labels": {label}}, nil)
 }
 
 func (g *GH) CreatePR(ctx context.Context, fullName, title, head, base, body string) (PullRequest, error) {
