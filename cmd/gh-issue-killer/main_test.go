@@ -334,3 +334,12 @@ func TestLoadConfigParallelKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestHeadFromLSRemote(t *testing.T) {
+	if got := headFromLSRemote("abc123def456\trefs/heads/master\n"); got != "abc123def456" {
+		t.Fatalf("head = %q", got)
+	}
+	if got := headFromLSRemote("  \n"); got != "" {
+		t.Fatalf("empty head = %q", got)
+	}
+}

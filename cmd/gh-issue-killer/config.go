@@ -49,6 +49,7 @@ type Config struct {
 	MaxFixRounds          int
 	PlanParallel          int
 	ImplementParallel     int
+	SelfUpdate            bool
 	DeprecatedMaxParallel bool
 	PlanTimeout           time.Duration
 	ImplementTimeout      time.Duration
@@ -78,6 +79,7 @@ type rawConfig struct {
 	MaxFixRounds      int             `json:"maxFixRounds"`
 	PlanParallel      int             `json:"planParallel"`
 	ImplementParallel int             `json:"implementParallel"`
+	SelfUpdate        bool            `json:"selfUpdate"`
 	// MaxParallel is the old name for implementParallel.
 	MaxParallel         int `json:"maxParallel"`
 	PlanTimeoutMin      int `json:"planTimeoutMin"`
@@ -224,6 +226,7 @@ func loadConfig(file string) (*Config, error) {
 		MaxFixRounds:      raw.MaxFixRounds,
 		PlanParallel:      raw.PlanParallel,
 		ImplementParallel: raw.ImplementParallel,
+		SelfUpdate:        raw.SelfUpdate,
 		PlanTimeout:       time.Duration(raw.PlanTimeoutMin) * time.Minute,
 		ImplementTimeout:  time.Duration(raw.ImplementTimeoutMin) * time.Minute,
 		CodingAgent:       agentID,

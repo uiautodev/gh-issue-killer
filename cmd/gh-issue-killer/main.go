@@ -398,6 +398,15 @@ func main() {
 	}
 
 	reload := watchConfig(ctx, cfg.File, log, configWatchEvery, configDebounce)
+	var selfRestart <-chan struct{}
+	if cfg.SelfUpdate {
+		env := os.Environ()
+		for _, app := range contexts {
+			env = app.Env
+			break
+		}
+		selfRestart = watchSelfUpdates(ctx, log, env)
+	}
 
 	if cfg.Webhook && store.GlobalSecret() == "" {
 		store.SetGlobalSecret(randomHex(24))
@@ -435,6 +444,9 @@ func main() {
 	case <-reload:
 		reloadRequested = true
 		log.Info("config reload requested; waiting for running jobs to finish")
+	case <-selfRestart:
+		reloadRequested = true
+		log.Info("self-update: restarting on the rebuilt binary; waiting for running jobs to finish")
 	}
 
 	if reloadRequested {
