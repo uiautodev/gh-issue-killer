@@ -75,6 +75,13 @@ func isRelevantIssue(issue Issue, agentLogin string) bool {
 	return isMention(issue.Title+"\n"+issue.Body, agentLogin)
 }
 
+type jobStage int
+
+const (
+	stagePlan jobStage = iota
+	stageWork
+)
+
 type routerJob struct {
 	key string
 	ctx context.Context
@@ -87,7 +94,8 @@ type Router struct {
 	agentLogin string
 	store      *Store
 	log        *Logger
-	jobs       chan routerJob
+	planJobs   chan routerJob
+	workJobs   chan routerJob
 	mu         sync.Mutex
 	active     map[string]bool
 	queued     map[string]bool
@@ -101,23 +109,31 @@ func NewRouter(cfg *Config, contexts map[string]*AppContext, agentLogin string, 
 		agentLogin: agentLogin,
 		store:      store,
 		log:        log,
-		jobs:       make(chan routerJob, 128),
+		planJobs:   make(chan routerJob, 128),
+		workJobs:   make(chan routerJob, 128),
 		active:     map[string]bool{},
 		queued:     map[string]bool{},
 		cancels:    map[string]context.CancelFunc{},
 	}
-	workers := cfg.MaxParallel
-	if workers < 1 {
-		workers = 1
+	planWorkers := cfg.PlanParallel
+	if planWorkers < 1 {
+		planWorkers = 1
 	}
-	for i := 0; i < workers; i++ {
-		go router.worker()
+	workWorkers := cfg.MaxParallel
+	if workWorkers < 1 {
+		workWorkers = 1
+	}
+	for i := 0; i < planWorkers; i++ {
+		go router.worker(router.planJobs)
+	}
+	for i := 0; i < workWorkers; i++ {
+		go router.worker(router.workJobs)
 	}
 	return router
 }
 
-func (r *Router) worker() {
-	for job := range r.jobs {
+func (r *Router) worker(jobs <-chan routerJob) {
+	for job := range jobs {
 		r.mu.Lock()
 		delete(r.queued, job.key)
 		r.active[job.key] = true
@@ -139,7 +155,7 @@ func (r *Router) worker() {
 	}
 }
 
-func (r *Router) enqueue(key string, fn func(context.Context)) {
+func (r *Router) enqueue(key string, stage jobStage, fn func(context.Context)) {
 	jobCtx, cancel := context.WithCancel(context.Background())
 	r.mu.Lock()
 	if r.active[key] || r.queued[key] {
@@ -152,7 +168,11 @@ func (r *Router) enqueue(key string, fn func(context.Context)) {
 	r.cancels[key] = cancel
 	r.mu.Unlock()
 	r.log.Debug("enqueue job %s", key)
-	r.jobs <- routerJob{key: key, ctx: jobCtx, fn: fn}
+	queue := r.workJobs
+	if stage == stagePlan {
+		queue = r.planJobs
+	}
+	queue <- routerJob{key: key, ctx: jobCtx, fn: fn}
 }
 
 func (r *Router) cancelActive(fullName string, number int) {
@@ -251,7 +271,7 @@ func (r *Router) enqueueApprove(app *AppContext, fullName string, number int, se
 		Sender:      sender,
 		Key:         fmt.Sprintf("approve-%d", time.Now().UnixNano()),
 	}
-	r.enqueue(key, func(jobCtx context.Context) {
+	r.enqueue(key, stageWork, func(jobCtx context.Context) {
 		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
 		if err != nil {
 			blockIssue(jobCtx, app, number, err)
@@ -276,7 +296,7 @@ func (r *Router) enqueueMerge(app *AppContext, fullName string, number int, send
 		Sender:      sender,
 		Key:         fmt.Sprintf("merge-%d", time.Now().UnixNano()),
 	}
-	r.enqueue(key, func(jobCtx context.Context) {
+	r.enqueue(key, stageWork, func(jobCtx context.Context) {
 		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
 		if err != nil {
 			blockIssue(jobCtx, app, number, err)
@@ -399,7 +419,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		key := fmt.Sprintf("%s#%d", fullName, trigger.IssueNumber)
 
 		if command == "cancel" && (st.Phase == "new" || st.Phase == "planning" || st.Phase == "awaiting_approval" || st.Phase == "blocked" || st.Phase == "implementing" || st.Phase == "pr_open") {
-			r.enqueue(key, func(jobCtx context.Context) {
+			r.enqueue(key, stageWork, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
 					blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -411,7 +431,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		}
 
 		if command == "merge" && (st.Phase == "pr_open" || (st.Phase == "blocked" && st.PRNumber > 0)) {
-			r.enqueue(key, func(jobCtx context.Context) {
+			r.enqueue(key, stageWork, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
 					blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -426,7 +446,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		}
 
 		if command == "approve" && (st.Phase == "awaiting_approval" || st.Phase == "blocked") {
-			r.enqueue(key, func(jobCtx context.Context) {
+			r.enqueue(key, stageWork, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
 					blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -441,7 +461,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		}
 
 		if mentioned && (st.Phase == "" || st.Phase == "new") {
-			r.enqueue(key, func(jobCtx context.Context) {
+			r.enqueue(key, stagePlan, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
 					blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -460,7 +480,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		// A mention with prose (not a command) on an issue with an open PR is
 		// feedback: keep working on the same branch instead of merging.
 		if mentioned && isApprover && st.Phase == "pr_open" {
-			r.enqueue(key, func(jobCtx context.Context) {
+			r.enqueue(key, stageWork, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
 					blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -485,7 +505,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 			return
 		}
 		key := fmt.Sprintf("%s#%d", fullName, trigger.IssueNumber)
-		r.enqueue(key, func(jobCtx context.Context) {
+		r.enqueue(key, stagePlan, func(jobCtx context.Context) {
 			issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 			if err != nil {
 				blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -667,7 +687,7 @@ func (r *Router) StartupScan(ctx context.Context) {
 			if st.Phase == "implementing" || (st.Phase == "blocked" && st.BlockedReason == "interrupted by restart") {
 				r.log.Info("startup: resuming interrupted implementation for %s#%d", fullName, number)
 				resumeKey := fmt.Sprintf("%s#%d", fullName, number)
-				r.enqueue(resumeKey, func(jobCtx context.Context) {
+				r.enqueue(resumeKey, stageWork, func(jobCtx context.Context) {
 					issue, err := app.GH.GetIssue(jobCtx, fullName, number)
 					if err != nil {
 						blockIssue(jobCtx, app, number, err)

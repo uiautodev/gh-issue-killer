@@ -47,6 +47,7 @@ type Config struct {
 	PollInterval     time.Duration
 	Webhook          bool
 	MaxFixRounds     int
+	PlanParallel     int
 	MaxParallel      int
 	PlanTimeout      time.Duration
 	ImplementTimeout time.Duration
@@ -74,6 +75,7 @@ type rawConfig struct {
 	Webhook             *bool           `json:"webhook"`
 	WorktreeRoot        string          `json:"worktreeRoot"`
 	MaxFixRounds        int             `json:"maxFixRounds"`
+	PlanParallel        int             `json:"planParallel"`
 	MaxParallel         int             `json:"maxParallel"`
 	PlanTimeoutMin      int             `json:"planTimeoutMin"`
 	ImplementTimeoutMin int             `json:"implementTimeoutMin"`
@@ -217,6 +219,7 @@ func loadConfig(file string) (*Config, error) {
 		PollInterval:     time.Duration(raw.PollIntervalSec) * time.Second,
 		Webhook:          true,
 		MaxFixRounds:     raw.MaxFixRounds,
+		PlanParallel:     raw.PlanParallel,
 		MaxParallel:      raw.MaxParallel,
 		PlanTimeout:      time.Duration(raw.PlanTimeoutMin) * time.Minute,
 		ImplementTimeout: time.Duration(raw.ImplementTimeoutMin) * time.Minute,
@@ -234,8 +237,11 @@ func loadConfig(file string) (*Config, error) {
 	if cfg.MaxFixRounds == 0 {
 		cfg.MaxFixRounds = 3
 	}
+	if cfg.PlanParallel == 0 {
+		cfg.PlanParallel = 5
+	}
 	if cfg.MaxParallel == 0 {
-		cfg.MaxParallel = 5
+		cfg.MaxParallel = 1
 	}
 	if cfg.PlanTimeout == 0 {
 		cfg.PlanTimeout = 15 * time.Minute

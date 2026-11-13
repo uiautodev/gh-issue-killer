@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestParseProxy(t *testing.T) {
@@ -277,5 +279,32 @@ func TestEnsureGhAgentWrapper(t *testing.T) {
 	}
 	if _, created, err := ensureGhAgentWrapper(); err != nil || created {
 		t.Fatalf("existing wrapper must be kept (created=%v err=%v)", created, err)
+	}
+}
+
+func TestRouterSeparatesPlanAndWorkPools(t *testing.T) {
+	cfg := &Config{PlanParallel: 1, MaxParallel: 1}
+	router := NewRouter(cfg, map[string]*AppContext{}, "bot", nil, NewSilentLogger())
+
+	block := make(chan struct{})
+	started := make(chan struct{})
+	planRan := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+
+	router.enqueue("repo#1", stageWork, func(ctx context.Context) {
+		close(started)
+		<-block
+	})
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("work job did not start")
+	}
+
+	router.enqueue("repo#2", stagePlan, func(ctx context.Context) { close(planRan) })
+	select {
+	case <-planRan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("plan job was blocked behind the work pool")
 	}
 }
