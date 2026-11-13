@@ -159,5 +159,4 @@ the version injected, and publishes them with checksums to the GitHub release.
 The prompts are embedded in the binary, so the archives are self-contained.
 
 ## License
-
 [MIT](LICENSE)

@@ -143,5 +143,4 @@ Actions 会跑测试、交叉编译 linux/darwin 的 amd64+arm64 包、注入版
 压缩包和校验和发布到 GitHub Release。prompts 已内嵌进二进制，压缩包可直接运行。
 
 ## License
-
 [MIT](LICENSE)
