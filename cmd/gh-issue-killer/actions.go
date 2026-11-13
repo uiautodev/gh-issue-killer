@@ -1,0 +1,579 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+)
+
+type AppContext struct {
+	Cfg        *Config
+	Repo       RepoConfig
+	RepoInfo   RepoInfo
+	Local      *LocalRepo
+	Identity   User
+	Token      string
+	Proxy      *Proxy
+	GH         *GH
+	Store      *Store
+	Log        *Logger
+	Env        []string
+	AgentLogin string
+}
+
+type Trigger struct {
+	Type        string
+	IssueNumber int
+	CommentID   int64
+	CommentBody string
+	Sender      string
+	Key         string
+	DeliveryID  string
+}
+
+var secretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(gho|ghp|ghu|ghs|ghr)_[A-Za-z0-9]{20,}`),
+	regexp.MustCompile(`github_pat_[A-Za-z0-9_]{20,}`),
+	regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9._-]{15,}`),
+}
+
+func sanitize(text string) string {
+	out := text
+	for _, pattern := range secretPatterns {
+		out = pattern.ReplaceAllString(out, "[REDACTED]")
+	}
+	return out
+}
+
+func stripFences(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if strings.HasPrefix(trimmed, "```") && strings.HasSuffix(trimmed, "```") {
+		lines := strings.Split(trimmed, "\n")
+		if len(lines) >= 3 {
+			return strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
+		}
+	}
+	return trimmed
+}
+
+func commentsBlock(comments []Comment) string {
+	if len(comments) == 0 {
+		return "(no comments)"
+	}
+	parts := make([]string, 0, len(comments))
+	for _, comment := range comments {
+		parts = append(parts, fmt.Sprintf("--- @%s at %s:\n%s", comment.User.Login, comment.CreatedAt.Format(time.RFC3339), comment.Body))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func issueMeta(issue Issue) *IssueMeta {
+	labels := make([]string, 0, len(issue.Labels))
+	for _, label := range issue.Labels {
+		labels = append(labels, label.Name)
+	}
+	return &IssueMeta{
+		Number: issue.Number,
+		Title:  issue.Title,
+		Body:   issue.Body,
+		Author: issue.User.Login,
+		URL:    issue.HTMLURL,
+		Labels: labels,
+	}
+}
+
+func runDirFor(ctx *AppContext, issueNumber int) string {
+	dir := filepath.Join(runsDir(), fmt.Sprintf("%s-%s", ctx.Repo.Owner, ctx.Repo.Name), fmt.Sprintf("issue-%d", issueNumber))
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+func react(ctx context.Context, app *AppContext, trigger Trigger, content string) {
+	if trigger.CommentID > 0 {
+		_ = app.GH.ReactComment(ctx, app.Repo.FullName, trigger.CommentID, content)
+	} else {
+		_ = app.GH.ReactIssue(ctx, app.Repo.FullName, trigger.IssueNumber, content)
+	}
+}
+
+func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) {
+	number := issue.Number
+	app.Log.Info("plan start for %s#%d", app.Repo.FullName, number)
+	trigger2 := trigger
+	trigger2.IssueNumber = number
+	react(ctx, app, trigger2, "eyes")
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(st *IssueState) {
+		st.Phase = "planning"
+		st.Issue = issueMeta(issue)
+	})
+	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:planning")
+
+	comments, err := app.GH.ListComments(ctx, app.Repo.FullName, number)
+	if err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("list comments: %w", err))
+		return
+	}
+	prompt, err := renderPrompt("plan", map[string]string{
+		"REPO":     app.Repo.FullName,
+		"NUMBER":   itoa(number),
+		"TITLE":    issue.Title,
+		"BODY":     firstNonEmpty(issue.Body, "(no description)"),
+		"COMMENTS": commentsBlock(comments),
+	})
+	if err != nil {
+		blockIssue(ctx, app, number, err)
+		return
+	}
+
+	if err := fetchBase(ctx, app.Local); err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("fetch base: %w", err))
+		return
+	}
+	planDir, err := createDetachedWorktree(ctx, app.Local, fmt.Sprintf("%s-%d-%s", app.Repo.Name, number, shortID(trigger.Key)))
+	if err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("create plan worktree: %w", err))
+		return
+	}
+	defer removeWorktree(ctx, app.Local, planDir, true)
+
+	runDir := runDirFor(app, number)
+	result, err := runOpencode(ctx, OpencodeOptions{
+		Cwd:     planDir,
+		Prompt:  prompt,
+		Model:   app.Repo.Model,
+		Agent:   app.Repo.Agent,
+		Env:     app.Env,
+		Timeout: app.Cfg.PlanTimeout,
+		LogFile: filepath.Join(runDir, "plan-opencode.log"),
+		Log:     app.Log,
+	})
+	if err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("plan failed: %w", err))
+		return
+	}
+	plan := stripFences(result.Text)
+	if len(plan) < 40 {
+		blockIssue(ctx, app, number, fmt.Errorf("plan is empty"))
+		return
+	}
+	if len(plan) > 55000 {
+		plan = plan[:55000] + "\n\n…(截断)"
+	}
+
+	body := strings.Join([]string{
+		"### 🤖 修复计划",
+		"",
+		plan,
+		"",
+		"---",
+		"确认请回复 **lgtm** 或 **continue**，我会新建 worktree 开始实现；回复 **cancel** 取消。 / Reply **lgtm** / **continue** to proceed.",
+	}, "\n")
+	posted, err := app.GH.PostComment(ctx, app.Repo.FullName, number, body)
+	if err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("post plan: %w", err))
+		return
+	}
+
+	lastComment := int64(0)
+	if len(comments) > 0 {
+		lastComment = comments[len(comments)-1].ID
+	}
+	if posted.ID > lastComment {
+		lastComment = posted.ID
+	}
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(st *IssueState) {
+		st.Phase = "awaiting_approval"
+		st.Plan = plan
+		st.PlanCommentID = posted.ID
+		st.SessionID = result.SessionID
+		st.LastCommentID = lastComment
+	})
+	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:awaiting-approval")
+	app.Log.Info("plan posted for %s#%d (comment %d)", app.Repo.FullName, number, posted.ID)
+}
+
+func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
+	number := issue.Number
+	app.Log.Info("implement start for %s#%d", app.Repo.FullName, number)
+	trigger2 := trigger
+	trigger2.IssueNumber = number
+	react(ctx, app, trigger2, "rocket")
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Phase = "implementing"
+		state.StartedAt = nowISO()
+	})
+	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:in-progress")
+
+	if err := fetchBase(ctx, app.Local); err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("fetch base: %w", err))
+		return
+	}
+	key := shortID(fmt.Sprint(st.PlanCommentID))
+	worktree, branch, err := createWorktree(ctx, app.Local, number, key)
+	if err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("create worktree: %w", err))
+		return
+	}
+	runDir := runDirFor(app, number)
+	_ = os.MkdirAll(filepath.Join(runDir, "screenshots"), 0o755)
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Worktree = worktree
+		state.Branch = branch
+	})
+
+	comments, err := app.GH.ListComments(ctx, app.Repo.FullName, number)
+	if err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("list comments: %w", err))
+		return
+	}
+	prompt, err := renderPrompt("implement", map[string]string{
+		"REPO":     app.Repo.FullName,
+		"WORKTREE": worktree,
+		"BASE":     app.Local.Base,
+		"RUN_DIR":  runDir,
+		"NUMBER":   itoa(number),
+		"TITLE":    issue.Title,
+		"BODY":     firstNonEmpty(issue.Body, "(no description)"),
+		"COMMENTS": commentsBlock(comments),
+		"PLAN":     firstNonEmpty(st.Plan, "(missing plan, implement the issue directly)"),
+	})
+	if err != nil {
+		blockIssue(ctx, app, number, err)
+		return
+	}
+
+	result, err := runOpencode(ctx, OpencodeOptions{
+		Cwd:     worktree,
+		Prompt:  prompt,
+		Model:   app.Repo.Model,
+		Agent:   app.Repo.Agent,
+		Env:     app.Env,
+		Timeout: app.Cfg.ImplementTimeout,
+		LogFile: filepath.Join(runDir, "implement-opencode.log"),
+		Log:     app.Log,
+	})
+	if err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("implement failed: %w", err))
+		return
+	}
+	sessionID := result.SessionID
+	if sessionID == "" {
+		sessionID = st.SessionID
+	}
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.SessionID = sessionID
+	})
+
+	checks := loadChecks(worktree, runDir, app.Log)
+	checkResults, ok := runChecks(ctx, checks, worktree, runDir, app.Env, app.Log)
+	for attempt := 1; !ok && attempt <= app.Cfg.MaxFixRounds; attempt++ {
+		app.Log.Warn("checks failed, fix round %d/%d", attempt, app.Cfg.MaxFixRounds)
+		failures := make([]string, 0)
+		for _, item := range checkResults {
+			if item.OK {
+				continue
+			}
+			failures = append(failures, fmt.Sprintf("### %s (exit %d)\n```\n%s\n```", item.Name, item.Code, tailString(item.OutputTail, 40)))
+		}
+		fixPrompt, promptErr := renderPrompt("fix", map[string]string{
+			"RUN_DIR":      runDir,
+			"ATTEMPT":      itoa(attempt),
+			"MAX_ATTEMPTS": itoa(app.Cfg.MaxFixRounds),
+			"FAILURES":     strings.Join(failures, "\n\n"),
+			"WORKTREE":     worktree,
+		})
+		if promptErr != nil {
+			app.Log.Warn("render fix prompt: %v", promptErr)
+			break
+		}
+		if _, runErr := runOpencode(ctx, OpencodeOptions{
+			Cwd:       worktree,
+			Prompt:    fixPrompt,
+			SessionID: sessionID,
+			Model:     app.Repo.Model,
+			Agent:     app.Repo.Agent,
+			Env:       app.Env,
+			Timeout:   app.Cfg.ImplementTimeout,
+			LogFile:   filepath.Join(runDir, fmt.Sprintf("fix-%d-opencode.log", attempt)),
+			Log:       app.Log,
+		}); runErr != nil {
+			app.Log.Error("fix round %d failed: %v", attempt, runErr)
+		}
+		checks = loadChecks(worktree, runDir, app.Log)
+		checkResults, ok = runChecks(ctx, checks, worktree, runDir, app.Env, app.Log)
+	}
+
+	if !ok {
+		var details []string
+		for _, item := range checkResults {
+			if item.OK {
+				continue
+			}
+			details = append(details, fmt.Sprintf("<details><summary>%s</summary>\n\n```\n%s\n```\n</details>", item.Name, sanitize(tailString(item.OutputTail, 40))))
+		}
+		body := strings.Join([]string{
+			"### 🤖 检查未通过，已停止",
+			"",
+			formatChecks(checkResults),
+			"",
+			strings.Join(details, "\n"),
+			"",
+			fmt.Sprintf("worktree 保留在 `%s`。修复后回复 **continue** 重跑。", worktree),
+		}, "\n")
+		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, body)
+		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+			state.Phase = "blocked"
+			state.BlockedReason = "checks failed"
+			state.Checks = checkResults
+		})
+		app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:blocked")
+		return
+	}
+
+	if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("chore: finalize changes for #%d", number)); err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("commit: %w", err))
+		return
+	}
+
+	manifest := loadManifest(runDir)
+	files := changedFiles(ctx, worktree, app.Local)
+	uiFiles := 0
+	for _, file := range files {
+		lower := strings.ToLower(file)
+		for _, ext := range []string{".svelte", ".tsx", ".jsx", ".vue", ".css", ".scss", ".sass", ".less", ".html"} {
+			if strings.HasSuffix(lower, ext) {
+				uiFiles++
+				break
+			}
+		}
+	}
+	uiChanged := (manifest.UIChanged != nil && *manifest.UIChanged) || (manifest.UIChanged == nil && uiFiles > 0)
+	var shots []Shot
+	if uiChanged {
+		shots = collectScreenshots(ctx, app.GH, runDir, manifest, app.RepoInfo.ID, app.Log)
+	}
+	shotsMD := screenshotsMarkdown(shots)
+	uiNote := ""
+	if !uiChanged {
+		uiNote = "未涉及 UI 改动，无截图。"
+	} else if len(shots) == 0 {
+		uiNote = "⚠️ 本次改动涉及 UI，但没有产出 before/after 截图。"
+	}
+
+	commits := logSinceBase(ctx, worktree, app.Local)
+	stat := diffStat(ctx, worktree, app.Local)
+	if err := pushBranch(ctx, worktree, app.Local, branch); err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("push: %w", err))
+		return
+	}
+
+	prTitle := firstNonEmpty(manifest.PRTitle, fmt.Sprintf("fix: %s (#%d)", issue.Title, number))
+	prParts := []string{"This is by an automated agent, not a human.", ""}
+	if manifest.Summary != "" {
+		prParts = append(prParts, "## 变更", "", manifest.Summary, "")
+	}
+	if len(manifest.Changes) > 0 {
+		prParts = append(prParts, "### 改动")
+		for _, change := range manifest.Changes {
+			prParts = append(prParts, "- "+change)
+		}
+		prParts = append(prParts, "")
+	}
+	prParts = append(prParts, fmt.Sprintf("Closes #%d", number), "", "## 提交", "```", firstNonEmpty(commits, "(none)"), "```", "", "## 检查", formatChecks(checkResults), "")
+	if len(manifest.Tests) > 0 {
+		prParts = append(prParts, "## 功能验证")
+		for _, test := range manifest.Tests {
+			prParts = append(prParts, "- "+test)
+		}
+		prParts = append(prParts, "")
+	}
+	if shotsMD != "" {
+		prParts = append(prParts, "## 截图", "", shotsMD, "")
+	}
+	if uiNote != "" {
+		prParts = append(prParts, "## UI 验证", "", uiNote, "")
+	}
+	prParts = append(prParts, "```diff", firstNonEmpty(stat, "(no diff)"), "```")
+
+	pr, err := app.GH.CreatePR(ctx, app.Repo.FullName, prTitle, branch, app.Local.Base, strings.Join(prParts, "\n"))
+	if err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("create PR: %w", err))
+		return
+	}
+
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Phase = "pr_open"
+		state.PRNumber = pr.Number
+		state.PRURL = pr.HTMLURL
+		state.Branch = branch
+		state.Worktree = worktree
+		state.Checks = checkResults
+		state.Screenshots = shots
+	})
+	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:pr-open")
+
+	commentParts := []string{fmt.Sprintf("### 🤖 实现完成：%s", pr.HTMLURL), "", manifest.Summary, "", "## 检查", formatChecks(checkResults)}
+	if shotsMD != "" {
+		commentParts = append(commentParts, "", "## 截图", "", shotsMD)
+	}
+	if uiNote != "" {
+		commentParts = append(commentParts, "", "## UI 验证", "", uiNote)
+	}
+	commentParts = append(commentParts, "", "确认无误回复 **合并**，我会 squash merge 到主干并关闭本 issue。")
+	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join(commentParts, "\n"))
+	app.Log.Info("PR opened for %s#%d: %s", app.Repo.FullName, number, pr.HTMLURL)
+}
+
+func waitForChecks(ctx context.Context, app *AppContext, sha string, timeout time.Duration) (bool, string) {
+	started := time.Now()
+	for {
+		runs, err := app.GH.ListCheckRuns(ctx, app.Repo.FullName, sha)
+		if err != nil {
+			return true, "no check-runs access, skipping CI gate"
+		}
+		if runs.TotalCount == 0 || len(runs.CheckRuns) == 0 {
+			return true, "no CI configured"
+		}
+		pending := 0
+		failed := make([]string, 0)
+		for _, run := range runs.CheckRuns {
+			if run.Status != "completed" {
+				pending++
+				continue
+			}
+			conclusion := ""
+			if run.Conclusion != nil {
+				conclusion = *run.Conclusion
+			}
+			switch conclusion {
+			case "success", "neutral", "skipped":
+			default:
+				failed = append(failed, run.Name+": "+conclusion)
+			}
+		}
+		if pending == 0 {
+			if len(failed) > 0 {
+				return false, strings.Join(failed, ", ")
+			}
+			return true, fmt.Sprintf("%d checks passed", len(runs.CheckRuns))
+		}
+		if time.Since(started) > timeout {
+			return false, fmt.Sprintf("checks still pending after %d min", int(timeout.Minutes()))
+		}
+		app.Log.Info("waiting for %d checks...", pending)
+		select {
+		case <-ctx.Done():
+			return false, "cancelled"
+		case <-time.After(15 * time.Second):
+		}
+	}
+}
+
+func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
+	number := issue.Number
+	app.Log.Info("merge start for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
+	trigger2 := trigger
+	trigger2.IssueNumber = number
+	react(ctx, app, trigger2, "hooray")
+
+	pr, err := app.GH.GetPR(ctx, app.Repo.FullName, st.PRNumber)
+	if err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("get PR: %w", err))
+		return
+	}
+	if pr.State != "open" {
+		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) { state.Phase = "done" })
+		app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:done")
+		return
+	}
+
+	if pr.Head.SHA != "" {
+		ok, note := waitForChecks(ctx, app, pr.Head.SHA, 10*time.Minute)
+		if !ok {
+			app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+				state.Phase = "blocked"
+				state.BlockedReason = note
+			})
+			app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:blocked")
+			_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
+				fmt.Sprintf("### 🤖 暂不合并\n\nCI 未通过或仍在等待：%s\n\n解决后回复 **合并** 重试。", note))
+			return
+		}
+		app.Log.Info("merge gate: %s", note)
+	}
+
+	merged, err := app.GH.MergePR(ctx, app.Repo.FullName, st.PRNumber)
+	if err != nil || !merged.Merged {
+		detail := merged.Message
+		if err != nil {
+			detail = err.Error()
+		}
+		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+			state.Phase = "blocked"
+			state.BlockedReason = sanitize(detail)
+		})
+		app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:blocked")
+		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
+			fmt.Sprintf("### 🤖 合并失败\n\n```\n%s\n```\n\n处理冲突后回复 **合并** 重试。", sanitize(detail)))
+		return
+	}
+
+	_ = app.GH.DeleteBranch(ctx, app.Repo.FullName, st.Branch)
+	current, err := app.GH.GetIssue(ctx, app.Repo.FullName, number)
+	if err == nil && current.State == "open" {
+		_ = app.GH.UpdateIssue(ctx, app.Repo.FullName, number, map[string]any{"state": "closed", "state_reason": "completed"})
+	}
+	if st.Worktree != "" {
+		removeWorktree(ctx, app.Local, st.Worktree, false)
+		deleteLocalBranch(ctx, app.Local, st.Branch)
+	}
+
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Phase = "done"
+		state.MergedAt = nowISO()
+	})
+	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:done")
+	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
+		"### 🤖 已完成",
+		"",
+		fmt.Sprintf("- PR #%d 已 squash merge 到 `%s`", st.PRNumber, app.Local.Base),
+		fmt.Sprintf("- 分支 `%s` 已删除，worktree 已清理", st.Branch),
+		"",
+		"本 issue 由自动化流程关闭。",
+	}, "\n"))
+	app.Log.Info("merged %s#%d", app.Repo.FullName, number)
+}
+
+func doCancel(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
+	number := issue.Number
+	app.Log.Info("cancel for %s#%d", app.Repo.FullName, number)
+	trigger2 := trigger
+	trigger2.IssueNumber = number
+	react(ctx, app, trigger2, "confused")
+	if st.Worktree != "" {
+		removeWorktree(ctx, app.Local, st.Worktree, false)
+		deleteLocalBranch(ctx, app.Local, st.Branch)
+	}
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Phase = "cancelled"
+		state.CancelledAt = nowISO()
+	})
+	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:cancelled")
+	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, "### 🤖 已取消\n\n回复 **continue** 可以重新开始。")
+}
+
+func blockIssue(ctx context.Context, app *AppContext, number int, err error) {
+	message := sanitize(err.Error())
+	app.Log.Error("job for %s#%d failed: %s", app.Repo.FullName, number, message)
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Phase = "blocked"
+		state.BlockedReason = message
+	})
+	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:blocked")
+	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
+		fmt.Sprintf("### 🤖 流程出错\n\n```\n%s\n```\n\n回复 **continue** 重试。", tailString(message, 12)))
+}
