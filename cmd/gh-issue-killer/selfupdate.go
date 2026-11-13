@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// commit is injected by the self-update build (-X main.commit=...). It lets a
+// fresh start notice that the running binary is older than master. Local
+// builds leave it empty and simply baseline at startup.
+var commit = ""
+
 const (
 	selfRepoURL = "https://github.com/uiautodev/gh-issue-killer.git"
 	selfBranch  = "master"
@@ -23,12 +28,18 @@ const (
 func watchSelfUpdates(ctx context.Context, log *Logger, env []string) <-chan struct{} {
 	ready := make(chan struct{}, 1)
 	go func() {
-		last := remoteHead(ctx, env)
-		if last == "" {
+		head := remoteHead(ctx, env)
+		if head == "" {
 			log.Warn("self-update: cannot read %s from %s; disabled", selfBranch, selfRepoURL)
 			return
 		}
-		log.Debug("self-update: watching %s at %s", selfBranch, shortSHA(last))
+		last := head
+		if commit != "" && commit != head {
+			log.Info("self-update: running %s but %s is %s; rebuilding", shortSHA(commit), selfBranch, shortSHA(head))
+			last = commit
+		} else {
+			log.Debug("self-update: watching %s at %s", selfBranch, shortSHA(head))
+		}
 		ticker := time.NewTicker(selfCheck)
 		defer ticker.Stop()
 		for {
@@ -46,7 +57,7 @@ func watchSelfUpdates(ctx context.Context, log *Logger, env []string) <-chan str
 			if settled := remoteHead(ctx, env); settled != "" {
 				head = settled
 			}
-			if err := rebuildSelf(ctx, log, env); err != nil {
+			if err := rebuildSelf(ctx, log, env, head); err != nil {
 				log.Error("self-update: %v (keeping the running binary)", err)
 				last = head
 				continue
@@ -96,7 +107,7 @@ func headFromLSRemote(out string) string {
 // rebuildSelf checks out the latest main in a dedicated clone and builds the
 // binary over the running executable. The build goes to a temporary file
 // first, so a failed build never replaces a working binary.
-func rebuildSelf(ctx context.Context, log *Logger, env []string) error {
+func rebuildSelf(ctx context.Context, log *Logger, env []string, head string) error {
 	git, err := gitBinary()
 	if err != nil {
 		return err
@@ -140,7 +151,9 @@ func rebuildSelf(ctx context.Context, log *Logger, env []string) error {
 	}
 
 	tmp := exe + ".new"
-	if _, err := runCmd(ctx, goBin, []string{"build", "-trimpath", "-o", tmp, "./cmd/gh-issue-killer"}, CmdOptions{
+	if _, err := runCmd(ctx, goBin, []string{"build", "-trimpath",
+		"-ldflags", "-X main.commit=" + head,
+		"-o", tmp, "./cmd/gh-issue-killer"}, CmdOptions{
 		Cwd:     dir,
 		Env:     env,
 		Timeout: 10 * time.Minute,
