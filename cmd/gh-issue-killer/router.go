@@ -23,6 +23,14 @@ func isMention(text, login string) bool {
 	return pattern.MatchString(text)
 }
 
+// isAgentComment reports whether a comment is daemon output rather than a
+// command. Comments written before the marker existed all start with the
+// bot heading.
+func isAgentComment(body string) bool {
+	return strings.Contains(body, agentCommentMarker) ||
+		strings.HasPrefix(strings.TrimSpace(body), "### 🤖")
+}
+
 func parseCommand(text string) string {
 	compact := strings.Join(strings.Fields(text), " ")
 	if len([]rune(compact)) > 200 {
@@ -179,9 +187,15 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		}
 		r.store.MarkDeliveryProcessed(fullName, trigger.DeliveryID)
 	}
-	if strings.EqualFold(trigger.Sender, r.agentLogin) {
-		r.log.Debug("ignore trigger from agent itself")
-		return
+	selfComment := strings.EqualFold(trigger.Sender, r.agentLogin)
+	if selfComment {
+		if trigger.Type != "comment" || isAgentComment(trigger.CommentBody) {
+			r.log.Debug("ignore trigger from agent itself")
+			return
+		}
+		// The bot account is also the owner's GitHub identity in practice; a
+		// comment that the daemon did not write is a human command.
+		r.log.Info("comment %d from the bot account has no agent marker; treating it as a user command", trigger.CommentID)
 	}
 
 	if trigger.Type == "comment" {
@@ -193,7 +207,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 
 		st := r.store.Issue(fullName, trigger.IssueNumber)
 		mentioned := isMention(trigger.CommentBody, r.agentLogin)
-		isApprover := false
+		isApprover := selfComment
 		for _, login := range app.Repo.Approvers {
 			if strings.EqualFold(login, trigger.Sender) {
 				isApprover = true

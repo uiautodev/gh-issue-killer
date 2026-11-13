@@ -145,3 +145,18 @@ func TestClosablePhase(t *testing.T) {
 		}
 	}
 }
+
+func TestIsAgentComment(t *testing.T) {
+	if !isAgentComment("### 🤖 修复计划\n\nReply **LGTM** to proceed.") {
+		t.Fatal("legacy bot heading should be daemon output")
+	}
+	if !isAgentComment("### 🤖 已完成\n\n" + agentCommentMarker) {
+		t.Fatal("marked comment should be daemon output")
+	}
+	if isAgentComment("lgtm") {
+		t.Fatal("a plain command from the bot account is not daemon output")
+	}
+	if isAgentComment("看起来不错，`### 🤖` 是标题") {
+		t.Fatal("inline heading text must not be treated as daemon output")
+	}
+}

@@ -382,9 +382,15 @@ func (g *GH) GetComment(ctx context.Context, fullName string, id int64) (Comment
 	return comment, err
 }
 
+// agentCommentMarker tags every comment the daemon writes. A comment on the
+// bot account that lacks this marker was written by a human and may carry a
+// command, while the daemon's own status comments are ignored.
+const agentCommentMarker = "<!-- ghik:agent -->"
+
 func (g *GH) PostComment(ctx context.Context, fullName string, number int, body string) (Comment, error) {
 	var comment Comment
-	err := g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", fullName, number), map[string]string{"body": body}, &comment)
+	err := g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", fullName, number),
+		map[string]string{"body": body + "\n\n" + agentCommentMarker}, &comment)
 	return comment, err
 }
 
