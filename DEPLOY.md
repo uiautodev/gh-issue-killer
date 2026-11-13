@@ -175,6 +175,35 @@ grep -E 'agent identity|repo ready' "$LOG" | tail -5
 Expected: `agent identity: @<bot>` and one `repo ready:` line per repo.
 Non-zero exit or missing lines → see failures.
 
+### 4.1 Configuration reference
+
+| key | required | default | meaning |
+| --- | --- | --- | --- |
+| `repos` | ✅ | – | `"owner/repo"` list, or an object for per-repo overrides (`{"me/app": {"codingAgent": "claude"}}`) |
+| `codingAgent` | | `opencode` | coding-agent CLI: `opencode`, `claude`, or `codex` |
+| `model` | | – (CLI default) | optional model passed to the selected CLI |
+| `approvers` | | repo owner | logins allowed to command the bot |
+| `proxy` | | direct | `socks5h://host:port` (remote DNS for git, `socks5://` for Go clients), `socks5://`, `http://`, or `https://` |
+
+Optional: `pollIntervalSec` (30), `webhook` (true), `maxFixRounds` (3),
+`maxParallel` (1), `planTimeoutMin` (15), `implementTimeoutMin` (60),
+`worktreeRoot` (state dir).
+
+Per-repo overrides: the `repos` object form can set `codingAgent`, `model`,
+`approvers`, or `worktreeRoot` for one repository.
+
+### 4.2 Coding agents
+
+| `codingAgent` | CLI | non-interactive invocation |
+| --- | --- | --- |
+| `opencode` (default) | opencode | `opencode run --format json --auto [--model] [--session]` |
+| `claude` | Claude Code | `claude -p --output-format json --permission-mode bypassPermissions [--model] [--resume/--session-id] --add-dir <runDir>` |
+| `codex` | Codex CLI | `codex exec --cd <worktree> --full-auto [--model] [--add-dir <runDir>] --output-last-message <file>` |
+
+`agent` is no longer a config field; an old value is ignored with a warning.
+Sessions are reused for fix rounds where the CLI supports it (opencode
+`--session`, Claude `--resume`; Codex starts a fresh run with full context).
+
 ## 5. Start and verify
 
 ```bash
@@ -298,3 +327,38 @@ grep -Eq 'smee stream connected|polling only' "$LOG" && echo "TRANSPORT ok"
 ```
 
 All four `ok` lines present → deployment complete. Anything else → step 8.
+
+## Appendix A: internals
+
+**Webhooks.** When the token can manage hooks, the daemon creates a `smee.io`
+channel, registers a repository webhook (`issues`, `issue_comment`, `reaction`)
+pointing at it, and keeps an SSE connection open. Every event is re-fetched from
+the GitHub API before a command, author or body is trusted, so the relay can
+never forge one. Hook failures fall back to polling. Reactions on comments
+(👍) are polled from the API because GitHub rarely delivers `reaction` events.
+
+**Worktrees.** Each watched repo has a managed clone at
+`$STATE/repos/<owner>-<repo>`; `git fetch` runs before every plan and
+implementation. Implementation worktrees live at
+`$STATE/worktrees/<owner>-<repo>/issue-<n>-<id>` on branch
+`agent/issue-<n>-<id>`. Planning uses a temporary detached worktree under
+`$STATE/tmp/`. Git auth uses a one-shot `http.extraheader` with the bot token,
+never a gitconfig; commits use the bot's noreply identity.
+
+**Checks and screenshots.** The implement agent writes
+`$STATE/runs/<repo>/issue-<n>/checks.json`; the daemon runs those commands
+itself and only pushes when they all pass. Failing checks are fed back for up
+to `maxFixRounds` rounds, then the worktree is kept and the issue is blocked.
+For user-visible UI changes the agent captures the changed region (tight crop)
+before and after; the daemon composes them side by side with a divider and
+uploads the image through GitHub's user-attachments endpoint. Backend, docs and
+test-only PRs get no screenshots and say so.
+
+**Logs.** `$STATE/logs/daemon.log`, rotated at 10 MB × 5 by the daemon itself
+(pure Go). DEBUG level by default; `-logs` follows it and colorizes on a TTY
+(`NO_COLOR=1` disables). Per-issue agent output is under
+`$STATE/runs/<owner>-<repo>/issue-<n>/` (`plan-*.log`, `implement-*.log`,
+`revise-*.log`, `fix-*.log`, `checks/*.log`). There is no `daemon.out`.
+
+**Flags.** `-init` wizard, `-config` path, `-foreground`/`-f` attached,
+`-logs` follow, `-status`, `-stop`, `-once` (startup scan + one poll, then exit).
