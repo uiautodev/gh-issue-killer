@@ -4,13 +4,33 @@ Watch GitHub issues and let a coding agent (opencode, Claude Code, or Codex)
 plan → implement → test → screenshot → open a PR → squash-merge them, driven
 entirely from issue comments.
 
+## Workflow
+
+```mermaid
+flowchart TD
+    A(["Issue<br/>@agent or assigned"]) --> B["Plan<br/>temporary worktree"]
+    B --> C["Plan comment<br/>agent:awaiting-approval"]
+    C -- "@agent lgtm / 👍" --> D["Implement<br/>isolated worktree + branch"]
+    D --> E{"checks.json"}
+    E -- "fail" --> F["auto fix rounds<br/>maxFixRounds"]
+    F --> E
+    E -- "pass" --> G["Push + open PR<br/>agent:pr-open"]
+    G -- "feedback comment" --> H["Revise<br/>same branch"]
+    H --> E
+    G -- "@agent 合并 / 👍" --> I{"CI"}
+    I -- "green" --> J["Squash merge<br/>close issue, clean up"]
+    I -- "failing" --> K["blocked<br/>fix, then @agent 合并"]
+    K --> I
 ```
-issue @agent / assigned        plan comment
-owner: @agent lgtm       →     worktree + code + checks + before/after screenshots + PR
-owner: @agent <feedback>  →     keep working on the open PR
-owner: @agent 合并        →     wait CI → squash merge → close issue/PR → clean worktree
-owner: @agent cancel     →     abort, keep the issue open
-👍 on the plan / PR comment    same as “lgtm” / “合并”
+
+Closing the issue at any stage cancels the task and closes the PR; reopening
+resumes it. A merged issue that is reopened starts a fresh plan.
+
+```mermaid
+flowchart LR
+    W["planning · awaiting-approval<br/>implementing · pr-open"] -. "issue closed" .-> C["cancelled<br/>PR closed, worktree removed"]
+    C -. "reopened<br/>plan kept" .-> W
+    D["done<br/>PR merged"] -. "reopened" .-> N["new plan"]
 ```
 
 ## What it does
