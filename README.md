@@ -9,21 +9,19 @@ entirely from issue comments.
 ## Workflow
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "12px"}, "flowchart": {"nodeSpacing": 10, "rankSpacing": 14}}}%%
 flowchart TD
-    A(["Issue<br/>@agent or assigned"]) --> B["Plan<br/>temporary worktree"]
-    B --> C["Plan comment<br/>agent:awaiting-approval"]
-    C -- "@agent lgtm / 👍" --> D["Implement<br/>isolated worktree + branch"]
-    D --> E{"checks.json"}
-    E -- "fail" --> F["auto fix rounds<br/>maxFixRounds"]
-    F --> E
-    E -- "pass" --> G["Push + open PR<br/>agent:pr-open"]
-    G -- "feedback comment" --> H["Revise<br/>same branch"]
-    H --> E
-    G -- "@agent 合并 / 👍" --> I{"CI"}
-    I -- "green" --> J["Squash merge<br/>close issue, clean up"]
-    I -- "failing" --> K["blocked<br/>fix, then @agent 合并"]
-    K --> I
+    A(["Issue @agent"]) --> B["Plan comment"]
+    B -- "lgtm / 👍" --> C["Implement + checks"]
+    C -. "fail → fix rounds" .-> C
+    C -- "pass" --> D["PR open"]
+    D -- "feedback" --> C
+    D -- "合并 / 👍" --> E{"CI"}
+    E -- "green" --> F["Squash merge"]
 ```
+
+A failing check or CI run parks the issue as `blocked`; fix it and retry with
+`@agent continue` or `@agent 合并`.
 
 Closing the issue at any stage cancels the task and closes the PR; reopening
 resumes it. A merged issue that is reopened starts a fresh plan.

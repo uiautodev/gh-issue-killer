@@ -8,21 +8,19 @@
 ## 工作流程
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "12px"}, "flowchart": {"nodeSpacing": 10, "rankSpacing": 14}}}%%
 flowchart TD
-    A(["Issue<br/>@agent 或被 assign"]) --> B["规划<br/>临时 worktree"]
-    B --> C["计划评论<br/>agent:awaiting-approval"]
-    C -- "@agent lgtm / 👍" --> D["实现<br/>独立 worktree + 分支"]
-    D --> E{"checks.json"}
-    E -- "失败" --> F["自动修复<br/>maxFixRounds 轮"]
-    F --> E
-    E -- "通过" --> G["推送 + 开 PR<br/>agent:pr-open"]
-    G -- "反馈评论" --> H["继续改<br/>同一分支"]
-    H --> E
-    G -- "@agent 合并 / 👍" --> I{"CI"}
-    I -- "通过" --> J["Squash merge<br/>关闭 issue、清理"]
-    I -- "失败" --> K["blocked<br/>修好后 @agent 合并"]
-    K --> I
+    A(["Issue @agent"]) --> B["计划评论"]
+    B -- "lgtm / 👍" --> C["实现 + 检查"]
+    C -. "失败 → 自动修复" .-> C
+    C -- "通过" --> D["开 PR"]
+    D -- "反馈" --> C
+    D -- "合并 / 👍" --> E{"CI"}
+    E -- "通过" --> F["Squash merge"]
 ```
+
+检查或 CI 失败时 issue 会停在 `blocked`；修好后用 `@agent continue` 或
+`@agent 合并` 重试。
 
 任何时候关闭 issue 都会取消任务并关掉 PR；重新打开会接着做。已经合并的
 issue 被重新打开时，会重新规划。
