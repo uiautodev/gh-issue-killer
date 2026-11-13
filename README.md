@@ -1,5 +1,7 @@
 # gh-issue-killer
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 Watch GitHub issues and let a coding agent (opencode, Claude Code, or Codex)
 plan → implement → test → screenshot → open a PR → squash-merge them, driven
 entirely from issue comments.
