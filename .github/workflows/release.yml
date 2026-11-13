@@ -35,7 +35,7 @@ jobs:
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
               -ldflags "-s -w -X main.version=${version}" \
               -o "dist/${name}/gh-issue-killer" ./cmd/gh-issue-killer
-            cp README.md LICENSE DEPLOY.md "dist/${name}/"
+            cp README.md README.zh-CN.md LICENSE DEPLOY.md "dist/${name}/"
             tar -C "dist/${name}" -czf "dist/${name}.tar.gz" .
           done
           (cd dist && sha256sum *.tar.gz > checksums.txt)
