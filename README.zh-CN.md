@@ -128,6 +128,9 @@ input-group 里」不会触发合并。其他 @ 了 agent 的评论会被当作�
 完整配置项、按仓库覆盖以及各 agent 的调用方式见
 [DEPLOY.md](DEPLOY.md#41-configuration-reference)。
 
+daemon 会监听这个文件：保存一份合法配置后，会在当前任务结束后原地重载（PID
+不变）；写错的配置只记录日志，不影响正在运行的实例。
+
 ## 开发
 
 ```bash

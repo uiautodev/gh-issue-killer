@@ -193,6 +193,11 @@ Optional: `pollIntervalSec` (30), `webhook` (true), `maxFixRounds` (3),
 Per-repo overrides: the `repos` object form can set `codingAgent`, `model`,
 `approvers`, or `worktreeRoot` for one repository.
 
+The running daemon watches the config file (2 s poll, debounced). A valid save
+triggers a graceful re-exec: it waits for running jobs, then replaces itself
+with the new config, keeping the PID and the lock. An invalid save is logged
+and ignored, so the old settings stay active.
+
 ### 4.2 Coding agents
 
 | `codingAgent` | CLI | non-interactive invocation |
@@ -269,6 +274,7 @@ macOS: start it once after login, or add it to login items. Nothing else.
 | status / paths | `gh-issue-killer -config "$CONFIG" -status` |
 | follow logs | `gh-issue-killer -config "$CONFIG" -logs` |
 | stop | `gh-issue-killer -config "$CONFIG" -stop` |
+| apply a config change | save the file; the daemon reloads in place when jobs finish (same PID) |
 | restart after upgrade | stop → rebuild → start |
 | smoke test | `gh-issue-killer -config "$CONFIG" -once` |
 | full loop with the human's `gh` | `scripts/smoke-test.sh <owner/repo>` |

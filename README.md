@@ -142,6 +142,9 @@ allowed to command the bot. `proxy` accepts `socks5h://`, `socks5://`,
 The full key reference, per-repo overrides and the coding-agent invocation
 details live in [DEPLOY.md](DEPLOY.md#41-configuration-reference).
 
+The daemon watches this file: saving a valid config reloads it in place (same
+PID) once running jobs finish. An invalid edit is logged and ignored.
+
 ## Development
 
 ```bash

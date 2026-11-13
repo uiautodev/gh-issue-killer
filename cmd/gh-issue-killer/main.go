@@ -22,13 +22,15 @@ func acquireLock(log *Logger) (func(), error) {
 	}
 	if data, err := os.ReadFile(lockFile()); err == nil {
 		pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
-		if parseErr == nil && pid > 0 {
+		// A lock holding our own pid is ours: it survives a config reload
+		// that re-executes the process in place.
+		if parseErr == nil && pid > 0 && pid != os.Getpid() {
 			if killErr := syscall.Kill(pid, 0); killErr == nil {
 				return nil, fmt.Errorf("another daemon is already running (pid %d)", pid)
 			}
+			log.Warn("removing stale lock file")
+			_ = os.Remove(lockFile())
 		}
-		log.Warn("removing stale lock file")
-		_ = os.Remove(lockFile())
 	}
 	if err := os.WriteFile(lockFile(), []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		return nil, err
@@ -392,6 +394,8 @@ func main() {
 		return
 	}
 
+	reload := watchConfig(ctx, cfg.File, log, configWatchEvery, configDebounce)
+
 	if cfg.Webhook && store.GlobalSecret() == "" {
 		store.SetGlobalSecret(randomHex(24))
 	}
@@ -421,12 +425,51 @@ func main() {
 
 	stopSignals := make(chan os.Signal, 1)
 	signal.Notify(stopSignals, syscall.SIGINT, syscall.SIGTERM)
-	<-stopSignals
+
+	reloadRequested := false
+	select {
+	case <-stopSignals:
+	case <-reload:
+		reloadRequested = true
+		log.Info("config reload requested; waiting for running jobs to finish")
+	}
+
+	if reloadRequested {
+	waitIdle:
+		for !router.Idle() {
+			select {
+			case <-stopSignals:
+				reloadRequested = false
+				break waitIdle
+			case <-time.After(time.Second):
+			}
+		}
+	}
+
 	log.Info("shutting down")
 	cancel()
 	for _, stop := range stops {
 		stop()
 	}
 	_ = store.Save()
+
+	if reloadRequested {
+		reexec(log)
+	}
 	log.Info("bye")
+}
+
+// reexec replaces the process image with a fresh daemon so the new config
+// applies everywhere: repos, agents, proxy, worker count. The pid is kept,
+// so the lock file stays valid, and interrupted work resumes on startup.
+func reexec(log *Logger) {
+	exe, err := os.Executable()
+	if err != nil {
+		log.Error("reload: %v", err)
+		return
+	}
+	log.Info("reloading %s", exe)
+	if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+		log.Error("reload failed: %v", err)
+	}
 }

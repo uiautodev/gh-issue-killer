@@ -166,6 +166,13 @@ func (r *Router) cancelActive(fullName string, number int) {
 	}
 }
 
+// Idle reports whether no job is running or queued.
+func (r *Router) Idle() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.active) == 0 && len(r.queued) == 0
+}
+
 func (r *Router) waitInactive(ctx context.Context, key string, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
