@@ -627,7 +627,7 @@ func buildWizardJSON(answers wizardConfig) ([]byte, error) {
 	if answers.MaxFixRounds != 0 && answers.MaxFixRounds != 3 {
 		output["maxFixRounds"] = answers.MaxFixRounds
 	}
-	if answers.MaxParallel != 0 && answers.MaxParallel != 1 {
+	if answers.MaxParallel != 0 && answers.MaxParallel != 5 {
 		output["maxParallel"] = answers.MaxParallel
 	}
 	if answers.PlanTimeoutMin != 0 && answers.PlanTimeoutMin != 15 {
@@ -734,7 +734,7 @@ func loadWizardDefaults(file string) wizardConfig {
 		PollIntervalSec:     30,
 		Webhook:             &webhook,
 		MaxFixRounds:        3,
-		MaxParallel:         1,
+		MaxParallel:         5,
 		PlanTimeoutMin:      15,
 		ImplementTimeoutMin: 60,
 	}

@@ -235,7 +235,7 @@ func loadConfig(file string) (*Config, error) {
 		cfg.MaxFixRounds = 3
 	}
 	if cfg.MaxParallel == 0 {
-		cfg.MaxParallel = 1
+		cfg.MaxParallel = 5
 	}
 	if cfg.PlanTimeout == 0 {
 		cfg.PlanTimeout = 15 * time.Minute
