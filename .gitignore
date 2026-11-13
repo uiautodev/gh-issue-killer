@@ -1,5 +1,7 @@
 bin/
+/gh-issue-killer
 config.json
 .state/
 *.log
 .DS_Store
+.playwright-mcp/

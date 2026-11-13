@@ -12,11 +12,29 @@ import (
 
 var repoNameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
+// codingAgentIDs are the coding-agent CLIs the daemon can drive. The config
+// stores the stable ID, not a binary path, so it survives upgrades and PATH
+// changes.
+var codingAgentIDs = []string{"opencode", "claude", "codex"}
+
+func isSupportedCodingAgent(id string) bool {
+	for _, candidate := range codingAgentIDs {
+		if strings.EqualFold(id, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func supportedCodingAgentList() string {
+	return strings.Join(codingAgentIDs, ", ")
+}
+
 type RepoConfig struct {
 	FullName     string
 	Owner        string
 	Name         string
-	Agent        string
+	CodingAgent  string
 	Model        string
 	Approvers    []string
 	WorktreeRoot string
@@ -34,14 +52,15 @@ type Config struct {
 	MaxParallel      int
 	PlanTimeout      time.Duration
 	ImplementTimeout time.Duration
-	Agent            string
+	CodingAgent      string
 	Model            string
 	Approvers        []string
+	DeprecatedAgent  string
 }
 
 type repoOptions struct {
 	Repo         string   `json:"repo"`
-	Agent        string   `json:"agent"`
+	CodingAgent  string   `json:"codingAgent"`
 	Model        string   `json:"model"`
 	Approvers    []string `json:"approvers"`
 	WorktreeRoot string   `json:"worktreeRoot"`
@@ -49,7 +68,7 @@ type repoOptions struct {
 
 type rawConfig struct {
 	Repos               json.RawMessage `json:"repos"`
-	Agent               string          `json:"agent"`
+	CodingAgent         string          `json:"codingAgent"`
 	Model               string          `json:"model"`
 	Approvers           []string        `json:"approvers"`
 	Proxy               string          `json:"proxy"`
@@ -62,6 +81,9 @@ type rawConfig struct {
 	MaxParallel         int             `json:"maxParallel"`
 	PlanTimeoutMin      int             `json:"planTimeoutMin"`
 	ImplementTimeoutMin int             `json:"implementTimeoutMin"`
+	// Agent is the old opencode sub-agent field. It is kept only so the daemon
+	// can warn about it once; the value is otherwise ignored.
+	Agent string `json:"agent"`
 }
 
 func defaultConfigPath() string {
@@ -97,7 +119,6 @@ func normalizeRepos(raw json.RawMessage, defaults repoOptions) ([]RepoConfig, er
 				opts.Repo = name
 				entries = append(entries, opts)
 			}
-			// Stable order for logs/tests.
 			sortRepoOptions(entries)
 		}
 	}
@@ -125,8 +146,11 @@ func normalizeRepos(raw json.RawMessage, defaults repoOptions) ([]RepoConfig, er
 		seen[fullName] = true
 		parts := strings.SplitN(fullName, "/", 2)
 
-		agent := firstNonEmpty(entry.Agent, defaults.Agent, "opencode")
-		model := firstNonEmpty(entry.Model, defaults.Model, "magpie/group/deepseek")
+		agent := strings.ToLower(firstNonEmpty(entry.CodingAgent, defaults.CodingAgent, "opencode"))
+		if !isSupportedCodingAgent(agent) {
+			return nil, fmt.Errorf("repo %s: unsupported codingAgent %q (supported: %s)", fullName, agent, supportedCodingAgentList())
+		}
+		model := firstNonEmpty(entry.Model, defaults.Model)
 		approvers := entry.Approvers
 		if len(approvers) == 0 {
 			approvers = defaults.Approvers
@@ -138,7 +162,7 @@ func normalizeRepos(raw json.RawMessage, defaults repoOptions) ([]RepoConfig, er
 			FullName:     fullName,
 			Owner:        parts[0],
 			Name:         parts[1],
-			Agent:        agent,
+			CodingAgent:  agent,
 			Model:        model,
 			Approvers:    approvers,
 			WorktreeRoot: firstNonEmpty(expandHome(entry.WorktreeRoot), defaults.WorktreeRoot),
@@ -164,6 +188,18 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func normalizeRepoName(value string) (string, error) {
+	name := strings.TrimSpace(value)
+	name = strings.TrimPrefix(name, "https://github.com/")
+	name = strings.TrimPrefix(name, "http://github.com/")
+	name = strings.TrimSuffix(name, ".git")
+	name = strings.Trim(name, "/")
+	if !repoNameRe.MatchString(name) {
+		return "", fmt.Errorf("invalid repo %q, expected owner/repo", value)
+	}
+	return name, nil
+}
+
 func loadConfig(file string) (*Config, error) {
 	if file == "" {
 		file = defaultConfigPath()
@@ -177,6 +213,11 @@ func loadConfig(file string) (*Config, error) {
 		return nil, fmt.Errorf("parse config %s: %w", file, err)
 	}
 
+	agentID := strings.ToLower(firstNonEmpty(raw.CodingAgent, "opencode"))
+	if !isSupportedCodingAgent(agentID) {
+		return nil, fmt.Errorf("unsupported codingAgent %q (supported: %s)", raw.CodingAgent, supportedCodingAgentList())
+	}
+
 	cfg := &Config{
 		File:             file,
 		Proxy:            strings.TrimSpace(raw.Proxy),
@@ -188,9 +229,10 @@ func loadConfig(file string) (*Config, error) {
 		MaxParallel:      raw.MaxParallel,
 		PlanTimeout:      time.Duration(raw.PlanTimeoutMin) * time.Minute,
 		ImplementTimeout: time.Duration(raw.ImplementTimeoutMin) * time.Minute,
-		Agent:            firstNonEmpty(raw.Agent, "opencode"),
-		Model:            firstNonEmpty(raw.Model, "magpie/group/deepseek"),
+		CodingAgent:      agentID,
+		Model:            strings.TrimSpace(raw.Model),
 		Approvers:        raw.Approvers,
+		DeprecatedAgent:  strings.TrimSpace(raw.Agent),
 	}
 	if raw.Webhook != nil {
 		cfg.Webhook = *raw.Webhook
@@ -215,7 +257,7 @@ func loadConfig(file string) (*Config, error) {
 	}
 
 	repos, err := normalizeRepos(raw.Repos, repoOptions{
-		Agent:        cfg.Agent,
+		CodingAgent:  cfg.CodingAgent,
 		Model:        cfg.Model,
 		Approvers:    cfg.Approvers,
 		WorktreeRoot: expandHome(raw.WorktreeRoot),

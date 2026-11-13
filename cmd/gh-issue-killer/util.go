@@ -150,6 +150,12 @@ func NewLogger(name string) *Logger {
 	return logger
 }
 
+// NewSilentLogger is used by short-lived setup checks that should not create
+// or pollute the daemon log.
+func NewSilentLogger() *Logger {
+	return &Logger{level: levelError, out: io.Discard}
+}
+
 func (l *Logger) logf(level Level, label, format string, args ...any) {
 	if level < l.level {
 		return

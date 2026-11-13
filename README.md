@@ -1,6 +1,6 @@
 # gh-issue-killer
 
-Watch GitHub issues, let an opencode agent plan → implement → test → screenshot → PR → squash-merge them, driven entirely from issue comments.
+Watch GitHub issues, let a coding agent (opencode, Claude Code, or Codex) plan → implement → test → screenshot → PR → squash-merge them, driven entirely from issue comments.
 
 ```
 issue @agent / assigned        👀 reaction + plan comment
@@ -14,7 +14,7 @@ owner: cancel / 停止     →     abort, keep the issue open
 The daemon is a single static Go binary. It talks to GitHub over `net/http`, uploads screenshots through GitHub's user-attachments endpoint with a plain request body, composes before/after images with `image/draw`, and implements the SOCKS5 client itself. At runtime it only shells out to the tools that are inherently part of the job:
 
 - `git` — clone / worktree / push
-- `opencode` — the coding agent
+- one coding-agent CLI — `opencode`, `claude` (Claude Code), or `codex` (Codex CLI)
 - `/bin/sh -c` — the check commands the agent asks the harness to run
 
 No `curl`, no `gh`/`gh-agent` binary, no `ffmpeg`, no ImageMagick.
@@ -26,16 +26,28 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 go test ./...
 ```
 
-Requirements: Go 1.27+, `git`, `opencode`, and a gh-agent credential (`GH_AGENT_TOKEN`, `~/.config/gh-agent/hosts.yml`, or the OS keyring via a one-time `gh-agent auth token` lookup at startup).
+Requirements: Go 1.27+, `git`, at least one of `opencode` / `claude` / `codex`, and a gh-agent credential (`GH_AGENT_TOKEN`, `~/.config/gh-agent/hosts.yml`, or the OS keyring via a one-time `gh-agent auth token` lookup at startup).
 
 ## Configure
 
-`config.json` (gitignored, copy from `config.example.json`):
+Run the wizard — it detects the coding agents installed on `PATH`, asks for the repos (one per line), model, approvers and proxy (plus optional advanced settings), pre-fills every answer from an existing config, checks gh-agent's permissions per repo, verifies that the proxy can actually reach `api.github.com`, and only writes the file after you confirm:
+
+```bash
+./bin/gh-issue-killer -init                                    # writes ./config.json
+./bin/gh-issue-killer -init -config ~/elsewhere/config.json    # or another path
+```
+
+Starting the daemon without a config, in an interactive terminal, launches the same wizard automatically. `-config` and `GWIK_CONFIG` select the path.
+
+Or edit `config.json` by hand (gitignored, copy from `config.example.json`):
 
 ```json
 {
-  "repos": ["codeskyblue/weektodo"],
-  "agent": "opencode",
+  "repos": [
+    "codeskyblue/weektodo",
+    "uiautodev-plugins/adb-connect"
+  ],
+  "codingAgent": "opencode",
   "model": "magpie/group/deepseek",
   "approvers": ["codeskyblue"],
   "proxy": "socks5h://127.0.0.1:10808"
@@ -44,15 +56,27 @@ Requirements: Go 1.27+, `git`, `opencode`, and a gh-agent credential (`GH_AGENT_
 
 | key | required | default | meaning |
 | --- | --- | --- | --- |
-| `repos` | ✅ | – | `"owner/repo"` list, or an object for per-repo overrides (`{"me/app": {"agent": "build"}}`) |
-| `agent` | | `opencode` | opencode agent name; `opencode` means the default agent |
-| `model` | | `magpie/group/deepseek` | `--model` passed to `opencode run` |
+| `repos` | ✅ | – | `"owner/repo"` list, or an object for per-repo overrides (`{"me/app": {"codingAgent": "claude"}}`) |
+| `codingAgent` | | `opencode` | coding-agent CLI: `opencode`, `claude`, or `codex` |
+| `model` | | – (CLI default) | optional model passed to the selected CLI |
 | `approvers` | | repo owner | logins allowed to say `lgtm` / `合并` |
 | `proxy` | | direct | `socks5h://host:port` (remote DNS for git, `socks5://` for Go clients), `socks5://`, `http://`, or `https://` |
 
 Optional: `pollIntervalSec` (30), `webhookPort` (8788), `webhook` (true), `maxFixRounds` (3), `maxParallel` (1), `planTimeoutMin` (15), `implementTimeoutMin` (60).
 
-Per-issue override: an issue label like `agent:build` wins over the config agent.
+Per-repo override: the `repos` object form can set `codingAgent`, `model`, `approvers`, or `worktreeRoot` for one repo.
+
+## Coding agents
+
+The wizard auto-detects installed CLIs and only lists what it finds:
+
+| `codingAgent` | CLI | non-interactive invocation |
+| --- | --- | --- |
+| `opencode` (default) | opencode | `opencode run --format json --auto [--model] [--session]` |
+| `claude` | Claude Code | `claude -p --output-format json --permission-mode bypassPermissions [--model] [--resume/--session-id] --add-dir <runDir>` |
+| `codex` | Codex CLI | `codex exec --cd <worktree> --full-auto [--model] [--add-dir <runDir>] --output-last-message <file>` |
+
+`agent` is no longer a config field. It used to select an opencode sub-agent; current configs can still contain it, but the daemon ignores it with a warning and the wizard removes it. Sessions are reused for fix rounds when the CLI supports it (opencode `--session`, Claude `--resume`, Codex falls back to a fresh run with the full context).
 
 ## Accounts
 
@@ -69,6 +93,8 @@ gh api -X PUT repos/<owner>/<repo>/collaborators/<agent-login> -f permission=adm
 # then refresh the agent token (authorize in a private window logged in as the agent):
 GH_CONFIG_DIR="$HOME/.config/gh-agent" gh auth refresh -h github.com -s admin:repo_hook
 ```
+
+> Personal-account repositories cannot grant **Admin** to a collaborator. On those repos, either create the webhook once with the owner account (Settings → Webhooks, pointing at the daemon's smee channel) or leave webhooks off and use polling. The wizard reports which mode each repo will use.
 
 ## Real-time webhooks
 
@@ -98,6 +124,7 @@ Screenshots are only required for user-visible UI changes. The agent captures ju
 ## Run
 
 ```bash
+./bin/gh-issue-killer -init          # guided config.json setup
 ./bin/gh-issue-killer -foreground   # attached: logs stream to the terminal, Ctrl+C to stop
 ./bin/gh-issue-killer -f            # shorthand for -foreground
 ./bin/gh-issue-killer               # same as -foreground (kept for compatibility)

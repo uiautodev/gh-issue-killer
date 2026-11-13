@@ -139,17 +139,29 @@ func ensureSmeeHook(ctx context.Context, app *AppContext) (channel, secret strin
 	})
 
 	channel = meta.SmeeChannel
+	createdChannel := false
 	if channel == "" {
 		channel, err = createSmeeChannel(ctx, app.Proxy)
 		if err != nil {
 			return "", "", fmt.Errorf("create smee channel: %w", err)
 		}
+		createdChannel = true
 		app.Store.UpdateMeta(app.Repo.FullName, func(meta *RepoMeta) {
 			meta.SmeeChannel = channel
 			meta.HookID = 0
 		})
 		meta.SmeeChannel = channel
 		meta.HookID = 0
+	}
+
+	// Personal repositories cannot grant Admin to a collaborator, so gh-agent
+	// can never create a webhook there. If a channel already exists but we do
+	// not own a hook, assume the repo owner created the webhook manually and
+	// just listen on the channel. A newly created channel still tries to make
+	// a hook (works for organization-owned repos).
+	if !createdChannel && meta.HookID == 0 {
+		app.Log.Info("%s: using externally managed webhook for %s", app.Repo.FullName, channel)
+		return channel, secret, nil
 	}
 
 	if meta.HookID != 0 {
@@ -163,7 +175,9 @@ func ensureSmeeHook(ctx context.Context, app *AppContext) (channel, secret strin
 
 	hook, err := app.GH.CreateHook(ctx, app.Repo.FullName, channel, secret)
 	if err != nil {
-		return "", "", fmt.Errorf("create webhook: %w", err)
+		// Still return the channel/secret: the owner may create the hook via
+		// the UI and the SSE listener should work as soon as it exists.
+		return channel, secret, fmt.Errorf("create webhook: %w", err)
 	}
 	app.Store.UpdateMeta(app.Repo.FullName, func(meta *RepoMeta) {
 		meta.HookID = hook.ID

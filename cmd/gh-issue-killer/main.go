@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
@@ -64,6 +66,7 @@ func stopDaemon(log *Logger) {
 
 func main() {
 	configPath := flag.String("config", "", "path to config.json")
+	initConfig := flag.Bool("init", false, "run the interactive setup wizard and write config.json")
 	once := flag.Bool("once", false, "run startup scan and one poll, then exit")
 	foreground := flag.Bool("foreground", false, "run attached to the terminal (default behaviour, logs stream to stdout)")
 	flag.BoolVar(foreground, "f", false, "shorthand for -foreground")
@@ -74,11 +77,20 @@ func main() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Flags:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(flag.CommandLine.Output(), "\nExamples:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -init         # guided config.json setup\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -foreground   # run attached, Ctrl+C to stop\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -f            # shorthand\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -stop         # stop the running daemon\n")
 	}
 	flag.Parse()
+
+	if *initConfig {
+		if err := runSetupWizard(*configPath, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if err := ensureDirs(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -94,9 +106,22 @@ func main() {
 		log.Info("foreground mode: attached to this terminal, Ctrl+C to stop")
 	}
 
-	cfg, err := loadConfig(*configPath)
+	configFile := firstNonEmpty(*configPath, defaultConfigPath())
+	cfg, err := loadConfig(configFile)
+	if err != nil && errors.Is(err, fs.ErrNotExist) && isTerminal(os.Stdin) {
+		log.Info("no config at %s, starting the setup wizard", configFile)
+		if wizardErr := runSetupWizard(configFile, os.Stdin, os.Stdout); wizardErr != nil {
+			log.Error("setup: %v", wizardErr)
+			os.Exit(1)
+		}
+		cfg, err = loadConfig(configFile)
+	}
 	if err != nil {
-		log.Error("%v", err)
+		if errors.Is(err, fs.ErrNotExist) {
+			log.Error("no config at %s: run `gh-issue-killer -init` to create one", configFile)
+		} else {
+			log.Error("%v", err)
+		}
 		os.Exit(1)
 	}
 	proxy, err := parseProxy(cfg.Proxy)
@@ -121,6 +146,25 @@ func main() {
 	token := gh.Token
 	identity := gh.Agent
 	log.Info("agent identity: @%s (%s)", identity.Login, identity.NoreplyEmail())
+	if cfg.DeprecatedAgent != "" {
+		log.Warn("config.agent is deprecated and ignored; choose the CLI with config.codingAgent (%s)", supportedCodingAgentList())
+	}
+	checkedAgents := map[string]bool{}
+	for _, repo := range cfg.Repos {
+		if checkedAgents[repo.CodingAgent] {
+			continue
+		}
+		info, ok := codingAgentInfoByID(repo.CodingAgent)
+		if !ok {
+			log.Error("repo %s: unsupported codingAgent %q", repo.FullName, repo.CodingAgent)
+			os.Exit(1)
+		}
+		if _, err := runnerBinary(info); err != nil {
+			log.Error("%v", err)
+			os.Exit(1)
+		}
+		checkedAgents[repo.CodingAgent] = true
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -203,7 +247,15 @@ func main() {
 		}
 		channel, secret, err := ensureSmeeHook(ctx, app)
 		if err != nil {
-			log.Warn("%s: real-time webhook unavailable (%v); polling only", fullName, err)
+			log.Warn("%s: webhook management failed (%v); still listening if a channel exists", fullName, err)
+		}
+		if channel == "" || secret == "" {
+			meta := app.Store.Meta(fullName)
+			channel = firstNonEmpty(channel, meta.SmeeChannel)
+			secret = firstNonEmpty(secret, meta.WebhookSecret)
+		}
+		if channel == "" || secret == "" {
+			log.Warn("%s: no smee channel available; polling only", fullName)
 			continue
 		}
 		log.Info("%s: smee channel %s (hook %d)", fullName, channel, app.Store.Meta(fullName).HookID)

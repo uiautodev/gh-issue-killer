@@ -49,7 +49,7 @@ func TestGitProxyEntries(t *testing.T) {
 }
 
 func TestNormalizeRepos(t *testing.T) {
-	raw := json.RawMessage(`{"me/one": {}, "me/two": {"agent": "build"}}`)
+	raw := json.RawMessage(`{"me/one": {}, "me/two": {"codingAgent": "claude"}}`)
 	repos, err := normalizeRepos(raw, repoOptions{Approvers: []string{"me"}})
 	if err != nil {
 		t.Fatal(err)
@@ -60,8 +60,14 @@ func TestNormalizeRepos(t *testing.T) {
 	if repos[0].Approvers[0] != "me" {
 		t.Fatalf("approvers = %+v", repos[0].Approvers)
 	}
-	if repos[1].Agent != "build" {
-		t.Fatalf("agent = %q", repos[1].Agent)
+	if repos[0].CodingAgent != "opencode" {
+		t.Fatalf("default codingAgent = %q", repos[0].CodingAgent)
+	}
+	if repos[1].CodingAgent != "claude" {
+		t.Fatalf("codingAgent = %q", repos[1].CodingAgent)
+	}
+	if _, err := normalizeRepos(json.RawMessage(`{"me/x": {"codingAgent": "vim"}}`), repoOptions{}); err == nil {
+		t.Fatal("expected unsupported codingAgent error")
 	}
 
 	if _, err := normalizeRepos(json.RawMessage(`["me/dup","me/dup"]`), repoOptions{}); err == nil {

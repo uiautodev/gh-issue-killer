@@ -220,6 +220,10 @@ func tokenFromCLI(configDir string) (string, error) {
 }
 
 func NewGH(proxy *Proxy, log *Logger) (*GH, error) {
+	return NewGHWithTimeout(proxy, log, 120*time.Second)
+}
+
+func NewGHWithTimeout(proxy *Proxy, log *Logger, timeout time.Duration) (*GH, error) {
 	token, err := loadAgentToken()
 	if err != nil {
 		return nil, err
@@ -228,7 +232,7 @@ func NewGH(proxy *Proxy, log *Logger) (*GH, error) {
 		Token:      token,
 		APIBase:    firstNonEmpty(strings.TrimSpace(os.Getenv("GITHUB_API_URL")), "https://api.github.com"),
 		UploadBase: "https://uploads.github.com",
-		Client:     newHTTPClient(proxy, 120*time.Second),
+		Client:     newHTTPClient(proxy, timeout),
 		Upload:     newHTTPClient(proxy, 300*time.Second),
 		Log:        log,
 	}

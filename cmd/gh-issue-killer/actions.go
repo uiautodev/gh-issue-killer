@@ -141,14 +141,19 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 	defer removeWorktree(ctx, app.Local, planDir, true)
 
 	runDir := runDirFor(app, number)
-	result, err := runOpencode(ctx, OpencodeOptions{
+	runner, err := newCodingRunner(app.Repo.CodingAgent)
+	if err != nil {
+		blockIssue(ctx, app, number, err)
+		return
+	}
+	result, err := runner.Run(ctx, RunnerOptions{
 		Cwd:     planDir,
 		Prompt:  prompt,
 		Model:   app.Repo.Model,
-		Agent:   app.Repo.Agent,
+		RunDir:  runDir,
 		Env:     app.Env,
 		Timeout: app.Cfg.PlanTimeout,
-		LogFile: filepath.Join(runDir, "plan-opencode.log"),
+		LogFile: filepath.Join(runDir, fmt.Sprintf("plan-%s.log", app.Repo.CodingAgent)),
 		Log:     app.Log,
 	})
 	if err != nil {
@@ -246,14 +251,19 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		return
 	}
 
-	result, err := runOpencode(ctx, OpencodeOptions{
+	runner, err := newCodingRunner(app.Repo.CodingAgent)
+	if err != nil {
+		blockIssue(ctx, app, number, err)
+		return
+	}
+	result, err := runner.Run(ctx, RunnerOptions{
 		Cwd:     worktree,
 		Prompt:  prompt,
 		Model:   app.Repo.Model,
-		Agent:   app.Repo.Agent,
+		RunDir:  runDir,
 		Env:     app.Env,
 		Timeout: app.Cfg.ImplementTimeout,
-		LogFile: filepath.Join(runDir, "implement-opencode.log"),
+		LogFile: filepath.Join(runDir, fmt.Sprintf("implement-%s.log", app.Repo.CodingAgent)),
 		Log:     app.Log,
 	})
 	if err != nil {
@@ -290,15 +300,15 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 			app.Log.Warn("render fix prompt: %v", promptErr)
 			break
 		}
-		if _, runErr := runOpencode(ctx, OpencodeOptions{
+		if _, runErr := runner.Run(ctx, RunnerOptions{
 			Cwd:       worktree,
 			Prompt:    fixPrompt,
 			SessionID: sessionID,
 			Model:     app.Repo.Model,
-			Agent:     app.Repo.Agent,
+			RunDir:    runDir,
 			Env:       app.Env,
 			Timeout:   app.Cfg.ImplementTimeout,
-			LogFile:   filepath.Join(runDir, fmt.Sprintf("fix-%d-opencode.log", attempt)),
+			LogFile:   filepath.Join(runDir, fmt.Sprintf("fix-%d-%s.log", attempt, app.Repo.CodingAgent)),
 			Log:       app.Log,
 		}); runErr != nil {
 			app.Log.Error("fix round %d failed: %v", attempt, runErr)
