@@ -254,7 +254,7 @@ func (r *Router) HandleReaction(ctx context.Context, fullName string, number int
 	switch {
 	case st.Phase == "awaiting_approval" && st.PlanCommentID == commentID:
 		r.log.Info("plan approved by 👍 from @%s on %s#%d", login, fullName, number)
-		r.enqueueApprove(app, fullName, number, login)
+		r.enqueueApprove(ctx, app, fullName, number, login)
 	case st.Phase == "pr_open" && st.PRCommentID == commentID:
 		r.log.Info("merge approved by 👍 from @%s on %s#%d", login, fullName, number)
 		r.enqueueMerge(app, fullName, number, login)
@@ -334,8 +334,12 @@ func (r *Router) handlePRFeedback(ctx context.Context, fullName string, prNumber
 	})
 }
 
-func (r *Router) enqueueApprove(app *AppContext, fullName string, number int, sender string) {
+func (r *Router) enqueueApprove(ctx context.Context, app *AppContext, fullName string, number int, sender string) {
 	key := fmt.Sprintf("%s#%d", fullName, number)
+	// The owner already approved: clear the waiting label now, even if the
+	// implementation is still queued behind another job. Otherwise the issue
+	// keeps looking like it needs confirmation.
+	app.GH.SetWaitingLabel(ctx, fullName, number, false)
 	trigger := Trigger{
 		Type:        "reaction",
 		IssueNumber: number,
@@ -454,7 +458,7 @@ func (r *Router) checkReactions(ctx context.Context, app *AppContext) {
 		case "awaiting_approval":
 			if login, ok := r.commentThumbsUp(ctx, app, st.PlanCommentID); ok {
 				r.log.Info("plan approved by 👍 from @%s on %s#%d (poll)", login, app.Repo.FullName, issue.Number)
-				r.enqueueApprove(app, app.Repo.FullName, issue.Number, login)
+				r.enqueueApprove(ctx, app, app.Repo.FullName, issue.Number, login)
 			}
 		case "pr_open":
 			if login, ok := r.commentThumbsUp(ctx, app, st.PRCommentID); ok {
@@ -551,6 +555,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		}
 
 		if command == "approve" && (st.Phase == "awaiting_approval" || st.Phase == "blocked") {
+			app.GH.SetWaitingLabel(ctx, fullName, trigger.IssueNumber, false)
 			r.enqueue(key, stageWork, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
