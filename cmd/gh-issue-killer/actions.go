@@ -647,8 +647,6 @@ func doCloseIssue(ctx context.Context, app *AppContext, issue Issue, st IssueSta
 		state.CancelledAt = nowISO()
 	})
 	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:cancelled")
-	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
-		"### 🤖 已取消\n\nissue 已关闭，任务终止，PR 已关闭，worktree 已清理。")
 }
 
 func issueCancelled(app *AppContext, number int) bool {
@@ -670,7 +668,6 @@ func doCancel(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		state.CancelledAt = nowISO()
 	})
 	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:cancelled")
-	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, "### 🤖 已取消\n\n回复 **continue** 可以重新开始。")
 }
 
 func blockIssue(ctx context.Context, app *AppContext, number int, err error) {
