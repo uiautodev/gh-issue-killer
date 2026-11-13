@@ -313,7 +313,7 @@ func reportCheckFailures(ctx context.Context, app *AppContext, number int, workt
 	body := strings.Join([]string{
 		"### 🤖 检查未通过，已停止",
 		"",
-		formatChecks(checkResults),
+		checksSummary(checkResults),
 		"",
 		strings.Join(details, "\n"),
 		"",
@@ -431,7 +431,7 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		"",
 		firstNonEmpty(manifest.Summary, "改动已推送到原分支。"),
 		"",
-		formatChecks(checkResults),
+		checksSummary(checkResults),
 	}
 	if shotsMD := screenshotsMarkdown(shots); shotsMD != "" {
 		body = append(body, "", "## 截图", "", shotsMD)
@@ -585,7 +585,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		}
 		prParts = append(prParts, "")
 	}
-	prParts = append(prParts, fmt.Sprintf("Closes #%d", number), "", "## 提交", "```", firstNonEmpty(commits, "(none)"), "```", "", "## 检查", formatChecks(checkResults), "")
+	prParts = append(prParts, fmt.Sprintf("Closes #%d", number), "", "## 提交", "```", firstNonEmpty(commits, "(none)"), "```", "", "## 检查", checksSummary(checkResults), "")
 	if len(manifest.Tests) > 0 {
 		prParts = append(prParts, "## 功能验证")
 		for _, test := range manifest.Tests {
@@ -618,7 +618,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 	})
 	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:pr-open")
 
-	commentParts := []string{fmt.Sprintf("### 🤖 实现完成：%s", pr.HTMLURL), "", manifest.Summary, "", "## 检查", formatChecks(checkResults)}
+	commentParts := []string{fmt.Sprintf("### 🤖 实现完成：%s", pr.HTMLURL), "", manifest.Summary, "", checksSummary(checkResults)}
 	if shotsMD != "" {
 		commentParts = append(commentParts, "", "## 截图", "", shotsMD)
 	}

@@ -141,21 +141,20 @@ func runChecks(ctx context.Context, checks []CheckSpec, worktree, runDir string,
 	return results, allOK
 }
 
-func formatChecks(results []CheckResult) string {
-	lines := make([]string, 0, len(results))
-	for _, item := range results {
-		icon := "✅"
-		if !item.OK {
-			icon = "❌"
-		}
-		suffix := ""
-		if item.Cwd != "" && item.Cwd != "." {
-			suffix = fmt.Sprintf(" (%s)", item.Cwd)
-		}
-		if item.TimedOut {
-			suffix += " [timeout]"
-		}
-		lines = append(lines, fmt.Sprintf("- %s `%s`%s", icon, item.Cmd, suffix))
+// checksSummary is the one-line form used in comments and PR bodies: counts
+// only, no raw commands (absolute paths in them are unreadable noise).
+func checksSummary(results []CheckResult) string {
+	if len(results) == 0 {
+		return ""
 	}
-	return strings.Join(lines, "\n")
+	failed := 0
+	for _, item := range results {
+		if !item.OK {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return fmt.Sprintf("❌ 检查未通过（%d/%d 项）", failed, len(results))
+	}
+	return fmt.Sprintf("✅ 检查通过（%d 项）", len(results))
 }

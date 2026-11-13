@@ -219,3 +219,15 @@ func TestMissingHookEvents(t *testing.T) {
 		t.Fatalf("missing events = %v, want [reaction]", got)
 	}
 }
+
+func TestChecksSummary(t *testing.T) {
+	if got := checksSummary([]CheckResult{{OK: true}, {OK: true}}); got != "✅ 检查通过（2 项）" {
+		t.Fatalf("summary = %q", got)
+	}
+	if got := checksSummary([]CheckResult{{OK: true}, {OK: false}}); got != "❌ 检查未通过（1/2 项）" {
+		t.Fatalf("summary = %q", got)
+	}
+	if got := checksSummary(nil); got != "" {
+		t.Fatalf("empty summary = %q", got)
+	}
+}
