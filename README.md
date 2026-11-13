@@ -160,6 +160,4 @@ The prompts are embedded in the binary, so the archives are self-contained.
 
 ## License
 
-Released under the [MIT License](LICENSE). You may use, modify and
-redistribute it, including commercially, as long as the copyright notice and
-permission notice are retained.
+[MIT](LICENSE)

@@ -144,5 +144,4 @@ Actions 会跑测试、交叉编译 linux/darwin 的 amd64+arm64 包、注入版
 
 ## License
 
-基于 [MIT License](LICENSE) 发布。你可以使用、修改和再分发（包括商用），
-只需保留版权声明和许可声明。
+[MIT](LICENSE)
