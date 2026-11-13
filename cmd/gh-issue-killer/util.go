@@ -141,7 +141,7 @@ func daemonLogPath() string {
 }
 
 func NewLogger(name string) *Logger {
-	logger := &Logger{level: levelInfo, out: os.Stdout}
+	logger := &Logger{level: levelDebug, out: os.Stdout}
 	if err := os.MkdirAll(logsDir(), 0o755); err == nil {
 		if writer, err := openRotatingFile(filepath.Join(logsDir(), name+".log"), logRotateSizeMB*1024*1024, logRotateKeep); err == nil {
 			logger.file = writer

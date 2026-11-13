@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,5 +134,58 @@ func TestShouldDaemonize(t *testing.T) {
 		if testCase.call() {
 			t.Fatalf("%s should not daemonize", testCase.name)
 		}
+	}
+}
+
+func TestColorizeLogLine(t *testing.T) {
+	line := "2026-11-13T05:52:45Z INFO  hello"
+	if got := colorizeLogLine(line, false); got != line {
+		t.Fatalf("plain = %q", got)
+	}
+	colored := colorizeLogLine(line, true)
+	for _, want := range []string{colorDim, colorGreen, "INFO", colorReset} {
+		if !strings.Contains(colored, want) {
+			t.Fatalf("missing %q in %q", want, colored)
+		}
+	}
+	cases := map[string]string{
+		"2026-11-13T05:52:45Z DEBUG x": colorGray,
+		"2026-11-13T05:52:45Z WARN  x": colorYellow,
+		"2026-11-13T05:52:45Z ERROR x": colorRed,
+	}
+	for input, wantColor := range cases {
+		if got := colorizeLogLine(input, true); !strings.Contains(got, wantColor) {
+			t.Fatalf("colorize %q = %q, want %q", input, got, wantColor)
+		}
+	}
+	if got := colorizeLogLine("not a log line", true); got != "not a log line" {
+		t.Fatalf("malformed = %q", got)
+	}
+}
+
+func TestDefaultLoggerIsDebug(t *testing.T) {
+	old := stateDirOverride
+	stateDirOverride = t.TempDir()
+	t.Cleanup(func() { stateDirOverride = old })
+
+	logger := NewLogger("daemon")
+	if logger.level != levelDebug {
+		t.Fatalf("default level = %v, want debug", logger.level)
+	}
+	var out bytes.Buffer
+	logger.out = &out
+	logger.Debug("hello debug")
+	if !strings.Contains(out.String(), "DEBUG hello debug") {
+		t.Fatalf("output = %q", out.String())
+	}
+	if logger.file != nil {
+		_ = logger.file.Close()
+	}
+}
+
+func TestLogsColorDisabledForNonTTY(t *testing.T) {
+	var out bytes.Buffer
+	if logsColorEnabled(&out) {
+		t.Fatal("buffer should not get color")
 	}
 }

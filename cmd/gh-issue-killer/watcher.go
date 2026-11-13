@@ -219,6 +219,7 @@ func dispatchSmee(ctx context.Context, app *AppContext, router *Router, envelope
 	if payload.Issue.Number == 0 {
 		return
 	}
+	log.Debug("smee event: type=%s action=%s delivery=%s issue=%d comment=%d", envelope.Event, payload.Action, envelope.Delivery, payload.Issue.Number, payload.Comment.ID)
 
 	// Re-fetch from the GitHub API so a compromised relay cannot forge a
 	// command: the authoritative body/author come from GitHub, not smee.
@@ -311,6 +312,7 @@ func consumeSmee(ctx context.Context, app *AppContext, router *Router, client *h
 		return fmt.Errorf("smee %d: %s", response.StatusCode, tailString(string(data), 5))
 	}
 	log.Info("smee stream connected for %s", app.Repo.FullName)
+	log.Debug("smee stream channel=%s repo=%s", channel, app.Repo.FullName)
 
 	reader := bufio.NewReaderSize(response.Body, 1024*1024)
 	var dataLines []string

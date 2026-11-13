@@ -150,6 +150,8 @@ The daemon log has a fixed location and rotation:
 
 The resolved path and rotation policy are printed at startup, in `-status`, and in the `-init` summary. Per-issue coding-agent output lives under `~/.gh-issue-killer/runs/<owner>-<repo>/issue-<n>/` (`plan-*.log`, `implement-*.log`, `fix-*.log`, `checks/*.log`). There is no `daemon.out`; background stdout/stderr go to `/dev/null` and everything goes through the rotating log file.
 
+Logs are written at DEBUG level by default, so `-logs` shows API calls, poll cycles, webhook events and job lifecycle. The viewer colorizes the timestamp and level when stdout is a TTY (INFO green, WARN yellow, ERROR red, DEBUG gray); set `NO_COLOR=1` or redirect the output to keep it plain.
+
 ```bash
 ./bin/gh-issue-killer -logs   # follow daemon.log (last 50 lines, rotation-aware, Ctrl+C to stop)
 ```

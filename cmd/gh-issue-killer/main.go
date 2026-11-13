@@ -280,6 +280,12 @@ func main() {
 	defer release()
 
 	log.Info("gh-issue-killer (go) starting, config=%s proxy=%s", cfg.File, firstNonEmpty(cfg.Proxy, "direct"))
+	log.Debug("runtime: codingAgent=%s model=%s poll=%s webhook=%v webhookPort=%d maxParallel=%d maxFixRounds=%d",
+		cfg.CodingAgent, firstNonEmpty(cfg.Model, "(default)"), cfg.PollInterval, cfg.Webhook, cfg.WebhookPort, cfg.MaxParallel, cfg.MaxFixRounds)
+	log.Debug("paths: config=%s state=%s log=%s", cfg.File, stateFile(), daemonLogPath())
+	for _, repo := range cfg.Repos {
+		log.Debug("repo config: %s codingAgent=%s model=%s approvers=%s", repo.FullName, repo.CodingAgent, firstNonEmpty(repo.Model, "(default)"), strings.Join(repo.Approvers, ","))
+	}
 
 	gh, err := NewGH(proxy, log)
 	if err != nil {

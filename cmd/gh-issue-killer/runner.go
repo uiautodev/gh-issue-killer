@@ -116,6 +116,10 @@ type processResult struct {
 // runProcess runs one coding-agent CLI. stdout is scanned line by line so a
 // runner can parse its event stream, and both streams are appended to LogFile.
 func runProcess(ctx context.Context, binary string, args []string, opts RunnerOptions, onStdout func(string)) (processResult, error) {
+	started := time.Now()
+	if opts.Log != nil {
+		opts.Log.Debug("runner start: %s cwd=%s timeout=%s", binary, opts.Cwd, opts.Timeout)
+	}
 	runCtx := ctx
 	var cancel context.CancelFunc
 	if opts.Timeout > 0 {
@@ -192,6 +196,9 @@ func runProcess(ctx context.Context, binary string, args []string, opts RunnerOp
 	if cmd.ProcessState != nil {
 		result.Code = cmd.ProcessState.ExitCode()
 	}
+	if opts.Log != nil {
+		opts.Log.Debug("runner exit: code=%d timedOut=%v duration=%s", result.Code, result.TimedOut, time.Since(started).Round(time.Millisecond))
+	}
 	if runCtx.Err() == context.DeadlineExceeded {
 		result.TimedOut = true
 		if cmd.Process != nil {
@@ -253,6 +260,9 @@ func (r *opencodeRunner) Run(ctx context.Context, opts RunnerOptions) (RunnerRes
 	result := RunnerResult{SessionID: opts.SessionID}
 	var texts []string
 	var eventErr string
+	if opts.Log != nil {
+		opts.Log.Debug("opencode run: session=%s model=%s cwd=%s", firstNonEmpty(opts.SessionID, "(new)"), firstNonEmpty(opts.Model, "(default)"), opts.Cwd)
+	}
 
 	proc, runErr := runProcess(ctx, binary, opencodeArgs(opts), opts, func(line string) {
 		var event opencodeEvent
@@ -342,6 +352,9 @@ func (r *claudeRunner) Run(ctx context.Context, opts RunnerOptions) (RunnerResul
 	if opts.SessionID == "" {
 		sessionID = newUUID()
 	}
+	if opts.Log != nil {
+		opts.Log.Debug("claude run: session=%s model=%s cwd=%s runDir=%s", firstNonEmpty(opts.SessionID, sessionID), firstNonEmpty(opts.Model, "(default)"), opts.Cwd, opts.RunDir)
+	}
 	proc, runErr := runProcess(ctx, binary, claudeArgs(opts, sessionID), opts, nil)
 
 	result := RunnerResult{
@@ -407,6 +420,9 @@ func (r *codexRunner) Run(ctx context.Context, opts RunnerOptions) (RunnerResult
 	lastFile := ""
 	if opts.RunDir != "" {
 		lastFile = filepath.Join(opts.RunDir, fmt.Sprintf("codex-last-%d.txt", time.Now().UnixNano()))
+	}
+	if opts.Log != nil {
+		opts.Log.Debug("codex run: model=%s cwd=%s runDir=%s", firstNonEmpty(opts.Model, "(default)"), opts.Cwd, opts.RunDir)
 	}
 	proc, runErr := runProcess(ctx, binary, codexArgs(opts, lastFile), opts, nil)
 

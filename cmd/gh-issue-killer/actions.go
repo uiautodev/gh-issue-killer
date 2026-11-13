@@ -207,6 +207,7 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 		blockIssue(ctx, app, number, fmt.Errorf("plan failed: %w", err))
 		return
 	}
+	app.Log.Debug("plan result: session=%s chars=%d", firstNonEmpty(result.SessionID, "(none)"), len(result.Text))
 	plan := trimToPlan(stripFences(result.Text))
 	if len(plan) < 40 {
 		blockIssue(ctx, app, number, fmt.Errorf("plan is empty"))
@@ -275,6 +276,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 	}
 	runDir := runDirFor(app, number)
 	_ = os.MkdirAll(filepath.Join(runDir, "screenshots"), 0o755)
+	app.Log.Debug("implement workspace: worktree=%s branch=%s runDir=%s", worktree, branch, runDir)
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Worktree = worktree
 		state.Branch = branch

@@ -288,11 +288,17 @@ func (g *GH) do(ctx context.Context, method, path string, body, out any) error {
 		}
 		if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500 {
 			lastErr = &APIError{Status: response.StatusCode, Message: tailString(string(data), 10)}
+			if g.Log != nil {
+				g.Log.Debug("github %s %s -> %d (retry %d)", method, path, response.StatusCode, attempt)
+			}
 			if attempt < 3 {
 				time.Sleep(time.Duration(attempt*2) * time.Second)
 				continue
 			}
 			return lastErr
+		}
+		if g.Log != nil {
+			g.Log.Debug("github %s %s -> %d", method, path, response.StatusCode)
 		}
 		if response.StatusCode >= 400 {
 			return &APIError{Status: response.StatusCode, Message: tailString(string(data), 20)}

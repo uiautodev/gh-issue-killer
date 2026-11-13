@@ -35,10 +35,98 @@ func tailLines(path string, n int) ([]string, error) {
 
 func followDaemonLog(out io.Writer) error {
 	path := daemonLogPath()
-	fmt.Fprintf(out, "tailing %s (last %d lines, Ctrl+C to stop)\n", path, logTailLines)
+	color := logsColorEnabled(out)
+	fmt.Fprintf(out, "%s\n", colorizeHeader(fmt.Sprintf("tailing %s (last %d lines, Ctrl+C to stop)", path, logTailLines), color))
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	return followFile(ctx, path, out, logTailLines, logFollowPoll)
+	writer := &colorLineWriter{out: out, color: color}
+	err := followFile(ctx, path, writer, logTailLines, logFollowPoll)
+	_ = writer.Flush()
+	return err
+}
+
+func logsColorEnabled(out io.Writer) bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	file, ok := out.(*os.File)
+	return ok && isTerminal(file)
+}
+
+type colorLineWriter struct {
+	out     io.Writer
+	color   bool
+	pending string
+}
+
+func (w *colorLineWriter) Write(p []byte) (int, error) {
+	w.pending += string(p)
+	for {
+		index := strings.IndexByte(w.pending, '\n')
+		if index < 0 {
+			break
+		}
+		line := w.pending[:index]
+		w.pending = w.pending[index+1:]
+		if _, err := fmt.Fprintln(w.out, colorizeLogLine(line, w.color)); err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
+}
+
+func (w *colorLineWriter) Flush() error {
+	if w.pending == "" {
+		return nil
+	}
+	line := w.pending
+	w.pending = ""
+	_, err := fmt.Fprintln(w.out, colorizeLogLine(line, w.color))
+	return err
+}
+
+const (
+	colorReset  = "\x1b[0m"
+	colorDim    = "\x1b[2m"
+	colorRed    = "\x1b[31m"
+	colorGreen  = "\x1b[32m"
+	colorCyan   = "\x1b[36m"
+	colorGray   = "\x1b[90m"
+	colorYellow = "\x1b[33m"
+)
+
+func colorizeHeader(text string, color bool) string {
+	if !color {
+		return text
+	}
+	return colorCyan + text + colorReset
+}
+
+// colorizeLogLine colors the timestamp and level in a line produced by
+// Logger. The log file itself is never modified.
+func colorizeLogLine(line string, color bool) string {
+	if !color {
+		return line
+	}
+	parts := strings.SplitN(line, " ", 3)
+	if len(parts) != 3 {
+		return line
+	}
+	level := strings.TrimSpace(parts[1])
+	levelColor := ""
+	switch level {
+	case "DEBUG":
+		levelColor = colorGray
+	case "INFO":
+		levelColor = colorGreen
+	case "WARN":
+		levelColor = colorYellow
+	case "ERROR":
+		levelColor = colorRed
+	default:
+		return line
+	}
+	return colorDim + parts[0] + colorReset + " " + levelColor + level + colorReset + " " + parts[2]
 }
 
 // followFile prints the last initialLines lines, then follows appends. It

@@ -99,6 +99,7 @@ func (r *Router) worker() {
 		delete(r.queued, job.key)
 		r.active[job.key] = true
 		r.mu.Unlock()
+		r.log.Debug("job start %s", job.key)
 		func() {
 			defer func() {
 				if recovered := recover(); recovered != nil {
@@ -110,6 +111,7 @@ func (r *Router) worker() {
 		r.mu.Lock()
 		delete(r.active, job.key)
 		r.mu.Unlock()
+		r.log.Debug("job done %s", job.key)
 	}
 }
 
@@ -122,6 +124,7 @@ func (r *Router) enqueue(key string, fn func()) {
 	}
 	r.queued[key] = true
 	r.mu.Unlock()
+	r.log.Debug("enqueue job %s", key)
 	r.jobs <- routerJob{key: key, fn: fn}
 }
 
@@ -131,19 +134,23 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		r.log.Warn("no context for repo %s", fullName)
 		return
 	}
+	r.log.Debug("trigger %s type=%s issue=%d sender=%s delivery=%s", fullName, trigger.Type, trigger.IssueNumber, trigger.Sender, trigger.DeliveryID)
 
 	if trigger.DeliveryID != "" {
 		if r.store.IsDeliveryProcessed(fullName, trigger.DeliveryID) {
+			r.log.Debug("skip processed delivery %s", trigger.DeliveryID)
 			return
 		}
 		r.store.MarkDeliveryProcessed(fullName, trigger.DeliveryID)
 	}
 	if strings.EqualFold(trigger.Sender, r.agentLogin) {
+		r.log.Debug("ignore trigger from agent itself")
 		return
 	}
 
 	if trigger.Type == "comment" {
 		if r.store.IsCommentProcessed(fullName, trigger.IssueNumber, trigger.CommentID) {
+			r.log.Debug("skip processed comment %d", trigger.CommentID)
 			return
 		}
 		r.store.MarkCommentProcessed(fullName, trigger.IssueNumber, trigger.CommentID)
@@ -265,6 +272,7 @@ func (r *Router) StartupScan(ctx context.Context) {
 			r.log.Warn("startup scan %s: %v", fullName, err)
 			continue
 		}
+		r.log.Debug("startup scan %s: %d open issues", fullName, len(issues))
 		for _, issue := range issues {
 			number := issue.Number
 			st := r.store.Issue(fullName, number)
@@ -360,6 +368,12 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 		r.log.Warn("poll %s: %v", fullName, err)
 		return
 	}
+	sinceText := "-"
+	if since != nil {
+		sinceText = since.Format(time.RFC3339)
+	}
+	r.log.Debug("poll %s: %d updated issues since %s", fullName, len(issues), sinceText)
+	freshComments := 0
 	for _, issue := range issues {
 		number := issue.Number
 		st := r.store.Issue(fullName, number)
@@ -383,6 +397,7 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 			if app.Store.IsCommentProcessed(fullName, number, comment.ID) {
 				continue
 			}
+			freshComments++
 			r.HandleTrigger(ctx, fullName, Trigger{
 				Type:        "comment",
 				IssueNumber: number,
@@ -403,6 +418,7 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 			state.LastCommentID = last
 		})
 	}
+	r.log.Debug("poll %s: handled %d new comments", fullName, freshComments)
 	app.Store.UpdateMeta(fullName, func(meta *RepoMeta) {
 		meta.LastPollAt = nowISO()
 	})
