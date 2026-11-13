@@ -536,7 +536,11 @@ func (r *Router) HandleClosed(ctx context.Context, fullName string, issue Issue)
 		state.CancelledAt = nowISO()
 	})
 	r.cancelActive(fullName, issue.Number)
-	r.enqueue(key+"#closed", func(jobCtx context.Context) {
+	// Cleanup must not queue behind long coding jobs: with maxParallel=1 the
+	// PR would stay open and the label stale until the other issue finishes.
+	go func() {
+		jobCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
 		r.waitInactive(jobCtx, key, 60*time.Second)
 		current := r.store.Issue(fullName, issue.Number)
 		if current.Phase == "done" || current.Phase == "merging" {
@@ -546,7 +550,7 @@ func (r *Router) HandleClosed(ctx context.Context, fullName string, issue Issue)
 			return
 		}
 		doCloseIssue(jobCtx, app, issue, current)
-	})
+	}()
 }
 
 // HandleReopened resumes a cancelled task. An existing plan returns to
