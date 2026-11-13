@@ -1,6 +1,6 @@
 # gh-issue-killer
 
-[English](README.md) · [简体中文](README.zh-CN.md)
+[English](README.md)
 
 监听 GitHub issue，让编码 agent（opencode、Claude Code 或 Codex）自己完成
 计划 → 实现 → 测试 → 截图 → 开 PR → squash merge，全程由 issue 评论驱动。
