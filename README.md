@@ -10,6 +10,9 @@ owner: @agent 合并        →     wait CI → squash merge → close issue/PR 
 owner: @agent cancel     →     abort, keep the issue open
 ```
 
+> Running it for real? [DEPLOY.md](DEPLOY.md) covers the agent account, a
+> stable install, boot persistence, disk cleanup, upgrades and troubleshooting.
+
 ## Why Go, no curl/ffmpeg
 
 The daemon is a single static Go binary. It talks to GitHub over `net/http`, uploads screenshots through GitHub's user-attachments endpoint with a plain request body, composes before/after images with `image/draw`, and implements the SOCKS5 client itself. At runtime it only shells out to the tools that are inherently part of the job:
