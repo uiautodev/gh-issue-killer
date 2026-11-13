@@ -193,3 +193,29 @@ func TestWasReopened(t *testing.T) {
 		}
 	}
 }
+
+func TestHasThumbsUp(t *testing.T) {
+	reactions := []Reaction{
+		{Content: "eyes", User: User{Login: "alice"}},
+		{Content: "+1", User: User{Login: "bob"}},
+	}
+	if !hasThumbsUp(reactions, "bob") {
+		t.Fatal("bob's 👍 should be found")
+	}
+	if hasThumbsUp(reactions, "alice") {
+		t.Fatal("alice only left 👀")
+	}
+	if hasThumbsUp([]Reaction{{Content: "-1", User: User{Login: "bob"}}}, "bob") {
+		t.Fatal("👎 must not approve")
+	}
+}
+
+func TestMissingHookEvents(t *testing.T) {
+	if got := missingHookEvents([]string{"issues", "issue_comment", "reaction"}); len(got) != 0 {
+		t.Fatalf("nothing should be missing, got %v", got)
+	}
+	got := missingHookEvents([]string{"issues", "issue_comment"})
+	if len(got) != 1 || got[0] != "reaction" {
+		t.Fatalf("missing events = %v, want [reaction]", got)
+	}
+}

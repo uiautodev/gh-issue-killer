@@ -168,6 +168,7 @@ Commands must come from an approver, mention the agent, and be the **whole comme
 | `@agent lgtm`, `@agent continue`, `@agent 继续` | approve the plan (or retry after blocked) |
 | `@agent 合并`, `@agent merge`, `@agent ship` | squash merge the PR, close issue + PR, clean the worktree |
 | `@agent cancel`, `@agent stop`, `@agent 停止` | abort the current task |
+| 👍 reaction on the plan comment | same as `@agent lgtm` |
 
 Every approver comment on a tracked issue gets a 👀 reaction. Work adds 🚀 (implement/revision), 🎉 (merged) or 😕 (cancelled). A comment that mentions the agent but is not a command is treated as feedback: on `pr_open` the agent keeps working on the same branch, and reopening a `done` issue starts a fresh plan.
 

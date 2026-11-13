@@ -84,6 +84,11 @@ type Issue struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type Reaction struct {
+	Content string `json:"content"`
+	User    User   `json:"user"`
+}
+
 type Comment struct {
 	ID        int64     `json:"id"`
 	Body      string    `json:"body"`
@@ -387,6 +392,8 @@ func (g *GH) GetComment(ctx context.Context, fullName string, id int64) (Comment
 // command, while the daemon's own status comments are ignored.
 const agentCommentMarker = "<!-- ghik:agent -->"
 
+var hookEvents = []string{"issues", "issue_comment", "reaction"}
+
 func (g *GH) PostComment(ctx context.Context, fullName string, number int, body string) (Comment, error) {
 	var comment Comment
 	err := g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", fullName, number),
@@ -531,7 +538,7 @@ func (g *GH) CreateHook(ctx context.Context, fullName, smeeURL, secret string) (
 	err := g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/hooks", fullName), map[string]any{
 		"name":   "web",
 		"active": true,
-		"events": []string{"issues", "issue_comment"},
+		"events": hookEvents,
 		"config": map[string]string{
 			"url":          smeeURL,
 			"content_type": "json",
@@ -543,6 +550,21 @@ func (g *GH) CreateHook(ctx context.Context, fullName, smeeURL, secret string) (
 
 func (g *GH) DeleteHook(ctx context.Context, fullName string, id int64) error {
 	return g.do(ctx, http.MethodDelete, fmt.Sprintf("/repos/%s/hooks/%d", fullName, id), nil, nil)
+}
+
+// UpdateHookEvents keeps the webhook subscription in sync with the events the
+// daemon understands, e.g. adding "reaction" to a hook created by an older
+// build.
+func (g *GH) UpdateHookEvents(ctx context.Context, fullName string, id int64, events []string) error {
+	return g.do(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/hooks/%d", fullName, id),
+		map[string]any{"events": events}, nil)
+}
+
+func (g *GH) ListCommentReactions(ctx context.Context, fullName string, commentID int64) ([]Reaction, error) {
+	var reactions []Reaction
+	err := g.do(ctx, http.MethodGet,
+		fmt.Sprintf("/repos/%s/issues/comments/%d/reactions?per_page=100", fullName, commentID), nil, &reactions)
+	return reactions, err
 }
 
 func mimeForFile(name string) string {

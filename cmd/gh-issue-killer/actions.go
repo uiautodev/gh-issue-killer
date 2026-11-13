@@ -233,7 +233,7 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 		plan,
 		"",
 		"---",
-		fmt.Sprintf("Reply `@%s lgtm` / `@%s continue` to proceed.", app.AgentLogin, app.AgentLogin),
+		fmt.Sprintf("Reply `@%s lgtm` / `@%s continue`, or add 👍 to this comment, to proceed.", app.AgentLogin, app.AgentLogin),
 	}, "\n")
 	posted, err := app.GH.PostComment(ctx, app.Repo.FullName, number, body)
 	if err != nil {

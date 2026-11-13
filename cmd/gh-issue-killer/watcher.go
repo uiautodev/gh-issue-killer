@@ -12,6 +12,20 @@ import (
 	"time"
 )
 
+func missingHookEvents(have []string) []string {
+	seen := map[string]bool{}
+	for _, event := range have {
+		seen[event] = true
+	}
+	missing := make([]string, 0, len(hookEvents))
+	for _, event := range hookEvents {
+		if !seen[event] {
+			missing = append(missing, event)
+		}
+	}
+	return missing
+}
+
 func createSmeeChannel(ctx context.Context, proxy *Proxy) (string, error) {
 	client := newHTTPClient(proxy, 30*time.Second)
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -78,6 +92,13 @@ func ensureSmeeHook(ctx context.Context, app *AppContext) (channel, secret strin
 	if meta.HookID != 0 {
 		hook, getErr := app.GH.GetHook(ctx, app.Repo.FullName, meta.HookID)
 		if getErr == nil && hook.ID != 0 && strings.TrimRight(hook.Config.URL, "/") == strings.TrimRight(channel, "/") {
+			if missing := missingHookEvents(hook.Events); len(missing) > 0 {
+				if updateErr := app.GH.UpdateHookEvents(ctx, app.Repo.FullName, hook.ID, hookEvents); updateErr != nil {
+					app.Log.Warn("%s: update hook events: %v", app.Repo.FullName, updateErr)
+				} else {
+					app.Log.Info("%s: webhook now sends %s", app.Repo.FullName, strings.Join(missing, ","))
+				}
+			}
 			return channel, secret, nil
 		}
 		_ = app.GH.DeleteHook(ctx, app.Repo.FullName, meta.HookID)
@@ -112,6 +133,12 @@ type smeePayload struct {
 	Comment struct {
 		ID int64 `json:"id"`
 	} `json:"comment"`
+	Reaction struct {
+		Content string `json:"content"`
+		User    struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	} `json:"reaction"`
 	Sender struct {
 		Login string `json:"login"`
 	} `json:"sender"`
@@ -130,6 +157,19 @@ func dispatchSmee(ctx context.Context, app *AppContext, router *Router, envelope
 		return
 	}
 	log.Debug("smee event: type=%s action=%s delivery=%s issue=%d comment=%d", envelope.Event, payload.Action, envelope.Delivery, payload.Issue.Number, payload.Comment.ID)
+
+	if envelope.Event == "reaction" {
+		if payload.Action != "created" || payload.Comment.ID == 0 {
+			return
+		}
+		reactor := payload.Reaction.User.Login
+		if reactor == "" {
+			reactor = payload.Sender.Login
+		}
+		router.HandlePlanReaction(ctx, app.Repo.FullName, payload.Issue.Number,
+			payload.Comment.ID, reactor, payload.Reaction.Content)
+		return
+	}
 
 	// Re-fetch from the GitHub API so a compromised relay cannot forge a
 	// command: the authoritative body/author come from GitHub, not smee.
