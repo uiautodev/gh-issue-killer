@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -150,38 +151,72 @@ func loadAgentToken() (string, error) {
 		configDir = filepath.Join(homeDir(), ".config", "gh-agent")
 	}
 	file := filepath.Join(configDir, "hosts.yml")
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return "", fmt.Errorf("read gh-agent credentials %s: %w", file, err)
-	}
-	host := firstNonEmpty(strings.TrimSpace(os.Getenv("GH_HOST")), "github.com")
-	inHost := false
-	for _, rawLine := range strings.Split(string(data), "\n") {
-		line := strings.TrimRight(rawLine, "\r")
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if !strings.HasPrefix(line, " ") && strings.HasSuffix(trimmed, ":") {
-			inHost = strings.TrimSuffix(trimmed, ":") == host
-			continue
-		}
-		if !inHost {
-			continue
-		}
-		key, value, ok := strings.Cut(trimmed, ":")
-		if !ok {
-			continue
-		}
-		switch strings.TrimSpace(key) {
-		case "oauth_token", "token":
-			token := strings.Trim(strings.TrimSpace(value), `"'`)
-			if token != "" {
-				return token, nil
+	if data, err := os.ReadFile(file); err == nil {
+		host := firstNonEmpty(strings.TrimSpace(os.Getenv("GH_HOST")), "github.com")
+		inHost := false
+		for _, rawLine := range strings.Split(string(data), "\n") {
+			line := strings.TrimRight(rawLine, "\r")
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			if !strings.HasPrefix(line, " ") && strings.HasSuffix(trimmed, ":") {
+				inHost = strings.TrimSuffix(trimmed, ":") == host
+				continue
+			}
+			if !inHost {
+				continue
+			}
+			key, value, ok := strings.Cut(trimmed, ":")
+			if !ok {
+				continue
+			}
+			switch strings.TrimSpace(key) {
+			case "oauth_token", "token":
+				token := strings.Trim(strings.TrimSpace(value), `"'`)
+				if token != "" {
+					return token, nil
+				}
 			}
 		}
 	}
-	return "", fmt.Errorf("no oauth_token for %s in %s", host, file)
+
+	// Newer gh versions keep the OAuth token in the system keyring and only
+	// leave the account name in hosts.yml. Ask the CLI for the token in that
+	// case; this is the only runtime use of gh/gh-agent.
+	if token, err := tokenFromCLI(configDir); err == nil && token != "" {
+		return token, nil
+	}
+	return "", fmt.Errorf("no gh-agent token found: set GH_AGENT_TOKEN, or run `GH_CONFIG_DIR=%s gh auth login`", configDir)
+}
+
+func tokenFromCLI(configDir string) (string, error) {
+	env := mergeEnv(os.Environ(), map[string]string{"GH_CONFIG_DIR": configDir}, "GH_TOKEN", "GITHUB_TOKEN")
+	type candidate struct {
+		binary string
+		args   []string
+	}
+	candidates := make([]candidate, 0, 2)
+	if path, err := exec.LookPath("gh-agent"); err == nil {
+		candidates = append(candidates, candidate{binary: path, args: []string{"auth", "token"}})
+	}
+	if path, err := exec.LookPath("gh"); err == nil {
+		candidates = append(candidates, candidate{binary: path, args: []string{"auth", "token"}})
+	}
+	for _, item := range candidates {
+		result, err := runCmd(context.Background(), item.binary, item.args, CmdOptions{
+			Env:          env,
+			Timeout:      15 * time.Second,
+			AllowFailure: true,
+		})
+		if err != nil || result.Code != 0 {
+			continue
+		}
+		if token := strings.TrimSpace(result.Stdout); token != "" {
+			return token, nil
+		}
+	}
+	return "", fmt.Errorf("gh/gh-agent auth token unavailable")
 }
 
 func NewGH(proxy *Proxy, log *Logger) (*GH, error) {

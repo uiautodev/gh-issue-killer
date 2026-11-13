@@ -34,9 +34,50 @@ func acquireLock(log *Logger) (func(), error) {
 	return func() { _ = os.Remove(lockFile()) }, nil
 }
 
+func stopDaemon(log *Logger) {
+	data, err := os.ReadFile(lockFile())
+	if err != nil {
+		log.Info("no running daemon (lock file not found)")
+		return
+	}
+	pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
+	if parseErr != nil || pid <= 0 {
+		log.Warn("invalid lock file, removing it")
+		_ = os.Remove(lockFile())
+		return
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		log.Info("daemon pid %d is not running, removing stale lock", pid)
+		_ = os.Remove(lockFile())
+		return
+	}
+	for i := 0; i < 50; i++ {
+		if err := syscall.Kill(pid, 0); err != nil {
+			log.Info("daemon pid %d stopped", pid)
+			_ = os.Remove(lockFile())
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	log.Warn("daemon pid %d did not exit after 10s", pid)
+}
+
 func main() {
 	configPath := flag.String("config", "", "path to config.json")
 	once := flag.Bool("once", false, "run startup scan and one poll, then exit")
+	foreground := flag.Bool("foreground", false, "run attached to the terminal (default behaviour, logs stream to stdout)")
+	flag.BoolVar(foreground, "f", false, "shorthand for -foreground")
+	stop := flag.Bool("stop", false, "stop the running daemon and exit")
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "gh-issue-killer - GitHub issue watcher\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  gh-issue-killer [flags]\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Flags:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(flag.CommandLine.Output(), "\nExamples:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -foreground   # run attached, Ctrl+C to stop\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -f            # shorthand\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -stop         # stop the running daemon\n")
+	}
 	flag.Parse()
 
 	if err := ensureDirs(); err != nil {
@@ -44,6 +85,15 @@ func main() {
 		os.Exit(1)
 	}
 	log := NewLogger("daemon")
+
+	if *stop {
+		stopDaemon(log)
+		return
+	}
+	if *foreground {
+		log.Info("foreground mode: attached to this terminal, Ctrl+C to stop")
+	}
+
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		log.Error("%v", err)

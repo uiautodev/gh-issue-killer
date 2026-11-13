@@ -26,7 +26,7 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 go test ./...
 ```
 
-Requirements: Go 1.27+, `git`, `opencode`, and a `gh-agent` credential file (`~/.config/gh-agent/hosts.yml`) or `GH_AGENT_TOKEN`.
+Requirements: Go 1.27+, `git`, `opencode`, and a gh-agent credential (`GH_AGENT_TOKEN`, `~/.config/gh-agent/hosts.yml`, or the OS keyring via a one-time `gh-agent auth token` lookup at startup).
 
 ## Configure
 
@@ -56,7 +56,7 @@ Per-issue override: an issue label like `agent:build` wins over the config agent
 
 ## Accounts
 
-The daemon reads the token from `~/.config/gh-agent/hosts.yml` and only ever acts as **gh-agent**. Your own `gh` is never used by the daemon; it appears only in `scripts/smoke-test.sh`, which simulates you as the issue author/approver.
+The daemon reads the token from `GH_AGENT_TOKEN`, `~/.config/gh-agent/hosts.yml`, or (when the token lives in the OS keyring, which newer gh versions do) asks `gh-agent auth token` once at startup. It only ever acts as **gh-agent**. Your own `gh` is never used by the daemon; it appears only in `scripts/smoke-test.sh`, which simulates you as the issue author/approver.
 
 `gh-agent` needs on each watched repo:
 
@@ -98,10 +98,15 @@ Screenshots are only required for user-visible UI changes. The agent captures ju
 ## Run
 
 ```bash
-./bin/gh-issue-killer                # foreground
-./bin/gh-issue-killer -once          # startup scan + one poll, then exit (smoke check)
-scripts/smoke-test.sh <owner/repo>   # full loop using YOUR gh as the human
+./bin/gh-issue-killer -foreground   # attached: logs stream to the terminal, Ctrl+C to stop
+./bin/gh-issue-killer -f            # shorthand for -foreground
+./bin/gh-issue-killer               # same as -foreground (kept for compatibility)
+./bin/gh-issue-killer -stop         # stop the running daemon and clean the lock
+./bin/gh-issue-killer -once         # startup scan + one poll, then exit (smoke check)
+scripts/smoke-test.sh <owner/repo>  # full loop using YOUR gh as the human
 ```
+
+`-foreground` prints a banner and keeps the process attached to the terminal; it is the recommended mode for debugging. The single-instance lock still applies, so run `-stop` first if a background copy is running. In background you can use `nohup ./bin/gh-issue-killer >> ~/.gh-issue-killer/logs/daemon.out 2>&1 &`, and stop it with `-stop`.
 
 State: `~/.gh-issue-killer/state.json` · logs: `~/.gh-issue-killer/logs/daemon.log` · single instance enforced by `daemon.lock`.
 
