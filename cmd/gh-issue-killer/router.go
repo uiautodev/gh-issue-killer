@@ -367,7 +367,6 @@ func (r *Router) HandleReopened(ctx context.Context, fullName string, issue Issu
 			state.CancelledAt = ""
 		})
 		app.GH.SetPhaseLabel(ctx, fullName, issue.Number, "agent:awaiting-approval")
-		_, _ = app.GH.PostComment(ctx, fullName, issue.Number, "### ♻️ 已重新打开\n\n回复 **lgtm** / **continue** 继续实施。")
 		return
 	}
 	app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {
