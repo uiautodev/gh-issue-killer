@@ -1,0 +1,26 @@
+# Local hooks only: no third-party repositories, just the Go toolchain.
+# Install with: pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: gofmt
+        name: gofmt
+        entry: bash -c 'files=$(gofmt -l "$@"); if [ -n "$files" ]; then echo "run gofmt -w on:"; echo "$files"; exit 1; fi' --
+        language: system
+        files: '\.go$'
+        pass_filenames: true
+      - id: go-vet
+        name: go vet
+        entry: go vet ./...
+        language: system
+        pass_filenames: false
+      - id: go-test
+        name: go test
+        entry: go test ./...
+        language: system
+        pass_filenames: false
+      - id: go-build
+        name: go build
+        entry: go build ./...
+        language: system
+        pass_filenames: false

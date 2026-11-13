@@ -122,3 +122,15 @@ allowed to command the bot. `proxy` accepts `socks5h://`, `socks5://`,
 
 The full key reference, per-repo overrides and the coding-agent invocation
 details live in [DEPLOY.md](DEPLOY.md#41-configuration-reference).
+
+## Development
+
+```bash
+pre-commit install    # gofmt, go vet, go test, go build on every commit
+go test ./...
+```
+
+Tag a release with `v*` (for example `git tag v0.1.0 && git push --tags`):
+GitHub Actions runs the tests, builds linux/darwin amd64+arm64 archives with
+the version injected, and publishes them with checksums to the GitHub release.
+The prompts are embedded in the binary, so the archives are self-contained.

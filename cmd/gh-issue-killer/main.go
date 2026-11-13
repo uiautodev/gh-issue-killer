@@ -88,6 +88,9 @@ func shouldDaemonize(foreground, initConfig, once, stop, status, child bool) boo
 
 const daemonChildEnv = "GHIK_DAEMON_CHILD"
 
+// version is set at build time: -ldflags "-X main.version=v1.2.3".
+var version = "dev"
+
 func isDaemonChild() bool {
 	return os.Getenv(daemonChildEnv) == "1"
 }
@@ -99,6 +102,7 @@ func printStatus(configPath string) {
 	} else {
 		fmt.Printf("daemon: stopped\n")
 	}
+	fmt.Printf("version: %s\n", version)
 	fmt.Printf("config: %s\n", configFile)
 	fmt.Printf("log:    %s (rotate %d MB, keep %d)\n", daemonLogPath(), logRotateSizeMB, logRotateKeep)
 	fmt.Printf("state:  %s\n", stateFile())
@@ -283,7 +287,7 @@ func main() {
 	}
 	defer release()
 
-	log.Info("gh-issue-killer (go) starting, config=%s proxy=%s", cfg.File, firstNonEmpty(cfg.Proxy, "direct"))
+	log.Info("gh-issue-killer %s starting, config=%s proxy=%s", version, cfg.File, firstNonEmpty(cfg.Proxy, "direct"))
 	log.Debug("runtime: codingAgent=%s model=%s poll=%s webhook=%v maxParallel=%d maxFixRounds=%d",
 		cfg.CodingAgent, firstNonEmpty(cfg.Model, "(default)"), cfg.PollInterval, cfg.Webhook, cfg.MaxParallel, cfg.MaxFixRounds)
 	log.Debug("paths: config=%s state=%s log=%s", cfg.File, stateFile(), daemonLogPath())

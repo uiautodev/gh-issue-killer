@@ -134,8 +134,9 @@ install -m 0755 bin/gh-issue-killer "$BIN_DIR/gh-issue-killer"
 "$BIN_DIR/gh-issue-killer" -h | head -3      # prints usage
 ```
 
-Keep `prompts/` next to the binary if the repository is not the working
-directory: the binary looks for `./prompts` first, then `<exe-dir>/prompts`.
+Prompts are embedded in the binary, so a copied binary is self-contained. A
+`prompts/` directory next to the binary (or in the working directory) still
+overrides the embedded copies for development.
 
 ## 4. Configure — do not use `-init` in automation
 
