@@ -63,8 +63,10 @@ func resolveRunFile(runDir, value string) string {
 	return file
 }
 
-// composeBeforeAfter draws before and after side by side on a white canvas
-// with a 12 px gap, padding both to the taller height. Pure stdlib image code.
+// composeBeforeAfter draws before and after side by side on a white canvas,
+// separated by a light gutter with a dark vertical divider so it is obvious
+// which half is the old version. Both are padded to the taller height.
+// Pure stdlib image code.
 func composeBeforeAfter(beforeFile, afterFile, outFile string) error {
 	before, err := decodeImage(beforeFile)
 	if err != nil {
@@ -83,11 +85,19 @@ func composeBeforeAfter(beforeFile, afterFile, outFile string) error {
 	if afterHeight > height {
 		height = afterHeight
 	}
-	const gap = 12
+	const (
+		gap     = 20
+		divider = 2
+	)
 	width := beforeWidth + gap + afterWidth
 
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+
+	gutter := image.Rect(beforeWidth, 0, beforeWidth+gap, height)
+	draw.Draw(canvas, gutter, &image.Uniform{C: color.RGBA{R: 0xe2, G: 0xe8, B: 0xf0, A: 0xff}}, image.Point{}, draw.Src)
+	lineX := beforeWidth + (gap-divider)/2
+	draw.Draw(canvas, image.Rect(lineX, 0, lineX+divider, height), &image.Uniform{C: color.RGBA{R: 0x47, G: 0x55, B: 0x69, A: 0xff}}, image.Point{}, draw.Src)
 
 	beforeTop := (height - beforeHeight) / 2
 	afterTop := (height - afterHeight) / 2

@@ -46,6 +46,7 @@ type IssueState struct {
 	Worktree          string        `json:"worktree,omitempty"`
 	PRNumber          int           `json:"prNumber,omitempty"`
 	PRURL             string        `json:"prUrl,omitempty"`
+	PRCommentID       int64         `json:"prCommentId,omitempty"`
 	Checks            []CheckResult `json:"checks,omitempty"`
 	Screenshots       []Shot        `json:"screenshots,omitempty"`
 	BlockedReason     string        `json:"blockedReason,omitempty"`

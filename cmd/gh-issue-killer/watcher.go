@@ -166,7 +166,7 @@ func dispatchSmee(ctx context.Context, app *AppContext, router *Router, envelope
 		if reactor == "" {
 			reactor = payload.Sender.Login
 		}
-		router.HandlePlanReaction(ctx, app.Repo.FullName, payload.Issue.Number,
+		router.HandleReaction(ctx, app.Repo.FullName, payload.Issue.Number,
 			payload.Comment.ID, reactor, payload.Reaction.Content)
 		return
 	}

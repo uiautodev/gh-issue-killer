@@ -252,6 +252,7 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 		st.Phase = "awaiting_approval"
 		st.Plan = plan
 		st.PlanCommentID = posted.ID
+		st.PRCommentID = 0
 		st.SessionID = result.SessionID
 		st.LastCommentID = lastComment
 	})
@@ -435,7 +436,12 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 	if shotsMD := screenshotsMarkdown(shots); shotsMD != "" {
 		body = append(body, "", "## 截图", "", shotsMD)
 	}
-	if _, err := app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join(body, "\n")); err != nil {
+	body = append(body, "", fmt.Sprintf("确认无误回复 `@%s 合并`，或给这条评论加 👍，我会 squash merge 到主干并关闭本 issue。", app.AgentLogin))
+	if posted, err := app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join(body, "\n")); err == nil {
+		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+			state.PRCommentID = posted.ID
+		})
+	} else {
 		app.Log.Warn("post revision comment: %v", err)
 	}
 	app.Log.Info("revision pushed for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
@@ -619,8 +625,12 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 	if uiNote != "" {
 		commentParts = append(commentParts, "", "## UI 验证", "", uiNote)
 	}
-	commentParts = append(commentParts, "", "确认无误回复 **合并**，我会 squash merge 到主干并关闭本 issue。")
-	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join(commentParts, "\n"))
+	commentParts = append(commentParts, "", fmt.Sprintf("确认无误回复 `@%s 合并`，或给这条评论加 👍，我会 squash merge 到主干并关闭本 issue。", app.AgentLogin))
+	if posted, err := app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join(commentParts, "\n")); err == nil {
+		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+			state.PRCommentID = posted.ID
+		})
+	}
 	app.Log.Info("PR opened for %s#%d: %s", app.Repo.FullName, number, pr.HTMLURL)
 }
 

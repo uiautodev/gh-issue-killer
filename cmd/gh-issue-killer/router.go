@@ -202,34 +202,38 @@ func hasThumbsUp(reactions []Reaction, login string) bool {
 	return false
 }
 
-// HandlePlanReaction approves a plan when an approver adds 👍 to the plan
-// comment. The reaction is re-read from GitHub so a relay cannot forge it.
-func (r *Router) HandlePlanReaction(ctx context.Context, fullName string, number int, commentID int64, reactor, content string) {
+// HandleReaction turns an approver's 👍 into an action: on the plan comment
+// it approves the plan, on the PR-announcement comment it merges. The
+// reaction is re-read from GitHub so a relay cannot forge it.
+func (r *Router) HandleReaction(ctx context.Context, fullName string, number int, commentID int64, reactor, content string) {
 	app := r.contexts[fullName]
-	if app == nil || number == 0 || commentID == 0 {
+	if app == nil || number == 0 || commentID == 0 || content != "+1" {
 		return
 	}
 	st := r.store.Issue(fullName, number)
-	if content != "+1" || st.Phase != "awaiting_approval" || st.PlanCommentID != commentID {
-		r.log.Debug("ignore reaction %q on %s#%d comment %d (phase=%s)", content, fullName, number, commentID, firstNonEmpty(st.Phase, "none"))
+	if st.PlanCommentID != commentID && st.PRCommentID != commentID {
+		r.log.Debug("ignore 👍 on %s#%d comment %d (phase=%s)", fullName, number, commentID, firstNonEmpty(st.Phase, "none"))
 		return
 	}
-	reactor = firstNonEmpty(reactor, "")
 	if !isApproverLogin(reactor, app.Repo.Approvers) && !strings.EqualFold(reactor, r.agentLogin) {
 		r.log.Debug("ignore 👍 from non-approver @%s on %s#%d", reactor, fullName, number)
 		return
 	}
-	reactions, err := app.GH.ListCommentReactions(ctx, fullName, commentID)
-	if err != nil {
-		r.log.Warn("list reactions for comment %d: %v", commentID, err)
-		return
-	}
-	if !hasThumbsUp(reactions, reactor) {
+	login, ok := r.commentThumbsUp(ctx, app, commentID)
+	if !ok {
 		r.log.Debug("👍 from @%s not on comment %d yet", reactor, commentID)
 		return
 	}
-	r.log.Info("plan approved by 👍 from @%s on %s#%d", reactor, fullName, number)
-	r.enqueueApprove(app, fullName, number, reactor)
+	switch {
+	case st.Phase == "awaiting_approval" && st.PlanCommentID == commentID:
+		r.log.Info("plan approved by 👍 from @%s on %s#%d", login, fullName, number)
+		r.enqueueApprove(app, fullName, number, login)
+	case st.Phase == "pr_open" && st.PRCommentID == commentID:
+		r.log.Info("merge approved by 👍 from @%s on %s#%d", login, fullName, number)
+		r.enqueueMerge(app, fullName, number, login)
+	default:
+		r.log.Debug("ignore 👍 on %s#%d comment %d (phase=%s)", fullName, number, commentID, firstNonEmpty(st.Phase, "none"))
+	}
 }
 
 func (r *Router) enqueueApprove(app *AppContext, fullName string, number int, sender string) {
@@ -257,14 +261,39 @@ func (r *Router) enqueueApprove(app *AppContext, fullName string, number int, se
 	})
 }
 
-// planThumbsUp returns an approver who reacted 👍 to the plan comment.
-func (r *Router) planThumbsUp(ctx context.Context, app *AppContext, st IssueState) (string, bool) {
-	if st.PlanCommentID == 0 {
+func (r *Router) enqueueMerge(app *AppContext, fullName string, number int, sender string) {
+	key := fmt.Sprintf("%s#%d", fullName, number)
+	trigger := Trigger{
+		Type:        "reaction",
+		IssueNumber: number,
+		Sender:      sender,
+		Key:         fmt.Sprintf("merge-%d", time.Now().UnixNano()),
+	}
+	r.enqueue(key, func(jobCtx context.Context) {
+		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
+		if err != nil {
+			blockIssue(jobCtx, app, number, err)
+			return
+		}
+		if issue.State != "open" {
+			return
+		}
+		current := r.store.Issue(fullName, number)
+		if current.Phase != "pr_open" || current.PRNumber == 0 {
+			return
+		}
+		doMerge(jobCtx, app, trigger, issue, current)
+	})
+}
+
+// commentThumbsUp returns an approver who reacted 👍 to the comment.
+func (r *Router) commentThumbsUp(ctx context.Context, app *AppContext, commentID int64) (string, bool) {
+	if commentID == 0 {
 		return "", false
 	}
-	reactions, err := app.GH.ListCommentReactions(ctx, app.Repo.FullName, st.PlanCommentID)
+	reactions, err := app.GH.ListCommentReactions(ctx, app.Repo.FullName, commentID)
 	if err != nil {
-		r.log.Debug("list plan reactions: %v", err)
+		r.log.Debug("list reactions for comment %d: %v", commentID, err)
 		return "", false
 	}
 	for _, reaction := range reactions {
@@ -279,9 +308,9 @@ func (r *Router) planThumbsUp(ctx context.Context, app *AppContext, st IssueStat
 	return "", false
 }
 
-// checkPlanReactions is the polling fallback for 👍 approvals: reactions do
-// not bump an issue's updated_at, so awaiting issues need their own scan.
-func (r *Router) checkPlanReactions(ctx context.Context, app *AppContext) {
+// checkReactions is the polling fallback for 👍 approvals: reactions do not
+// bump an issue's updated_at, so these issues need their own scan.
+func (r *Router) checkReactions(ctx context.Context, app *AppContext) {
 	issues, err := app.GH.ListIssues(ctx, app.Repo.FullName, "open", nil)
 	if err != nil {
 		r.log.Debug("scan awaiting issues: %v", err)
@@ -289,12 +318,17 @@ func (r *Router) checkPlanReactions(ctx context.Context, app *AppContext) {
 	}
 	for _, issue := range issues {
 		st := r.store.Issue(app.Repo.FullName, issue.Number)
-		if st.Phase != "awaiting_approval" {
-			continue
-		}
-		if reactor, ok := r.planThumbsUp(ctx, app, st); ok {
-			r.log.Info("plan approved by 👍 from @%s on %s#%d (poll)", reactor, app.Repo.FullName, issue.Number)
-			r.enqueueApprove(app, app.Repo.FullName, issue.Number, reactor)
+		switch st.Phase {
+		case "awaiting_approval":
+			if login, ok := r.commentThumbsUp(ctx, app, st.PlanCommentID); ok {
+				r.log.Info("plan approved by 👍 from @%s on %s#%d (poll)", login, app.Repo.FullName, issue.Number)
+				r.enqueueApprove(app, app.Repo.FullName, issue.Number, login)
+			}
+		case "pr_open":
+			if login, ok := r.commentThumbsUp(ctx, app, st.PRCommentID); ok {
+				r.log.Info("merge approved by 👍 from @%s on %s#%d (poll)", login, app.Repo.FullName, issue.Number)
+				r.enqueueMerge(app, app.Repo.FullName, issue.Number, login)
+			}
 		}
 	}
 }
@@ -738,7 +772,7 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 			state.LastCommentID = last
 		})
 	}
-	r.checkPlanReactions(ctx, app)
+	r.checkReactions(ctx, app)
 	r.log.Debug("poll %s: handled %d new comments", fullName, freshComments)
 	app.Store.UpdateMeta(fullName, func(meta *RepoMeta) {
 		meta.LastPollAt = nowISO()

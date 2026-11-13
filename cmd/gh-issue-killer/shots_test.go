@@ -47,9 +47,18 @@ func TestComposeBeforeAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 100 + 12px gap + 80, padded to the taller 70px height.
-	if img.Bounds().Dx() != 192 || img.Bounds().Dy() != 70 {
+	// 100 + 20px gap + 80, padded to the taller 70px height.
+	if img.Bounds().Dx() != 200 || img.Bounds().Dy() != 70 {
 		t.Fatalf("combined size = %dx%d", img.Bounds().Dx(), img.Bounds().Dy())
+	}
+	// The gutter is light grey and carries a dark divider down the middle.
+	r, _, _, _ := img.At(102, 35).RGBA()
+	if r>>8 < 0xd0 {
+		t.Fatalf("gutter should be light grey, got %#x", r>>8)
+	}
+	r, g, b, _ := img.At(109, 35).RGBA()
+	if r>>8 > 0x80 || g>>8 > 0x80 || b>>8 > 0x80 {
+		t.Fatalf("divider should be dark, got %#x %#x %#x", r>>8, g>>8, b>>8)
 	}
 }
 
