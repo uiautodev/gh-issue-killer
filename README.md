@@ -9,19 +9,18 @@ entirely from issue comments.
 ## Workflow
 
 ```mermaid
-%%{init: {"themeVariables": {"fontSize": "12px"}, "flowchart": {"nodeSpacing": 10, "rankSpacing": 14}}}%%
-flowchart TD
+%%{init: {"themeVariables": {"fontSize": "14px"}, "flowchart": {"nodeSpacing": 20, "rankSpacing": 34}}}%%
+flowchart LR
     A(["Issue @agent"]) --> B["Plan comment"]
     B -- "lgtm / 👍" --> C["Implement + checks"]
-    C -. "fail → fix rounds" .-> C
-    C -- "pass" --> D["PR open"]
-    D -- "feedback" --> C
+    C --> D["PR open"]
+    D -. "feedback" .-> C
     D -- "合并 / 👍" --> E{"CI"}
     E -- "green" --> F["Squash merge"]
 ```
 
-A failing check or CI run parks the issue as `blocked`; fix it and retry with
-`@agent continue` or `@agent 合并`.
+Failing checks get `maxFixRounds` repair rounds. A failing CI parks the issue as
+`blocked`; fix it and retry with `@agent 合并`.
 
 Closing the issue at any stage cancels the task and closes the PR; reopening
 resumes it. A merged issue that is reopened starts a fresh plan.

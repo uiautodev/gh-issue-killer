@@ -8,18 +8,17 @@
 ## 工作流程
 
 ```mermaid
-%%{init: {"themeVariables": {"fontSize": "12px"}, "flowchart": {"nodeSpacing": 10, "rankSpacing": 14}}}%%
-flowchart TD
+%%{init: {"themeVariables": {"fontSize": "14px"}, "flowchart": {"nodeSpacing": 20, "rankSpacing": 34}}}%%
+flowchart LR
     A(["Issue @agent"]) --> B["计划评论"]
     B -- "lgtm / 👍" --> C["实现 + 检查"]
-    C -. "失败 → 自动修复" .-> C
-    C -- "通过" --> D["开 PR"]
-    D -- "反馈" --> C
+    C --> D["开 PR"]
+    D -. "反馈" .-> C
     D -- "合并 / 👍" --> E{"CI"}
     E -- "通过" --> F["Squash merge"]
 ```
 
-检查或 CI 失败时 issue 会停在 `blocked`；修好后用 `@agent continue` 或
+检查失败会自动修 `maxFixRounds` 轮；CI 失败时 issue 停在 `blocked`，修好后用
 `@agent 合并` 重试。
 
 任何时候关闭 issue 都会取消任务并关掉 PR；重新打开会接着做。已经合并的
