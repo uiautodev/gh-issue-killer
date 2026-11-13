@@ -93,21 +93,29 @@ func TestIsMentionAndCommands(t *testing.T) {
 	}
 
 	cases := map[string]string{
-		"lgtm":                    "approve",
-		"  continue  ":            "approve",
-		"@my-agent lgtm":          "approve",
-		"合并":                      "merge",
-		"merge it":                "merge",
-		"ship":                    "merge",
-		"cancel":                  "cancel",
-		"停止":                      "cancel",
-		"continuously improving":  "",
-		"looks reasonable, notes": "",
+		"@my-agent lgtm":             "approve",
+		"@my-agent continue":         "approve",
+		"@my-agent 继续":               "approve",
+		"@my-agent lgtm 👍":           "approve",
+		"@my-agent 合并":               "merge",
+		"@my-agent 合并吧":              "merge",
+		"@my-agent merge":            "merge",
+		"@my-agent ship":             "merge",
+		"@my-agent cancel":           "cancel",
+		"@my-agent 停止":               "cancel",
+		"lgtm":                       "",
+		"@my-agent looks good, lgtm": "",
+		"@my-agent 样式有点丑，合并到 input-group 里": "",
+		"@my-agent 继续改":           "",
+		"@my-agent 这个方案 lgtm，but": "",
 	}
 	for input, expected := range cases {
-		if got := parseCommand(input); got != expected {
-			t.Fatalf("parseCommand(%q) = %q, want %q", input, got, expected)
+		if got := resolveCommand(input, true, "my-agent"); got != expected {
+			t.Fatalf("resolveCommand(%q) = %q, want %q", input, got, expected)
 		}
+	}
+	if got := resolveCommand("@my-agent lgtm", false, "my-agent"); got != "" {
+		t.Fatalf("non-approver command = %q, want empty", got)
 	}
 }
 
@@ -161,22 +169,10 @@ func TestIsAgentComment(t *testing.T) {
 	}
 }
 
-func TestResolveCommandNeedsMention(t *testing.T) {
-	cases := []struct {
-		body     string
-		approver bool
-		want     string
-	}{
-		{"@my-agent lgtm", true, "approve"},
-		{"lgtm", true, ""},
-		{"looks good, lgtm", true, ""},
-		{"@my-agent 合并", true, "merge"},
-		{"@my-agent lgtm", false, ""},
-		{"随便聊聊 continue", true, ""},
-	}
-	for _, c := range cases {
-		if got := resolveCommand(c.body, c.approver, "my-agent"); got != c.want {
-			t.Fatalf("resolveCommand(%q, approver=%v) = %q, want %q", c.body, c.approver, got, c.want)
+func TestResolveCommandApproverOnly(t *testing.T) {
+	for _, body := range []string{"@my-agent lgtm", "@my-agent 合并", "@my-agent cancel"} {
+		if got := resolveCommand(body, false, "my-agent"); got != "" {
+			t.Fatalf("non-approver %q = %q, want empty", body, got)
 		}
 	}
 }

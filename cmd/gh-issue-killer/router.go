@@ -7,12 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
-
-var (
-	approveRE = regexp.MustCompile(`(?i)(^|[^a-z])(lgtm|continue)([^a-z]|$)`)
-	mergeRE   = regexp.MustCompile(`(?i)合并|(^|[^a-z])(merge|ship)([^a-z]|$)`)
-	cancelRE  = regexp.MustCompile(`(?i)(^|[^a-z])(cancel|stop)([^a-z]|$)|停止`)
+	"unicode"
 )
 
 func isMention(text, login string) bool {
@@ -24,13 +19,37 @@ func isMention(text, login string) bool {
 }
 
 // resolveCommand returns the command a comment carries. Only approvers can
-// command the agent, and the comment must mention it explicitly so casual
-// replies never start or cancel work.
+// command the agent, the comment must mention it, and the whole comment must
+// be the command itself. Prose like "把按钮合并到 input-group 里" therefore
+// never merges a PR by accident.
 func resolveCommand(body string, isApprover bool, agentLogin string) string {
 	if !isApprover || !isMention(body, agentLogin) {
 		return ""
 	}
-	return parseCommand(body)
+	text := strings.ToLower(stripMention(body, agentLogin))
+	text = strings.TrimFunc(text, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	for _, filler := range []string{"吧", "了", "谢谢", "thanks", "please", "thx"} {
+		text = strings.TrimSpace(strings.TrimSuffix(text, filler))
+	}
+	switch text {
+	case "lgtm", "continue", "继续":
+		return "approve"
+	case "合并", "merge", "ship":
+		return "merge"
+	case "cancel", "stop", "停止":
+		return "cancel"
+	}
+	return ""
+}
+
+func stripMention(text, login string) string {
+	if login == "" {
+		return text
+	}
+	pattern := regexp.MustCompile(`(?i)@` + regexp.QuoteMeta(login))
+	return pattern.ReplaceAllString(text, " ")
 }
 
 // isAgentComment reports whether a comment is daemon output rather than a
@@ -39,23 +58,6 @@ func resolveCommand(body string, isApprover bool, agentLogin string) string {
 func isAgentComment(body string) bool {
 	return strings.Contains(body, agentCommentMarker) ||
 		strings.HasPrefix(strings.TrimSpace(body), "### 🤖")
-}
-
-func parseCommand(text string) string {
-	compact := strings.Join(strings.Fields(text), " ")
-	if len([]rune(compact)) > 200 {
-		return ""
-	}
-	if cancelRE.MatchString(compact) {
-		return "cancel"
-	}
-	if mergeRE.MatchString(compact) {
-		return "merge"
-	}
-	if approveRE.MatchString(compact) {
-		return "approve"
-	}
-	return ""
 }
 
 func isRelevantIssue(issue Issue, agentLogin string) bool {
@@ -224,12 +226,10 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 				break
 			}
 		}
-		command := ""
-		if isApprover {
-			command = resolveCommand(trigger.CommentBody, isApprover, r.agentLogin)
-			if command == "" && parseCommand(trigger.CommentBody) != "" {
-				r.log.Info("comment %d on %s#%d looks like a command but does not mention @%s; ignored",
-					trigger.CommentID, fullName, trigger.IssueNumber, r.agentLogin)
+		command := resolveCommand(trigger.CommentBody, isApprover, r.agentLogin)
+		if !selfComment && isApprover && st.Phase != "" {
+			if _, err := app.GH.PostComment(ctx, fullName, trigger.IssueNumber, "ok"); err != nil {
+				r.log.Warn("ack comment %d on %s#%d: %v", trigger.CommentID, fullName, trigger.IssueNumber, err)
 			}
 		}
 		r.log.Info("comment trigger %s#%d from @%s mentioned=%v command=%s", fullName, trigger.IssueNumber, trigger.Sender, mentioned, firstNonEmpty(command, "-"))
@@ -291,6 +291,23 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 				if isRelevantIssue(issue, r.agentLogin) || mentioned {
 					doPlan(jobCtx, app, trigger, issue)
 				}
+			})
+			return
+		}
+
+		// A mention with prose (not a command) on an issue with an open PR is
+		// feedback: keep working on the same branch instead of merging.
+		if mentioned && isApprover && st.Phase == "pr_open" {
+			r.enqueue(key, func(jobCtx context.Context) {
+				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
+				if err != nil {
+					blockIssue(jobCtx, app, trigger.IssueNumber, err)
+					return
+				}
+				if issue.State != "open" {
+					return
+				}
+				doRevise(jobCtx, app, trigger, issue, st)
 			})
 			return
 		}
@@ -381,26 +398,39 @@ func (r *Router) HandleClosed(ctx context.Context, fullName string, issue Issue)
 // awaiting_approval; without a plan it starts a fresh planning pass.
 func (r *Router) HandleReopened(ctx context.Context, fullName string, issue Issue) {
 	st := r.store.Issue(fullName, issue.Number)
-	if st.Phase != "cancelled" {
+	if st.Phase != "cancelled" && st.Phase != "done" {
 		return
 	}
 	app := r.contexts[fullName]
 	if app == nil {
 		return
 	}
-	r.log.Info("issue %s#%d reopened; resuming", fullName, issue.Number)
-	if st.Plan != "" {
+	r.log.Info("issue %s#%d reopened; resuming (was %s)", fullName, issue.Number, firstNonEmpty(st.Phase, "none"))
+	if st.Phase == "done" {
+		// A completed issue that is reopened starts a new round: the old PR is
+		// merged, so a fresh plan and worktree are needed.
+		app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {
+			state.Phase = "new"
+			state.PRNumber = 0
+			state.PRURL = ""
+			state.Branch = ""
+			state.Worktree = ""
+			state.SessionID = ""
+			state.MergedAt = ""
+		})
+	} else if st.Plan != "" {
 		app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {
 			state.Phase = "awaiting_approval"
 			state.CancelledAt = ""
 		})
 		app.GH.SetPhaseLabel(ctx, fullName, issue.Number, "agent:awaiting-approval")
 		return
+	} else {
+		app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {
+			state.Phase = "new"
+			state.CancelledAt = ""
+		})
 	}
-	app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {
-		state.Phase = "new"
-		state.CancelledAt = ""
-	})
 	r.HandleTrigger(ctx, fullName, Trigger{
 		Type:        "issue",
 		IssueNumber: issue.Number,

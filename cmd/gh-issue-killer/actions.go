@@ -139,23 +139,12 @@ func runDirFor(ctx *AppContext, issueNumber int) string {
 	return dir
 }
 
-func react(ctx context.Context, app *AppContext, trigger Trigger, content string) {
-	if trigger.CommentID > 0 {
-		_ = app.GH.ReactComment(ctx, app.Repo.FullName, trigger.CommentID, content)
-	} else {
-		_ = app.GH.ReactIssue(ctx, app.Repo.FullName, trigger.IssueNumber, content)
-	}
-}
-
 func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) {
 	number := issue.Number
 	if issueCancelled(app, number) {
 		return
 	}
 	app.Log.Info("plan start for %s#%d", app.Repo.FullName, number)
-	trigger2 := trigger
-	trigger2.IssueNumber = number
-	react(ctx, app, trigger2, "eyes")
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(st *IssueState) {
 		st.Phase = "planning"
 		st.Issue = issueMeta(issue)
@@ -259,15 +248,193 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 	app.Log.Info("plan posted for %s#%d (comment %d)", app.Repo.FullName, number, posted.ID)
 }
 
+func runChecksWithFixes(ctx context.Context, app *AppContext, runner CodingRunner, sessionID, worktree, runDir string) ([]CheckResult, bool) {
+	checks := loadChecks(worktree, runDir, app.Log)
+	checkResults, ok := runChecks(ctx, checks, worktree, runDir, app.Env, app.Log)
+	for attempt := 1; !ok && attempt <= app.Cfg.MaxFixRounds; attempt++ {
+		app.Log.Warn("checks failed, fix round %d/%d", attempt, app.Cfg.MaxFixRounds)
+		failures := make([]string, 0)
+		for _, item := range checkResults {
+			if item.OK {
+				continue
+			}
+			failures = append(failures, fmt.Sprintf("### %s (exit %d)\n```\n%s\n```", item.Name, item.Code, tailString(item.OutputTail, 40)))
+		}
+		fixPrompt, promptErr := renderPrompt("fix", map[string]string{
+			"RUN_DIR":      runDir,
+			"ATTEMPT":      itoa(attempt),
+			"MAX_ATTEMPTS": itoa(app.Cfg.MaxFixRounds),
+			"FAILURES":     strings.Join(failures, "\n\n"),
+			"WORKTREE":     worktree,
+		})
+		if promptErr != nil {
+			app.Log.Warn("render fix prompt: %v", promptErr)
+			break
+		}
+		if _, runErr := runner.Run(ctx, RunnerOptions{
+			Cwd:       worktree,
+			Prompt:    fixPrompt,
+			SessionID: sessionID,
+			Model:     app.Repo.Model,
+			RunDir:    runDir,
+			Env:       app.Env,
+			Timeout:   app.Cfg.ImplementTimeout,
+			LogFile:   filepath.Join(runDir, fmt.Sprintf("fix-%d-%s.log", attempt, app.Repo.CodingAgent)),
+			Log:       app.Log,
+		}); runErr != nil {
+			app.Log.Error("fix round %d failed: %v", attempt, runErr)
+		}
+		checks = loadChecks(worktree, runDir, app.Log)
+		checkResults, ok = runChecks(ctx, checks, worktree, runDir, app.Env, app.Log)
+	}
+	return checkResults, ok
+}
+
+func reportCheckFailures(ctx context.Context, app *AppContext, number int, worktree string, checkResults []CheckResult) {
+	var details []string
+	for _, item := range checkResults {
+		if item.OK {
+			continue
+		}
+		details = append(details, fmt.Sprintf("<details><summary>%s</summary>\n\n```\n%s\n```\n</details>", item.Name, sanitize(tailString(item.OutputTail, 40))))
+	}
+	body := strings.Join([]string{
+		"### 🤖 检查未通过，已停止",
+		"",
+		formatChecks(checkResults),
+		"",
+		strings.Join(details, "\n"),
+		"",
+		fmt.Sprintf("worktree 保留在 `%s`。修复后回复 `@%s continue` 重跑。", worktree, app.AgentLogin),
+	}, "\n")
+	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, body)
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Phase = "blocked"
+		state.BlockedReason = "checks failed"
+		state.Checks = checkResults
+	})
+	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:blocked")
+}
+
+func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
+	number := issue.Number
+	if issueCancelled(app, number) {
+		return
+	}
+	if st.PRNumber == 0 || st.Branch == "" {
+		blockIssue(ctx, app, number, fmt.Errorf("cannot apply feedback without an open PR"))
+		return
+	}
+	worktree := st.Worktree
+	if worktree == "" {
+		blockIssue(ctx, app, number, fmt.Errorf("no worktree for feedback; reply @%s continue to restart", app.AgentLogin))
+		return
+	}
+	if _, err := os.Stat(filepath.Join(worktree, ".git")); err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("worktree %s is gone: %w", worktree, err))
+		return
+	}
+	app.Log.Info("revise start for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Phase = "implementing"
+	})
+	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:in-progress")
+
+	runDir := runDirFor(app, number)
+	_ = os.MkdirAll(filepath.Join(runDir, "screenshots"), 0o755)
+	prompt, err := renderPrompt("revise", map[string]string{
+		"REPO":     app.Repo.FullName,
+		"WORKTREE": worktree,
+		"RUN_DIR":  runDir,
+		"NUMBER":   itoa(number),
+		"TITLE":    issue.Title,
+		"BODY":     firstNonEmpty(issue.Body, "(no description)"),
+		"PLAN":     firstNonEmpty(st.Plan, "(missing plan)"),
+		"PR":       fmt.Sprintf("#%d %s", st.PRNumber, st.PRURL),
+		"FEEDBACK": firstNonEmpty(strings.TrimSpace(trigger.CommentBody), "(no text)"),
+	})
+	if err != nil {
+		blockIssue(ctx, app, number, err)
+		return
+	}
+	runner, err := newCodingRunner(app.Repo.CodingAgent)
+	if err != nil {
+		blockIssue(ctx, app, number, err)
+		return
+	}
+	result, err := runner.Run(ctx, RunnerOptions{
+		Cwd:       worktree,
+		Prompt:    prompt,
+		SessionID: st.SessionID,
+		Model:     app.Repo.Model,
+		RunDir:    runDir,
+		Env:       app.Env,
+		Timeout:   app.Cfg.ImplementTimeout,
+		LogFile:   filepath.Join(runDir, fmt.Sprintf("revise-%s.log", app.Repo.CodingAgent)),
+		Log:       app.Log,
+	})
+	if err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("revision failed: %w", err))
+		return
+	}
+	sessionID := firstNonEmpty(result.SessionID, st.SessionID)
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.SessionID = sessionID
+	})
+
+	checkResults, ok := runChecksWithFixes(ctx, app, runner, sessionID, worktree, runDir)
+	if !ok {
+		reportCheckFailures(ctx, app, number, worktree, checkResults)
+		return
+	}
+	if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("chore: apply feedback for #%d", number)); err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("commit: %w", err))
+		return
+	}
+	if issueCancelled(app, number) {
+		return
+	}
+	if err := pushBranch(ctx, worktree, app.Local, st.Branch); err != nil {
+		blockIssue(ctx, app, number, fmt.Errorf("push: %w", err))
+		return
+	}
+
+	manifest := loadManifest(runDir)
+	var shots []Shot
+	if manifest.UIChanged != nil && *manifest.UIChanged {
+		shots = collectScreenshots(ctx, app.GH, runDir, manifest, app.RepoInfo.ID, app.Log)
+	}
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Phase = "pr_open"
+		state.Checks = checkResults
+		if len(shots) > 0 {
+			state.Screenshots = shots
+		}
+	})
+	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:pr-open")
+
+	body := []string{
+		fmt.Sprintf("### 🤖 已按评论更新 %s", st.PRURL),
+		"",
+		firstNonEmpty(manifest.Summary, "改动已推送到原分支。"),
+		"",
+		formatChecks(checkResults),
+	}
+	if shotsMD := screenshotsMarkdown(shots); shotsMD != "" {
+		body = append(body, "", "## 截图", "", shotsMD)
+	}
+	if _, err := app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join(body, "\n")); err != nil {
+		app.Log.Warn("post revision comment: %v", err)
+	}
+	app.Log.Info("revision pushed for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
+}
+
 func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
 	number := issue.Number
 	if issueCancelled(app, number) {
 		return
 	}
 	app.Log.Info("implement start for %s#%d", app.Repo.FullName, number)
-	trigger2 := trigger
-	trigger2.IssueNumber = number
-	react(ctx, app, trigger2, "rocket")
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "implementing"
 		state.StartedAt = nowISO()
@@ -340,69 +507,9 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		state.SessionID = sessionID
 	})
 
-	checks := loadChecks(worktree, runDir, app.Log)
-	checkResults, ok := runChecks(ctx, checks, worktree, runDir, app.Env, app.Log)
-	for attempt := 1; !ok && attempt <= app.Cfg.MaxFixRounds; attempt++ {
-		app.Log.Warn("checks failed, fix round %d/%d", attempt, app.Cfg.MaxFixRounds)
-		failures := make([]string, 0)
-		for _, item := range checkResults {
-			if item.OK {
-				continue
-			}
-			failures = append(failures, fmt.Sprintf("### %s (exit %d)\n```\n%s\n```", item.Name, item.Code, tailString(item.OutputTail, 40)))
-		}
-		fixPrompt, promptErr := renderPrompt("fix", map[string]string{
-			"RUN_DIR":      runDir,
-			"ATTEMPT":      itoa(attempt),
-			"MAX_ATTEMPTS": itoa(app.Cfg.MaxFixRounds),
-			"FAILURES":     strings.Join(failures, "\n\n"),
-			"WORKTREE":     worktree,
-		})
-		if promptErr != nil {
-			app.Log.Warn("render fix prompt: %v", promptErr)
-			break
-		}
-		if _, runErr := runner.Run(ctx, RunnerOptions{
-			Cwd:       worktree,
-			Prompt:    fixPrompt,
-			SessionID: sessionID,
-			Model:     app.Repo.Model,
-			RunDir:    runDir,
-			Env:       app.Env,
-			Timeout:   app.Cfg.ImplementTimeout,
-			LogFile:   filepath.Join(runDir, fmt.Sprintf("fix-%d-%s.log", attempt, app.Repo.CodingAgent)),
-			Log:       app.Log,
-		}); runErr != nil {
-			app.Log.Error("fix round %d failed: %v", attempt, runErr)
-		}
-		checks = loadChecks(worktree, runDir, app.Log)
-		checkResults, ok = runChecks(ctx, checks, worktree, runDir, app.Env, app.Log)
-	}
-
+	checkResults, ok := runChecksWithFixes(ctx, app, runner, sessionID, worktree, runDir)
 	if !ok {
-		var details []string
-		for _, item := range checkResults {
-			if item.OK {
-				continue
-			}
-			details = append(details, fmt.Sprintf("<details><summary>%s</summary>\n\n```\n%s\n```\n</details>", item.Name, sanitize(tailString(item.OutputTail, 40))))
-		}
-		body := strings.Join([]string{
-			"### 🤖 检查未通过，已停止",
-			"",
-			formatChecks(checkResults),
-			"",
-			strings.Join(details, "\n"),
-			"",
-			fmt.Sprintf("worktree 保留在 `%s`。修复后回复 `@%s continue` 重跑。", worktree, app.AgentLogin),
-		}, "\n")
-		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, body)
-		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
-			state.Phase = "blocked"
-			state.BlockedReason = "checks failed"
-			state.Checks = checkResults
-		})
-		app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:blocked")
+		reportCheckFailures(ctx, app, number, worktree, checkResults)
 		return
 	}
 
@@ -552,9 +659,6 @@ func waitForChecks(ctx context.Context, app *AppContext, sha string, timeout tim
 func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
 	number := issue.Number
 	app.Log.Info("merge start for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
-	trigger2 := trigger
-	trigger2.IssueNumber = number
-	react(ctx, app, trigger2, "hooray")
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "merging"
 	})
@@ -656,9 +760,6 @@ func issueCancelled(app *AppContext, number int) bool {
 func doCancel(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
 	number := issue.Number
 	app.Log.Info("cancel for %s#%d", app.Repo.FullName, number)
-	trigger2 := trigger
-	trigger2.IssueNumber = number
-	react(ctx, app, trigger2, "confused")
 	if st.Worktree != "" {
 		removeWorktree(ctx, app.Local, st.Worktree, false)
 		deleteLocalBranch(ctx, app.Local, st.Branch)

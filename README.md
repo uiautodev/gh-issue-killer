@@ -3,8 +3,9 @@
 Watch GitHub issues, let a coding agent (opencode, Claude Code, or Codex) plan → implement → test → screenshot → PR → squash-merge them, driven entirely from issue comments.
 
 ```
-issue @agent / assigned        👀 reaction + plan comment
+issue @agent / assigned        plan comment
 owner: @agent lgtm       →     worktree + code + unit/E2E checks + before/after screenshot + PR
+owner: @agent <feedback>  →     keep working on the open PR
 owner: @agent 合并        →     wait CI → squash merge → close issue/PR → clean worktree
 owner: @agent cancel     →     abort, keep the issue open
 ```
@@ -160,12 +161,14 @@ State: `~/.gh-issue-killer/state.json` · logs: `~/.gh-issue-killer/logs/daemon.
 
 ## Commands the daemon understands
 
-Commands must come from an approver **and mention the agent**, for example `@my-agent lgtm`. A comment that merely contains a keyword is ignored, so ordinary discussion never starts or cancels work.
+Commands must come from an approver, mention the agent, and be the **whole comment** (`@my-agent lgtm`). Words inside a sentence never count, so "把按钮合并到 input-group 里" does not merge anything.
 
 | comment | effect |
 | --- | --- |
-| `@agent lgtm`, `@agent continue` | approve the plan (or retry after blocked) |
+| `@agent lgtm`, `@agent continue`, `@agent 继续` | approve the plan (or retry after blocked) |
 | `@agent 合并`, `@agent merge`, `@agent ship` | squash merge the PR, close issue + PR, clean the worktree |
 | `@agent cancel`, `@agent stop`, `@agent 停止` | abort the current task |
+
+Every approver comment on a tracked issue gets a short `ok` reply (no emoji reactions). A comment that mentions the agent but is not a command is treated as feedback: on `pr_open` the agent keeps working on the same branch, and reopening a `done` issue starts a fresh plan.
 
 Anyone can `@<agent-login>` an issue (or assign it) to request a plan. The agent never reacts to its own generated comments and never treats its own issues as triggers.
