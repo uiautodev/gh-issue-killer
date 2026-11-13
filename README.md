@@ -126,7 +126,7 @@ details live in [DEPLOY.md](DEPLOY.md#41-configuration-reference).
 ## Development
 
 ```bash
-pre-commit install    # gofmt, go vet, go test, go build on every commit
+pre-commit install    # gofmt, vet, test, build and a 1 MB file check
 go test ./...
 ```
 

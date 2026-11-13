@@ -24,3 +24,9 @@ repos:
         entry: go build ./...
         language: system
         pass_filenames: false
+      - id: check-large-files
+        name: check large files
+        # Anything above 1 MB should go through Git LFS or a release asset.
+        entry: bash -c 'limit=1048576; fail=0; for f in "$@"; do [ -f "$f" ] || continue; size=$(wc -c < "$f"); if [ "$size" -gt "$limit" ]; then echo "$f is ${size} bytes (limit 1 MB)"; fail=1; fi; done; exit $fail' --
+        language: system
+        pass_filenames: true
