@@ -290,14 +290,15 @@ func TestEnsureGhAgentWrapper(t *testing.T) {
 
 func TestRouterSeparatesPlanAndWorkPools(t *testing.T) {
 	cfg := &Config{PlanParallel: 1, ImplementParallel: 1}
-	router := NewRouter(cfg, map[string]*AppContext{}, "bot", nil, NewSilentLogger())
+	contexts := map[string]*AppContext{"repo": {}}
+	router := NewRouter(cfg, contexts, "bot", nil, NewSilentLogger())
 
 	block := make(chan struct{})
 	started := make(chan struct{})
 	planRan := make(chan struct{})
 	t.Cleanup(func() { close(block) })
 
-	router.enqueue("repo#1", stageWork, func(ctx context.Context) {
+	router.enqueue("repo", "repo#1", stageWork, func(ctx context.Context) {
 		close(started)
 		<-block
 	})
@@ -307,7 +308,7 @@ func TestRouterSeparatesPlanAndWorkPools(t *testing.T) {
 		t.Fatal("work job did not start")
 	}
 
-	router.enqueue("repo#2", stagePlan, func(ctx context.Context) { close(planRan) })
+	router.enqueue("repo", "repo#2", stagePlan, func(ctx context.Context) { close(planRan) })
 	select {
 	case <-planRan:
 	case <-time.After(2 * time.Second):
@@ -375,5 +376,33 @@ func TestIssueByPRAndFeedback(t *testing.T) {
 	store.MarkFeedbackProcessed("o/r", 9, 77)
 	if !store.IsFeedbackProcessed("o/r", 9, 77) {
 		t.Fatal("feedback should be marked processed")
+	}
+}
+
+func TestRouterPoolsArePerRepo(t *testing.T) {
+	cfg := &Config{PlanParallel: 1, ImplementParallel: 1}
+	contexts := map[string]*AppContext{"a/a": {}, "b/b": {}}
+	router := NewRouter(cfg, contexts, "bot", nil, NewSilentLogger())
+
+	block := make(chan struct{})
+	started := make(chan struct{})
+	second := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+
+	router.enqueue("a/a", "a/a#1", stageWork, func(ctx context.Context) {
+		close(started)
+		<-block
+	})
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first repo job did not start")
+	}
+
+	router.enqueue("b/b", "b/b#1", stageWork, func(ctx context.Context) { close(second) })
+	select {
+	case <-second:
+	case <-time.After(2 * time.Second):
+		t.Fatal("repo b was blocked by repo a")
 	}
 }

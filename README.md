@@ -55,8 +55,9 @@ flowchart LR
   Without hook permissions the daemon simply polls every 30 s.
 - **Crash-safe.** A restart resumes interrupted implementations from their
   worktree instead of parking the issue.
-- **Multi-repo, per-repo agent.** Watch several repositories, each with its own
-  `codingAgent` / model / approvers.
+- **Multi-repo, per-repo agent and queues.** Watch several repositories, each
+  with its own `codingAgent` / model / approvers and its own planning and
+  implementation queues, so one slow repo never blocks another.
 - **One static binary.** Outbound HTTPS only; no `curl`, `ffmpeg`, ImageMagick,
   or `gh` at runtime. It shells out to `git`, one coding-agent CLI, and `/bin/sh`.
 

@@ -88,14 +88,18 @@ type routerJob struct {
 	fn  func(context.Context)
 }
 
+type repoPool struct {
+	plan chan routerJob
+	work chan routerJob
+}
+
 type Router struct {
 	cfg        *Config
 	contexts   map[string]*AppContext
 	agentLogin string
 	store      *Store
 	log        *Logger
-	planJobs   chan routerJob
-	workJobs   chan routerJob
+	pools      map[string]*repoPool
 	mu         sync.Mutex
 	active     map[string]bool
 	queued     map[string]bool
@@ -109,8 +113,7 @@ func NewRouter(cfg *Config, contexts map[string]*AppContext, agentLogin string, 
 		agentLogin: agentLogin,
 		store:      store,
 		log:        log,
-		planJobs:   make(chan routerJob, 128),
-		workJobs:   make(chan routerJob, 128),
+		pools:      map[string]*repoPool{},
 		active:     map[string]bool{},
 		queued:     map[string]bool{},
 		cancels:    map[string]context.CancelFunc{},
@@ -123,11 +126,20 @@ func NewRouter(cfg *Config, contexts map[string]*AppContext, agentLogin string, 
 	if workWorkers < 1 {
 		workWorkers = 1
 	}
-	for i := 0; i < planWorkers; i++ {
-		go router.worker(router.planJobs)
-	}
-	for i := 0; i < workWorkers; i++ {
-		go router.worker(router.workJobs)
+	// One queue pair per repository: a long implementation in one repo no
+	// longer blocks another repo's work.
+	for fullName := range contexts {
+		pool := &repoPool{
+			plan: make(chan routerJob, 32),
+			work: make(chan routerJob, 32),
+		}
+		router.pools[fullName] = pool
+		for i := 0; i < planWorkers; i++ {
+			go router.worker(pool.plan)
+		}
+		for i := 0; i < workWorkers; i++ {
+			go router.worker(pool.work)
+		}
 	}
 	return router
 }
@@ -155,7 +167,7 @@ func (r *Router) worker(jobs <-chan routerJob) {
 	}
 }
 
-func (r *Router) enqueue(key string, stage jobStage, fn func(context.Context)) {
+func (r *Router) enqueue(fullName, key string, stage jobStage, fn func(context.Context)) {
 	jobCtx, cancel := context.WithCancel(context.Background())
 	r.mu.Lock()
 	if r.active[key] || r.queued[key] {
@@ -168,9 +180,19 @@ func (r *Router) enqueue(key string, stage jobStage, fn func(context.Context)) {
 	r.cancels[key] = cancel
 	r.mu.Unlock()
 	r.log.Debug("enqueue job %s", key)
-	queue := r.workJobs
+	pool := r.pools[fullName]
+	if pool == nil {
+		cancel()
+		r.mu.Lock()
+		delete(r.queued, key)
+		delete(r.cancels, key)
+		r.mu.Unlock()
+		r.log.Warn("no job pool for repo %s; dropping %s", fullName, key)
+		return
+	}
+	queue := pool.work
 	if stage == stagePlan {
-		queue = r.planJobs
+		queue = pool.plan
 	}
 	queue <- routerJob{key: key, ctx: jobCtx, fn: fn}
 }
@@ -316,7 +338,7 @@ func (r *Router) handlePRFeedback(ctx context.Context, fullName string, prNumber
 		Sender:      author,
 		Key:         fmt.Sprintf("review-%d", id),
 	}
-	r.enqueue(key, stageWork, func(jobCtx context.Context) {
+	r.enqueue(fullName, key, stageWork, func(jobCtx context.Context) {
 		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
 		if err != nil {
 			blockIssue(jobCtx, app, number, err)
@@ -346,7 +368,7 @@ func (r *Router) enqueueApprove(ctx context.Context, app *AppContext, fullName s
 		Sender:      sender,
 		Key:         fmt.Sprintf("approve-%d", time.Now().UnixNano()),
 	}
-	r.enqueue(key, stageWork, func(jobCtx context.Context) {
+	r.enqueue(fullName, key, stageWork, func(jobCtx context.Context) {
 		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
 		if err != nil {
 			blockIssue(jobCtx, app, number, err)
@@ -371,7 +393,7 @@ func (r *Router) enqueueMerge(app *AppContext, fullName string, number int, send
 		Sender:      sender,
 		Key:         fmt.Sprintf("merge-%d", time.Now().UnixNano()),
 	}
-	r.enqueue(key, stageWork, func(jobCtx context.Context) {
+	r.enqueue(fullName, key, stageWork, func(jobCtx context.Context) {
 		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
 		if err != nil {
 			blockIssue(jobCtx, app, number, err)
@@ -555,7 +577,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		}
 
 		if command == "merge" && (st.Phase == "pr_open" || (st.Phase == "blocked" && st.PRNumber > 0)) {
-			r.enqueue(key, stageWork, func(jobCtx context.Context) {
+			r.enqueue(fullName, key, stageWork, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
 					blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -571,7 +593,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 
 		if command == "approve" && (st.Phase == "awaiting_approval" || st.Phase == "blocked") {
 			app.GH.SetAgentState(ctx, fullName, trigger.IssueNumber, workingLabel)
-			r.enqueue(key, stageWork, func(jobCtx context.Context) {
+			r.enqueue(fullName, key, stageWork, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
 					blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -586,7 +608,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		}
 
 		if mentioned && (st.Phase == "" || st.Phase == "new") {
-			r.enqueue(key, stagePlan, func(jobCtx context.Context) {
+			r.enqueue(fullName, key, stagePlan, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
 					blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -604,7 +626,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 
 		// Feedback on a pending plan rewrites the plan instead of being dropped.
 		if mentioned && isApprover && st.Phase == "awaiting_approval" {
-			r.enqueue(key, stagePlan, func(jobCtx context.Context) {
+			r.enqueue(fullName, key, stagePlan, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
 					blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -626,7 +648,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		// A mention with prose (not a command) on an issue with an open PR is
 		// feedback: keep working on the same branch instead of merging.
 		if mentioned && isApprover && st.Phase == "pr_open" {
-			r.enqueue(key, stageWork, func(jobCtx context.Context) {
+			r.enqueue(fullName, key, stageWork, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
 					blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -651,7 +673,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 			return
 		}
 		key := fmt.Sprintf("%s#%d", fullName, trigger.IssueNumber)
-		r.enqueue(key, stagePlan, func(jobCtx context.Context) {
+		r.enqueue(fullName, key, stagePlan, func(jobCtx context.Context) {
 			issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 			if err != nil {
 				blockIssue(jobCtx, app, trigger.IssueNumber, err)
@@ -833,7 +855,7 @@ func (r *Router) StartupScan(ctx context.Context) {
 			if st.Phase == "implementing" || (st.Phase == "blocked" && st.BlockedReason == "interrupted by restart") {
 				r.log.Info("startup: resuming interrupted implementation for %s#%d", fullName, number)
 				resumeKey := fmt.Sprintf("%s#%d", fullName, number)
-				r.enqueue(resumeKey, stageWork, func(jobCtx context.Context) {
+				r.enqueue(fullName, resumeKey, stageWork, func(jobCtx context.Context) {
 					issue, err := app.GH.GetIssue(jobCtx, fullName, number)
 					if err != nil {
 						blockIssue(jobCtx, app, number, err)

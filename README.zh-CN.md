@@ -48,8 +48,9 @@ flowchart LR
 - **实时 + 兜底。** webhook 通过 `smee.io` 中转（不需要公网入口），每个事件
   都会先回 GitHub API 复核再执行；没有 hook 权限时自动退化为 30 秒轮询。
 - **重启安全。** daemon 重启会从中断的 worktree 自动续跑，不会把 issue 挂起。
-- **多仓库、每仓库独立 agent。** 一个 daemon 监控多个 repo，各自配置
-  `codingAgent` / model / approvers。
+- **多仓库、每仓库独立 agent 和队列。** 一个 daemon 监控多个 repo，各自配置
+  `codingAgent` / model / approvers，规划和实现队列也相互独立，一个慢仓库不会
+  堵住别的仓库。
 - **单个静态二进制。** 只发起出站 HTTPS；运行时不需要 `curl`、`ffmpeg`、
   ImageMagick 或 `gh`，只调用 `git`、一个编码 agent CLI 和 `/bin/sh`。
 

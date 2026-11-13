@@ -949,10 +949,10 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 		if answers.MaxFixRounds, err = ui.integer("Fix rounds after failing checks", answers.MaxFixRounds, 1, 20); err != nil {
 			return err
 		}
-		if answers.PlanParallel, err = ui.integer("Plans generated in parallel", answers.PlanParallel, 1, 16); err != nil {
+		if answers.PlanParallel, err = ui.integer("Plans generated in parallel (per repo)", answers.PlanParallel, 1, 16); err != nil {
 			return err
 		}
-		if answers.ImplementParallel, err = ui.integer("Issues implemented in parallel", answers.ImplementParallel, 1, 16); err != nil {
+		if answers.ImplementParallel, err = ui.integer("Issues implemented in parallel (per repo)", answers.ImplementParallel, 1, 16); err != nil {
 			return err
 		}
 		if answers.PlanTimeoutMin, err = ui.integer("Plan timeout, minutes", answers.PlanTimeoutMin, 1, 600); err != nil {

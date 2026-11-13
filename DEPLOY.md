@@ -187,7 +187,8 @@ Non-zero exit or missing lines → see failures.
 | `proxy` | | direct | `socks5h://host:port` (remote DNS for git, `socks5://` for Go clients), `socks5://`, `http://`, or `https://` |
 
 Optional: `pollIntervalSec` (30), `webhook` (true), `maxFixRounds` (3),
-`planParallel` (5), `implementParallel` (1), `selfUpdate` (false), `planTimeoutMin` (15), `implementTimeoutMin` (60),
+`planParallel` (5) and `implementParallel` (1), both **per repository**,
+`selfUpdate` (false), `planTimeoutMin` (15), `implementTimeoutMin` (60),
 `worktreeRoot` (state dir).
 
 Per-repo overrides: the `repos` object form can set `codingAgent`, `model`,
