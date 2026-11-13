@@ -89,6 +89,17 @@ GH_CONFIG_DIR="$HOME/.config/gh-agent" gh auth refresh -h github.com -s admin:re
 Required scopes: `repo`, `read:org`; `admin:repo_hook` only for real-time
 webhooks (without it the daemon polls every 30 s — acceptable).
 
+The daemon (and `-init`) creates a two-line wrapper at `~/.local/bin/gh-agent`
+when none is on `PATH`:
+
+```sh
+#!/bin/sh
+GH_CONFIG_DIR="$HOME/.config/gh-agent" exec gh "$@"
+```
+
+It never overwrites an existing file and never falls back to the human's
+`gh auth token`; a missing bot credential is a hard error.
+
 Verify identity and per-repo permission:
 
 ```bash

@@ -291,6 +291,12 @@ func main() {
 		log.Debug("repo config: %s codingAgent=%s model=%s approvers=%s", repo.FullName, repo.CodingAgent, firstNonEmpty(repo.Model, "(default)"), strings.Join(repo.Approvers, ","))
 	}
 
+	if path, created, err := ensureGhAgentWrapper(); err != nil {
+		log.Warn("gh-agent wrapper: %v", err)
+	} else if created {
+		log.Info("created gh-agent wrapper at %s", path)
+	}
+
 	gh, err := NewGH(proxy, log)
 	if err != nil {
 		log.Error("github client: %v", err)

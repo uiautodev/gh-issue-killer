@@ -46,6 +46,31 @@ func tmpDir() string    { return filepath.Join(stateDir(), "tmp") }
 func lockFile() string  { return filepath.Join(stateDir(), "daemon.lock") }
 func stateFile() string { return filepath.Join(stateDir(), "state.json") }
 
+const ghAgentWrapperScript = "#!/bin/sh\nGH_CONFIG_DIR=\"$HOME/.config/gh-agent\" exec gh \"$@\"\n"
+
+// ensureGhAgentWrapper drops ~/.local/bin/gh-agent when the CLI is missing.
+// It is only a two-line wrapper around gh with the bot config dir; an existing
+// file (or a gh-agent already on PATH) is left untouched.
+func ensureGhAgentWrapper() (path string, created bool, err error) {
+	if existing, lookErr := exec.LookPath("gh-agent"); lookErr == nil {
+		return existing, false, nil
+	}
+	path = filepath.Join(homeDir(), ".local", "bin", "gh-agent")
+	if _, statErr := os.Stat(path); statErr == nil {
+		return path, false, nil
+	}
+	if err = os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", false, err
+	}
+	if err = os.WriteFile(path, []byte(ghAgentWrapperScript), 0o755); err != nil {
+		return "", false, err
+	}
+	if err = os.Chmod(path, 0o755); err != nil {
+		return "", false, err
+	}
+	return path, true, nil
+}
+
 func ensureDirs() error {
 	for _, dir := range []string{stateDir(), logsDir(), runsDir(), reposDir(), treesDir(), tmpDir()} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

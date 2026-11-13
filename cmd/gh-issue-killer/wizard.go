@@ -860,6 +860,10 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 	ui := newWizardUI(in, out)
 	answers := loadWizardDefaults(file)
 
+	if path, created, err := ensureGhAgentWrapper(); err == nil && created {
+		ui.printf("Created gh-agent wrapper: %s\n", path)
+	}
+
 	ui.printf("gh-issue-killer · config wizard\n\n")
 	ui.printf("Config file / 配置文件: %s\n", file)
 	if answers.fromFile {

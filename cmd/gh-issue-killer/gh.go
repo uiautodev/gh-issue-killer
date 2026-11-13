@@ -187,8 +187,9 @@ func loadAgentToken() (string, error) {
 	}
 
 	// Newer gh versions keep the OAuth token in the system keyring and only
-	// leave the account name in hosts.yml. Ask the CLI for the token in that
-	// case; this is the only runtime use of gh/gh-agent.
+	// leave the account name in hosts.yml. Ask gh-agent for the token in that
+	// case. Never fall back to plain gh: that would silently use the human's
+	// account.
 	if token, err := tokenFromCLI(configDir); err == nil && token != "" {
 		return token, nil
 	}
@@ -202,11 +203,15 @@ func tokenFromCLI(configDir string) (string, error) {
 		args   []string
 	}
 	candidates := make([]candidate, 0, 2)
+	seen := map[string]bool{}
 	if path, err := exec.LookPath("gh-agent"); err == nil {
 		candidates = append(candidates, candidate{binary: path, args: []string{"auth", "token"}})
+		seen[filepath.Clean(path)] = true
 	}
-	if path, err := exec.LookPath("gh"); err == nil {
-		candidates = append(candidates, candidate{binary: path, args: []string{"auth", "token"}})
+	// ~/.local/bin is not always on PATH of a background process.
+	local := filepath.Join(homeDir(), ".local", "bin", "gh-agent")
+	if info, statErr := os.Stat(local); statErr == nil && !info.IsDir() && !seen[filepath.Clean(local)] {
+		candidates = append(candidates, candidate{binary: local, args: []string{"auth", "token"}})
 	}
 	for _, item := range candidates {
 		result, err := runCmd(context.Background(), item.binary, item.args, CmdOptions{
@@ -221,7 +226,7 @@ func tokenFromCLI(configDir string) (string, error) {
 			return token, nil
 		}
 	}
-	return "", fmt.Errorf("gh/gh-agent auth token unavailable")
+	return "", fmt.Errorf("gh-agent auth token unavailable")
 }
 
 func NewGH(proxy *Proxy, log *Logger) (*GH, error) {

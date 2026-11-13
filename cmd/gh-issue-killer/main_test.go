@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -236,5 +238,44 @@ func TestChecksSummary(t *testing.T) {
 	}
 	if got := checkLabel(CheckResult{Cmd: "node /tmp/run/verify.js verify"}); got != "node verify.js verify" {
 		t.Fatalf("fallback label = %q", got)
+	}
+}
+
+func TestEnsureGhAgentWrapper(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", filepath.Join(home, "empty"))
+
+	path, created, err := ensureGhAgentWrapper()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Fatal("wrapper should be created on a clean machine")
+	}
+	want := filepath.Join(home, ".local", "bin", "gh-agent")
+	if path != want {
+		t.Fatalf("path = %q, want %q", path, want)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != ghAgentWrapperScript {
+		t.Fatalf("wrapper content = %q", data)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("mode = %v, want 0755", info.Mode().Perm())
+	}
+
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := ensureGhAgentWrapper(); err != nil || created {
+		t.Fatalf("existing wrapper must be kept (created=%v err=%v)", created, err)
 	}
 }

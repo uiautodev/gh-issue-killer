@@ -60,6 +60,8 @@ go test ./...
 
 Requirements: Go 1.27+, `git`, at least one of `opencode` / `claude` / `codex`, and a gh-agent credential (`GH_AGENT_TOKEN`, `~/.config/gh-agent/hosts.yml`, or the OS keyring via a one-time `gh-agent auth token` lookup at startup).
 
+If `gh-agent` is not on `PATH`, startup (and `-init`) drops a two-line wrapper at `~/.local/bin/gh-agent`. It never overwrites an existing file, and the daemon never falls back to your own `gh` token.
+
 ## Configure
 
 Run the wizard — it detects the coding agents installed on `PATH`, asks for the repos (one per line), model, approvers and proxy (plus optional advanced settings), pre-fills every answer from an existing config, checks gh-agent's permissions per repo, verifies that the proxy can actually reach `api.github.com`, and only writes the file after you confirm:
@@ -112,7 +114,7 @@ The wizard auto-detects installed CLIs and only lists what it finds:
 
 ## Accounts
 
-The daemon reads the token from `GH_AGENT_TOKEN`, `~/.config/gh-agent/hosts.yml`, or (when the token lives in the OS keyring, which newer gh versions do) asks `gh-agent auth token` once at startup. It only ever acts as **gh-agent**. Your own `gh` is never used by the daemon; it appears only in `scripts/smoke-test.sh`, which simulates you as the issue author/approver.
+The daemon reads the token from `GH_AGENT_TOKEN`, `~/.config/gh-agent/hosts.yml`, or (when the token lives in the OS keyring, which newer gh versions do) asks `gh-agent auth token` once at startup. There is no fallback to plain `gh auth token`: if the bot credential is missing the daemon stops instead of silently acting as you. Your own `gh` appears only in `scripts/smoke-test.sh`, which simulates you as the issue author/approver.
 
 `gh-agent` needs on each watched repo:
 
