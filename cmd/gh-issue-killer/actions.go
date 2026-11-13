@@ -139,12 +139,23 @@ func runDirFor(ctx *AppContext, issueNumber int) string {
 	return dir
 }
 
+func react(ctx context.Context, app *AppContext, trigger Trigger, content string) {
+	if trigger.CommentID > 0 {
+		_ = app.GH.ReactComment(ctx, app.Repo.FullName, trigger.CommentID, content)
+		return
+	}
+	if trigger.IssueNumber > 0 {
+		_ = app.GH.ReactIssue(ctx, app.Repo.FullName, trigger.IssueNumber, content)
+	}
+}
+
 func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) {
 	number := issue.Number
 	if issueCancelled(app, number) {
 		return
 	}
 	app.Log.Info("plan start for %s#%d", app.Repo.FullName, number)
+	react(ctx, app, trigger, "eyes")
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(st *IssueState) {
 		st.Phase = "planning"
 		st.Issue = issueMeta(issue)
@@ -335,6 +346,7 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		return
 	}
 	app.Log.Info("revise start for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
+	react(ctx, app, trigger, "rocket")
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "implementing"
 	})
@@ -435,6 +447,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		return
 	}
 	app.Log.Info("implement start for %s#%d", app.Repo.FullName, number)
+	react(ctx, app, trigger, "rocket")
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "implementing"
 		state.StartedAt = nowISO()
@@ -659,6 +672,7 @@ func waitForChecks(ctx context.Context, app *AppContext, sha string, timeout tim
 func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
 	number := issue.Number
 	app.Log.Info("merge start for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
+	react(ctx, app, trigger, "hooray")
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "merging"
 	})
@@ -761,6 +775,7 @@ func issueCancelled(app *AppContext, number int) bool {
 func doCancel(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
 	number := issue.Number
 	app.Log.Info("cancel for %s#%d", app.Repo.FullName, number)
+	react(ctx, app, trigger, "confused")
 	if st.Worktree != "" {
 		removeWorktree(ctx, app.Local, st.Worktree, false)
 		deleteLocalBranch(ctx, app.Local, st.Branch)

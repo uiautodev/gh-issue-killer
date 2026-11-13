@@ -236,9 +236,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		}
 		command := resolveCommand(trigger.CommentBody, isApprover, r.agentLogin)
 		if !selfComment && isApprover && st.Phase != "" {
-			if _, err := app.GH.PostComment(ctx, fullName, trigger.IssueNumber, "ok"); err != nil {
-				r.log.Warn("ack comment %d on %s#%d: %v", trigger.CommentID, fullName, trigger.IssueNumber, err)
-			}
+			react(ctx, app, trigger, "eyes")
 		}
 		r.log.Info("comment trigger %s#%d from @%s mentioned=%v command=%s", fullName, trigger.IssueNumber, trigger.Sender, mentioned, firstNonEmpty(command, "-"))
 
