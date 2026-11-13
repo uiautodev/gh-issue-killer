@@ -89,7 +89,7 @@ func TestSetupWizardWritesMinimalConfig(t *testing.T) {
 	}
 
 	written := readConfigMap(t, file)
-	for _, key := range []string{"codingAgent", "model", "proxy", "approvers", "pollIntervalSec", "webhook", "webhookPort"} {
+	for _, key := range []string{"codingAgent", "model", "proxy", "approvers", "pollIntervalSec", "webhook"} {
 		if _, ok := written[key]; ok {
 			t.Fatalf("%q should be omitted, got %v", key, written)
 		}
@@ -124,7 +124,6 @@ func TestSetupWizardAdvancedAndClaude(t *testing.T) {
 		"y",                         // advanced
 		"45",                        // poll interval
 		"n",                         // webhooks off
-		"9999",                      // webhook port
 		"5",                         // fix rounds
 		"2",                         // parallel
 		"20",                        // plan timeout
@@ -150,8 +149,8 @@ func TestSetupWizardAdvancedAndClaude(t *testing.T) {
 	if strings.Join(repo.Approvers, ",") != "alice,bob" {
 		t.Fatalf("approvers = %+v", repo.Approvers)
 	}
-	if cfg.Proxy != "socks5h://127.0.0.1:10808" || cfg.Webhook || cfg.WebhookPort != 9999 {
-		t.Fatalf("proxy/webhook = %q/%v/%d", cfg.Proxy, cfg.Webhook, cfg.WebhookPort)
+	if cfg.Proxy != "socks5h://127.0.0.1:10808" || cfg.Webhook {
+		t.Fatalf("proxy/webhook = %q/%v", cfg.Proxy, cfg.Webhook)
 	}
 	if cfg.PollInterval.Seconds() != 45 || cfg.MaxFixRounds != 5 || cfg.MaxParallel != 2 {
 		t.Fatalf("poll/fix/parallel = %v/%d/%d", cfg.PollInterval, cfg.MaxFixRounds, cfg.MaxParallel)
@@ -224,7 +223,6 @@ func TestSetupWizardKeepsExistingValuesAndRepoOverrides(t *testing.T) {
   "proxy": "socks5h://127.0.0.1:10808",
   "pollIntervalSec": 60,
   "webhook": false,
-  "webhookPort": 9100,
   "maxFixRounds": 4,
   "maxParallel": 2,
   "planTimeoutMin": 20,
@@ -245,7 +243,6 @@ func TestSetupWizardKeepsExistingValuesAndRepoOverrides(t *testing.T) {
 		"y", // advanced
 		"",  // poll
 		"",  // webhook
-		"",  // port
 		"",  // fix
 		"",  // parallel
 		"",  // plan
@@ -282,8 +279,8 @@ func TestSetupWizardKeepsExistingValuesAndRepoOverrides(t *testing.T) {
 	if cfg.Model != "x/y" || cfg.Proxy != "socks5h://127.0.0.1:10808" {
 		t.Fatalf("model/proxy = %q/%q", cfg.Model, cfg.Proxy)
 	}
-	if cfg.Webhook || cfg.WebhookPort != 9100 || cfg.PollInterval.Seconds() != 60 {
-		t.Fatalf("webhook/port/poll = %v/%d/%v", cfg.Webhook, cfg.WebhookPort, cfg.PollInterval)
+	if cfg.Webhook || cfg.PollInterval.Seconds() != 60 {
+		t.Fatalf("webhook/poll = %v/%v", cfg.Webhook, cfg.PollInterval)
 	}
 	if cfg.MaxFixRounds != 4 || cfg.MaxParallel != 2 {
 		t.Fatalf("fix/parallel = %d/%d", cfg.MaxFixRounds, cfg.MaxParallel)

@@ -3,9 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,92 +11,6 @@ import (
 	"sync"
 	"time"
 )
-
-func verifySignature(secret string, body []byte, header string) bool {
-	if secret == "" {
-		return true
-	}
-	if !strings.HasPrefix(header, "sha256=") {
-		return false
-	}
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(expected), []byte(header))
-}
-
-func startWebhookServer(cfg *Config, router *Router, contexts map[string]*AppContext, secret string, log *Logger) *http.Server {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-	mux.HandleFunc("/gh", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.NotFound(w, r)
-			return
-		}
-		body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		w.WriteHeader(http.StatusAccepted)
-		if !verifySignature(secret, body, r.Header.Get("X-Hub-Signature-256")) {
-			log.Warn("webhook signature mismatch, ignoring")
-			return
-		}
-		event := r.Header.Get("X-GitHub-Event")
-		delivery := r.Header.Get("X-GitHub-Delivery")
-		var payload struct {
-			Repository struct {
-				FullName string `json:"full_name"`
-			} `json:"repository"`
-			Action  string  `json:"action"`
-			Issue   Issue   `json:"issue"`
-			Comment Comment `json:"comment"`
-			Sender  User    `json:"sender"`
-		}
-		if json.Unmarshal(body, &payload) != nil {
-			return
-		}
-		app := contexts[payload.Repository.FullName]
-		if app == nil {
-			return
-		}
-		if event == "issue_comment" && payload.Action == "created" && payload.Comment.ID > 0 {
-			router.HandleTrigger(context.Background(), payload.Repository.FullName, Trigger{
-				Type:        "comment",
-				IssueNumber: payload.Issue.Number,
-				CommentID:   payload.Comment.ID,
-				CommentBody: payload.Comment.Body,
-				Sender:      payload.Sender.Login,
-				Key:         "hook-" + delivery,
-				DeliveryID:  delivery,
-			})
-			return
-		}
-		if event == "issues" && payload.Issue.Number > 0 {
-			router.HandleTrigger(context.Background(), payload.Repository.FullName, Trigger{
-				Type:        "issue",
-				IssueNumber: payload.Issue.Number,
-				Sender:      payload.Sender.Login,
-				Key:         "hook-" + delivery,
-				DeliveryID:  delivery,
-			})
-		}
-	})
-
-	address := fmt.Sprintf("%s:%d", cfg.WebhookHost, cfg.WebhookPort)
-	server := &http.Server{Addr: address, Handler: mux}
-	go func() {
-		log.Info("webhook receiver on http://%s/gh", address)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Warn("webhook server: %v", err)
-		}
-	}()
-	return server
-}
 
 func createSmeeChannel(ctx context.Context, proxy *Proxy) (string, error) {
 	client := newHTTPClient(proxy, 30*time.Second)
@@ -188,10 +99,9 @@ func ensureSmeeHook(ctx context.Context, app *AppContext) (channel, secret strin
 }
 
 type smeeEnvelope struct {
-	Body      json.RawMessage `json:"body"`
-	Event     string          `json:"x-github-event"`
-	Delivery  string          `json:"x-github-delivery"`
-	Signature string          `json:"x-hub-signature-256"`
+	Body     json.RawMessage `json:"body"`
+	Event    string          `json:"x-github-event"`
+	Delivery string          `json:"x-github-delivery"`
 }
 
 type smeePayload struct {
@@ -262,7 +172,7 @@ func dispatchSmee(ctx context.Context, app *AppContext, router *Router, envelope
 	})
 }
 
-func startSmee(ctx context.Context, app *AppContext, router *Router, channel, secret string, log *Logger) func() {
+func startSmee(ctx context.Context, app *AppContext, router *Router, channel string, log *Logger) func() {
 	client := newHTTPClient(app.Proxy, 0)
 	stop := make(chan struct{})
 	var once sync.Once
@@ -276,7 +186,7 @@ func startSmee(ctx context.Context, app *AppContext, router *Router, channel, se
 				return
 			default:
 			}
-			if err := consumeSmee(ctx, app, router, client, channel, secret, log, stop); err != nil {
+			if err := consumeSmee(ctx, app, router, client, channel, log, stop); err != nil {
 				log.Warn("smee stream for %s ended: %v; reconnecting in 5s", app.Repo.FullName, err)
 				select {
 				case <-stop:
@@ -294,7 +204,7 @@ func startSmee(ctx context.Context, app *AppContext, router *Router, channel, se
 	}
 }
 
-func consumeSmee(ctx context.Context, app *AppContext, router *Router, client *http.Client, channel, secret string, log *Logger, stop chan struct{}) error {
+func consumeSmee(ctx context.Context, app *AppContext, router *Router, client *http.Client, channel string, log *Logger, stop chan struct{}) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, channel, nil)
 	if err != nil {
 		return err

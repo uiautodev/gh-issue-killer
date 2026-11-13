@@ -1,32 +1,10 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
 )
-
-func TestVerifySignature(t *testing.T) {
-	body := []byte(`{"hello":"world"}`)
-	mac := hmac.New(sha256.New, []byte("s3cret"))
-	mac.Write(body)
-	signature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-	if !verifySignature("s3cret", body, signature) {
-		t.Fatal("valid signature rejected")
-	}
-	if verifySignature("s3cret", body, "sha256=deadbeef") {
-		t.Fatal("bad signature accepted")
-	}
-	if verifySignature("s3cret", body, "") {
-		t.Fatal("missing signature accepted")
-	}
-	if !verifySignature("", body, "") {
-		t.Fatal("empty secret should skip verification")
-	}
-}
 
 func TestStoreRoundTrip(t *testing.T) {
 	dir := t.TempDir()

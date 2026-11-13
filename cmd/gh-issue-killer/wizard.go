@@ -34,7 +34,6 @@ type wizardConfig struct {
 	Proxy               string   `json:"proxy,omitempty"`
 	PollIntervalSec     int      `json:"pollIntervalSec,omitempty"`
 	Webhook             *bool    `json:"webhook,omitempty"`
-	WebhookPort         int      `json:"webhookPort,omitempty"`
 	MaxFixRounds        int      `json:"maxFixRounds,omitempty"`
 	MaxParallel         int      `json:"maxParallel,omitempty"`
 	PlanTimeoutMin      int      `json:"planTimeoutMin,omitempty"`
@@ -625,9 +624,6 @@ func buildWizardJSON(answers wizardConfig) ([]byte, error) {
 	if answers.Webhook != nil && !*answers.Webhook {
 		output["webhook"] = false
 	}
-	if answers.WebhookPort != 0 && answers.WebhookPort != 8788 {
-		output["webhookPort"] = answers.WebhookPort
-	}
 	if answers.MaxFixRounds != 0 && answers.MaxFixRounds != 3 {
 		output["maxFixRounds"] = answers.MaxFixRounds
 	}
@@ -737,7 +733,6 @@ func loadWizardDefaults(file string) wizardConfig {
 		CodingAgent:         "opencode",
 		PollIntervalSec:     30,
 		Webhook:             &webhook,
-		WebhookPort:         8788,
 		MaxFixRounds:        3,
 		MaxParallel:         1,
 		PlanTimeoutMin:      15,
@@ -765,9 +760,6 @@ func loadWizardDefaults(file string) wizardConfig {
 	if raw.Webhook != nil {
 		defaults.Webhook = raw.Webhook
 	}
-	if raw.WebhookPort > 0 {
-		defaults.WebhookPort = raw.WebhookPort
-	}
 	if raw.MaxFixRounds > 0 {
 		defaults.MaxFixRounds = raw.MaxFixRounds
 	}
@@ -781,7 +773,7 @@ func loadWizardDefaults(file string) wizardConfig {
 		defaults.ImplementTimeoutMin = raw.ImplementTimeoutMin
 	}
 	defaults.WorktreeRoot = strings.TrimSpace(raw.WorktreeRoot)
-	defaults.hasAdvanced = raw.PollIntervalSec != 0 || raw.Webhook != nil || raw.WebhookPort != 0 ||
+	defaults.hasAdvanced = raw.PollIntervalSec != 0 || raw.Webhook != nil ||
 		raw.MaxFixRounds != 0 || raw.MaxParallel != 0 || raw.PlanTimeoutMin != 0 ||
 		raw.ImplementTimeoutMin != 0 || defaults.WorktreeRoot != ""
 
@@ -939,9 +931,6 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 			return err
 		}
 		answers.Webhook = &webhook
-		if answers.WebhookPort, err = ui.integer("Local webhook relay port", answers.WebhookPort, 1, 65535); err != nil {
-			return err
-		}
 		if answers.MaxFixRounds, err = ui.integer("Fix rounds after failing checks", answers.MaxFixRounds, 1, 20); err != nil {
 			return err
 		}
@@ -960,7 +949,6 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 	} else {
 		answers.PollIntervalSec = 0
 		answers.Webhook = nil
-		answers.WebhookPort = 0
 		answers.MaxFixRounds = 0
 		answers.MaxParallel = 0
 		answers.PlanTimeoutMin = 0

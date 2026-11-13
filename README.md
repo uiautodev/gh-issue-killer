@@ -62,7 +62,7 @@ Or edit `config.json` by hand (gitignored, copy from `config.example.json`):
 | `approvers` | | repo owner | logins allowed to say `lgtm` / `合并` |
 | `proxy` | | direct | `socks5h://host:port` (remote DNS for git, `socks5://` for Go clients), `socks5://`, `http://`, or `https://` |
 
-Optional: `pollIntervalSec` (30), `webhookPort` (8788), `webhook` (true), `maxFixRounds` (3), `maxParallel` (1), `planTimeoutMin` (15), `implementTimeoutMin` (60).
+Optional: `pollIntervalSec` (30), `webhook` (true), `maxFixRounds` (3), `maxParallel` (1), `planTimeoutMin` (15), `implementTimeoutMin` (60).
 
 Per-repo override: the `repos` object form can set `codingAgent`, `model`, `approvers`, or `worktreeRoot` for one repo.
 

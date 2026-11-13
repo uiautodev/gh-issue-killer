@@ -46,8 +46,6 @@ type Config struct {
 	Proxy            string
 	PollInterval     time.Duration
 	Webhook          bool
-	WebhookHost      string
-	WebhookPort      int
 	MaxFixRounds     int
 	MaxParallel      int
 	PlanTimeout      time.Duration
@@ -74,8 +72,6 @@ type rawConfig struct {
 	Proxy               string          `json:"proxy"`
 	PollIntervalSec     int             `json:"pollIntervalSec"`
 	Webhook             *bool           `json:"webhook"`
-	WebhookHost         string          `json:"webhookHost"`
-	WebhookPort         int             `json:"webhookPort"`
 	WorktreeRoot        string          `json:"worktreeRoot"`
 	MaxFixRounds        int             `json:"maxFixRounds"`
 	MaxParallel         int             `json:"maxParallel"`
@@ -220,8 +216,6 @@ func loadConfig(file string) (*Config, error) {
 		Proxy:            strings.TrimSpace(raw.Proxy),
 		PollInterval:     time.Duration(raw.PollIntervalSec) * time.Second,
 		Webhook:          true,
-		WebhookHost:      firstNonEmpty(raw.WebhookHost, "127.0.0.1"),
-		WebhookPort:      raw.WebhookPort,
 		MaxFixRounds:     raw.MaxFixRounds,
 		MaxParallel:      raw.MaxParallel,
 		PlanTimeout:      time.Duration(raw.PlanTimeoutMin) * time.Minute,
@@ -236,9 +230,6 @@ func loadConfig(file string) (*Config, error) {
 	}
 	if cfg.PollInterval < 10*time.Second {
 		cfg.PollInterval = 30 * time.Second
-	}
-	if cfg.WebhookPort == 0 {
-		cfg.WebhookPort = 8788
 	}
 	if cfg.MaxFixRounds == 0 {
 		cfg.MaxFixRounds = 3

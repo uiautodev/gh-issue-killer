@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -107,6 +106,11 @@ func printStatus(configPath string) {
 	if err != nil {
 		fmt.Printf("repos:  (config error: %v)\n", err)
 		return
+	}
+	if cfg.Webhook {
+		fmt.Printf("webhook: smee (polling fallback)\n")
+	} else {
+		fmt.Printf("webhook: polling only\n")
 	}
 	for _, repo := range cfg.Repos {
 		fmt.Printf("repo:   %s (%s)\n", repo.FullName, repo.CodingAgent)
@@ -280,8 +284,8 @@ func main() {
 	defer release()
 
 	log.Info("gh-issue-killer (go) starting, config=%s proxy=%s", cfg.File, firstNonEmpty(cfg.Proxy, "direct"))
-	log.Debug("runtime: codingAgent=%s model=%s poll=%s webhook=%v webhookPort=%d maxParallel=%d maxFixRounds=%d",
-		cfg.CodingAgent, firstNonEmpty(cfg.Model, "(default)"), cfg.PollInterval, cfg.Webhook, cfg.WebhookPort, cfg.MaxParallel, cfg.MaxFixRounds)
+	log.Debug("runtime: codingAgent=%s model=%s poll=%s webhook=%v maxParallel=%d maxFixRounds=%d",
+		cfg.CodingAgent, firstNonEmpty(cfg.Model, "(default)"), cfg.PollInterval, cfg.Webhook, cfg.MaxParallel, cfg.MaxFixRounds)
 	log.Debug("paths: config=%s state=%s log=%s", cfg.File, stateFile(), daemonLogPath())
 	for _, repo := range cfg.Repos {
 		log.Debug("repo config: %s codingAgent=%s model=%s approvers=%s", repo.FullName, repo.CodingAgent, firstNonEmpty(repo.Model, "(default)"), strings.Join(repo.Approvers, ","))
@@ -378,14 +382,8 @@ func main() {
 		return
 	}
 
-	var server *http.Server
-	if cfg.Webhook {
-		secret := store.GlobalSecret()
-		if secret == "" {
-			secret = randomHex(24)
-			store.SetGlobalSecret(secret)
-		}
-		server = startWebhookServer(cfg, router, contexts, secret, log)
+	if cfg.Webhook && store.GlobalSecret() == "" {
+		store.SetGlobalSecret(randomHex(24))
 	}
 
 	var stops []func()
@@ -407,7 +405,7 @@ func main() {
 			continue
 		}
 		log.Info("%s: smee channel %s (hook %d)", fullName, channel, app.Store.Meta(fullName).HookID)
-		stops = append(stops, startSmee(ctx, app, router, channel, secret, log))
+		stops = append(stops, startSmee(ctx, app, router, channel, log))
 	}
 	stops = append(stops, startPoller(ctx, cfg, router, contexts, log))
 
@@ -418,11 +416,6 @@ func main() {
 	cancel()
 	for _, stop := range stops {
 		stop()
-	}
-	if server != nil {
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = server.Shutdown(shutdownCtx)
-		shutdownCancel()
 	}
 	_ = store.Save()
 	log.Info("bye")
