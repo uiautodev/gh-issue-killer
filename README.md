@@ -171,6 +171,6 @@ Commands must come from an approver, mention the agent, and be the **whole comme
 | 👍 reaction on the plan comment | same as `@agent lgtm` |
 | 👍 reaction on the PR-announcement comment | same as `@agent 合并` |
 
-Every approver comment on a tracked issue gets a 👀 reaction. Work adds 🚀 (implement/revision), 🎉 (merged) or 😕 (cancelled). A comment that mentions the agent but is not a command is treated as feedback: on `pr_open` the agent keeps working on the same branch, and reopening a `done` issue starts a fresh plan.
+A daemon restart resumes any interrupted implementation from its worktree automatically. Every approver comment on a tracked issue gets a 👀 reaction. Work adds 🚀 (implement/revision), 🎉 (merged) or 😕 (cancelled). A comment that mentions the agent but is not a command is treated as feedback: on `pr_open` the agent keeps working on the same branch, and reopening a `done` issue starts a fresh plan.
 
 Anyone can `@<agent-login>` an issue (or assign it) to request a plan. The agent never reacts to its own generated comments and never treats its own issues as triggers.

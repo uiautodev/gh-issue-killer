@@ -651,13 +651,32 @@ func (r *Router) StartupScan(ctx context.Context) {
 				continue
 			}
 
-			if st.Phase == "implementing" {
-				app.Store.UpdateIssue(fullName, number, func(state *IssueState) {
-					state.Phase = "blocked"
-					state.BlockedReason = "interrupted by restart"
+			// A restart kills the coding-agent process; pick the work back up
+			// from the existing worktree instead of parking the issue.
+			if st.Phase == "implementing" || (st.Phase == "blocked" && st.BlockedReason == "interrupted by restart") {
+				r.log.Info("startup: resuming interrupted implementation for %s#%d", fullName, number)
+				resumeKey := fmt.Sprintf("%s#%d", fullName, number)
+				r.enqueue(resumeKey, func(jobCtx context.Context) {
+					issue, err := app.GH.GetIssue(jobCtx, fullName, number)
+					if err != nil {
+						blockIssue(jobCtx, app, number, err)
+						return
+					}
+					if issue.State != "open" {
+						return
+					}
+					current := r.store.Issue(fullName, number)
+					if current.Phase != "implementing" && current.BlockedReason != "interrupted by restart" {
+						return
+					}
+					doImplement(jobCtx, app, Trigger{
+						Type:        "restart",
+						IssueNumber: number,
+						Sender:      r.agentLogin,
+						Key:         fmt.Sprintf("resume-%d", time.Now().UnixNano()),
+					}, issue, current)
 				})
-				app.GH.SetPhaseLabel(ctx, fullName, number, "agent:blocked")
-				_, _ = app.GH.PostComment(ctx, fullName, number, fmt.Sprintf("### 🤖 实现被重启中断\n\n回复 `@%s continue` 从当前 worktree 继续修复。", r.agentLogin))
+				continue
 			}
 
 			comments, listErr := app.GH.ListComments(ctx, fullName, number)
