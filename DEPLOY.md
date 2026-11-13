@@ -193,7 +193,8 @@ Optional: `pollIntervalSec` (30), `webhook` (true), `maxFixRounds` (3),
 Per-repo overrides: the `repos` object form can set `codingAgent`, `model`,
 `approvers`, or `worktreeRoot` for one repository.
 
-The running daemon watches the config file (2 s poll, debounced). A valid save
+The running daemon watches the config file with the OS notification API
+(inotify / kqueue via fsnotify, debounced, with a 30 s safety poll). A valid save
 triggers a graceful re-exec: it waits for running jobs, then replaces itself
 with the new config, keeping the PID and the lock. An invalid save is logged
 and ignored, so the old settings stay active.
