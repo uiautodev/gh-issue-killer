@@ -1,0 +1,848 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gh-issue-killer · 调度台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0c161a;
+    --ink-2: #102126;
+    --panel: #13272d;
+    --rule: #24434c;
+    --rule-soft: #1b333a;
+    --text: #ece7d8;
+    --muted: #87a2a7;
+    --dim: #5f797e;
+    --work: #f0a53f;
+    --wait: #5fb6c8;
+    --blocked: #e0604e;
+    --done: #6fb08d;
+    --idle: #5d7377;
+    --focus: #f4c877;
+    --sans: "Barlow Condensed", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--work); color: var(--ink); }
+  a { color: var(--wait); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  /* ---------- header ---------- */
+  .masthead {
+    border-bottom: 1px solid var(--rule);
+    background:
+      repeating-linear-gradient(90deg, transparent 0 79px, rgba(95,182,200,.05) 79px 80px),
+      var(--ink-2);
+    padding: 18px 28px 14px;
+  }
+  .mast-row { display: flex; align-items: flex-end; gap: 28px; flex-wrap: wrap; }
+  .wordmark {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 40px;
+    line-height: 1;
+    letter-spacing: .01em;
+    margin: 0 0 5px;
+  }
+  .tagline {
+    font-family: var(--sans);
+    font-weight: 500;
+    font-size: 13px;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin: 0;
+    max-width: 40ch;
+  }
+  .status-strip { display: flex; gap: 18px; margin-left: auto; flex-wrap: wrap; }
+  .stat { display: flex; flex-direction: column; gap: 2px; min-width: 74px; }
+  .stat b {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 22px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat small { color: var(--dim); font-size: 10px; letter-spacing: .04em; }
+  .lamp {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--done); margin-right: 7px; vertical-align: 1px;
+    box-shadow: 0 0 0 3px rgba(111,176,141,.12);
+  }
+  .lamp.stopped { background: var(--blocked); box-shadow: 0 0 0 3px rgba(224,96,78,.12); }
+  .lamp.live { animation: breathe 2.6s ease-in-out infinite; }
+  @keyframes breathe { 50% { box-shadow: 0 0 0 6px rgba(111,176,141,0); } }
+  @media (prefers-reduced-motion: reduce) { .lamp.live { animation: none; } }
+
+  .meters { display: flex; gap: 22px; align-items: flex-end; }
+  .meter { display: flex; flex-direction: column; gap: 5px; }
+  .meter-label { font-family: var(--sans); font-size: 12px; letter-spacing: .1em; color: var(--muted); }
+  .cells { display: flex; gap: 3px; }
+  .cell { width: 13px; height: 8px; background: var(--rule-soft); }
+  .cell.on { background: var(--work); }
+  .cell.wait { background: var(--wait); }
+  .meta-line { color: var(--dim); font-size: 10.5px; display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+  .meta-line b { color: var(--muted); font-weight: 500; }
+
+  /* ---------- lines ---------- */
+  .band { padding: 12px 28px; border-bottom: 1px solid var(--rule); }
+  .band-title {
+    font-family: var(--sans); font-weight: 600; font-size: 12px; letter-spacing: .14em;
+    color: var(--muted); margin: 0 0 8px;
+  }
+  .lines { display: grid; grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); gap: 1px; background: var(--rule-soft); }
+  .line {
+    background: var(--ink-2); padding: 9px 12px 10px; display: flex; flex-direction: column; gap: 5px;
+    min-width: 0;
+  }
+  .line-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .line-name {
+    font-family: var(--sans); font-weight: 600; font-size: 17px; letter-spacing: .01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .line-agent { color: var(--dim); font-size: 10px; margin-left: auto; white-space: nowrap; }
+  .line-foot { display: flex; gap: 12px; color: var(--dim); font-size: 10px; flex-wrap: wrap; }
+  .counts { display: flex; gap: 10px; flex-wrap: wrap; }
+  .count { color: var(--muted); font-size: 10px; display: inline-flex; align-items: center; gap: 4px; }
+  .count b { color: var(--text); font-weight: 500; }
+  .swatch { width: 5px; height: 5px; background: var(--idle); display: inline-block; }
+  .swatch.working { background: var(--work); }
+  .swatch.waiting { background: var(--wait); }
+  .swatch.blocked { background: var(--blocked); }
+  .swatch.done { background: var(--done); }
+
+  /* ---------- board ---------- */
+  .board-wrap { padding: 14px 28px 4px; flex: 1; }
+  .board-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+  .filters { display: flex; gap: 4px; }
+  .chip {
+    border: 1px solid var(--rule); padding: 3px 9px; font-size: 10.5px; color: var(--muted);
+    background: transparent;
+  }
+  .chip[aria-pressed="true"] { border-color: var(--work); color: var(--work); }
+  .search {
+    margin-left: auto; background: var(--ink-2); border: 1px solid var(--rule); color: var(--text);
+    padding: 4px 9px; font: inherit; font-size: 11px; width: 210px;
+  }
+  .search::placeholder { color: var(--dim); }
+
+  table.board { width: 100%; border-collapse: collapse; }
+  .board thead th {
+    text-align: left; font-family: var(--sans); font-weight: 600; font-size: 11px;
+    letter-spacing: .12em; color: var(--dim); padding: 6px 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .board tbody tr {
+    border-bottom: 1px solid var(--rule-soft); cursor: pointer;
+  }
+  .board tbody tr:hover { background: rgba(95,182,200,.05); }
+  .board tbody tr.selected { background: rgba(240,165,63,.07); box-shadow: inset 2px 0 0 var(--work); }
+  .board td { padding: 8px 10px; vertical-align: middle; }
+  .issue-cell { max-width: 420px; min-width: 240px; }
+  .issue-ref { color: var(--dim); font-size: 10px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .issue-title { font-size: 12.5px; color: var(--text); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; }
+  .dot.active { background: var(--work); animation: blink 1.6s steps(2, start) infinite; }
+  .dot.queued { border: 1px solid var(--wait); }
+  @keyframes blink { 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .dot.active { animation: none; } }
+
+  .stamp {
+    display: inline-block; padding: 2px 7px; border: 1px solid currentColor; font-size: 10px;
+    white-space: nowrap;
+  }
+  .stamp.working { color: var(--work); }
+  .stamp.waiting { color: var(--wait); }
+  .stamp.blocked { color: var(--blocked); }
+  .stamp.done { color: var(--done); }
+  .stamp.idle { color: var(--dim); }
+
+  .rail { display: flex; align-items: center; gap: 0; list-style: none; margin: 0; padding: 0; }
+  .rail li {
+    position: relative; width: 26px; height: 14px; display: flex; align-items: center; justify-content: center;
+    color: var(--rule);
+  }
+  .rail li::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 1px; background: var(--rule-soft);
+  }
+  .rail li:first-child::before { left: 50%; }
+  .rail li:last-child::before { right: 50%; }
+  .rail li i {
+    position: relative; z-index: 1; width: 5px; height: 5px; border-radius: 50%; background: var(--rule-soft);
+  }
+  .rail li.done i { background: var(--done); }
+  .rail li.done::before { background: var(--done); opacity: .5; }
+  .rail li.now i { background: var(--work); box-shadow: 0 0 0 2px rgba(240,165,63,.22); }
+  .rail li.blocked i { background: var(--blocked); box-shadow: 0 0 0 2px rgba(224,96,78,.22); }
+  .rail li.skip i { background: var(--rule-soft); }
+  .rail li.skip { opacity: .35; }
+
+  .time { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .pr { color: var(--wait); white-space: nowrap; }
+
+  .empty {
+    padding: 48px 10px; text-align: center; color: var(--dim);
+  }
+  .empty strong { display: block; color: var(--muted); font-weight: 500; font-size: 13px; margin-bottom: 4px; }
+
+  /* ---------- console ---------- */
+  .console {
+    border-top: 1px solid var(--rule); background: var(--ink-2); padding: 10px 28px 14px;
+  }
+  .console-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .console-head .band-title { margin: 0; }
+  .console-head .spacer { flex: 1; }
+  .toggle {
+    border: 1px solid var(--rule); padding: 2px 9px; font-size: 10.5px; color: var(--muted);
+  }
+  .toggle:hover { color: var(--text); }
+  pre.log {
+    margin: 0; max-height: 210px; overflow: auto; font-size: 10.5px; line-height: 1.65;
+    color: var(--dim); white-space: pre-wrap; word-break: break-word;
+  }
+  pre.log .lv-INFO { color: var(--muted); }
+  pre.log .lv-WARN { color: var(--wait); }
+  pre.log .lv-ERROR { color: var(--blocked); }
+  pre.log .lv-DEBUG { color: #476469; }
+  .console.collapsed pre.log { display: none; }
+
+  /* ---------- drawer ---------- */
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 92vw);
+    background: var(--panel); border-left: 1px solid var(--rule);
+    transform: translateX(100%); transition: transform .18s ease-out;
+    display: flex; flex-direction: column; z-index: 20;
+  }
+  .drawer.open { transform: none; }
+  @media (prefers-reduced-motion: reduce) { .drawer { transition: none; } }
+  .drawer-head {
+    display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .drawer-head h2 {
+    font-family: var(--sans); font-weight: 600; font-size: 21px; margin: 0; line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+  .drawer-head .ref { color: var(--dim); font-size: 10.5px; margin-top: 4px; overflow-wrap: anywhere; }
+  .drawer-close { margin-left: auto; color: var(--muted); font-size: 18px; line-height: 1; padding: 2px 6px; }
+  .drawer-body { padding: 14px 18px 28px; overflow: auto; }
+  .drawer-body h3 {
+    font-family: var(--sans); font-weight: 600; font-size: 12px; letter-spacing: .14em;
+    color: var(--muted); margin: 20px 0 6px;
+  }
+  .drawer-body h3:first-child { margin-top: 2px; }
+  .kv { display: grid; grid-template-columns: 92px 1fr; gap: 3px 10px; font-size: 11px; }
+  .kv dt { color: var(--dim); }
+  .kv dd { margin: 0; overflow-wrap: anywhere; }
+  .note {
+    border-left: 2px solid var(--blocked); padding: 6px 10px; background: rgba(224,96,78,.07);
+    color: var(--text); font-size: 11px; white-space: pre-wrap; margin: 8px 0;
+  }
+  .checks { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .checks th, .checks td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  .checks th { color: var(--dim); font-weight: 500; }
+  .ok { color: var(--done); }
+  .fail { color: var(--blocked); }
+  .checks details summary { cursor: pointer; color: var(--muted); }
+  .checks pre { white-space: pre-wrap; word-break: break-word; font-size: 10px; color: var(--muted); margin: 6px 0 0; }
+  .plan {
+    white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.7;
+    background: var(--ink); border: 1px solid var(--rule-soft); padding: 12px; max-height: 340px; overflow: auto;
+  }
+  .shots { display: grid; gap: 10px; }
+  .shots figure { margin: 0; }
+  .shots img { width: 100%; border: 1px solid var(--rule); display: block; }
+  .shots figcaption { color: var(--dim); font-size: 10px; margin-top: 4px; }
+
+  .link-row { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 2px; }
+
+  @media (max-width: 900px) {
+    .masthead, .band, .board-wrap, .console { padding-left: 16px; padding-right: 16px; }
+    .status-strip { margin-left: 0; width: 100%; }
+    .board thead { display: none; }
+    .board tbody tr { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 8px 0; }
+    .board td { padding: 2px 0; }
+    .board td.rail-cell { grid-column: 1 / -1; }
+    .board td.time-cell, .board td.pr-cell { display: inline-block; }
+    .issue-cell { max-width: none; }
+    .search { width: 100%; margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="mast-row">
+    <div>
+      <h1 class="wordmark">gh-issue-killer</h1>
+      <p class="tagline">用评论驱动编码 agent 的 issue 调度台</p>
+    </div>
+    <div class="status-strip">
+      <div class="stat"><b id="s-daemon"><span class="lamp live"></span>live</b><small>DAEMON</small></div>
+      <div class="stat"><b id="s-active">0</b><small>ACTIVE</small></div>
+      <div class="stat"><b id="s-queued">0</b><small>QUEUED</small></div>
+      <div class="stat"><b id="s-repos">0</b><small>REPOS</small></div>
+      <div class="stat"><b id="s-uptime">0m</b><small>UPTIME</small></div>
+    </div>
+    <div class="meters">
+      <div class="meter">
+        <span class="meter-label">PLAN <span id="s-plan-text">0/0</span></span>
+        <div class="cells" id="s-plan-cells"></div>
+      </div>
+      <div class="meter">
+        <span class="meter-label">WORK <span id="s-work-text">0/0</span></span>
+        <div class="cells" id="s-work-cells"></div>
+      </div>
+    </div>
+  </div>
+  <div class="meta-line">
+    <span>version <b id="s-version">–</b></span>
+    <span>pid <b id="s-pid">–</b></span>
+    <span>identity <b id="s-identity">–</b></span>
+    <span>transport <b id="s-transport">–</b></span>
+    <span>config <b id="s-config">–</b></span>
+  </div>
+</header>
+
+<section class="band">
+  <h2 class="band-title">LINES</h2>
+  <div class="lines" id="lines"></div>
+</section>
+
+<main class="board-wrap">
+  <div class="board-top">
+    <div class="filters" role="group" aria-label="筛选">
+      <button class="chip" data-filter="all" aria-pressed="true">全部</button>
+      <button class="chip" data-filter="active" aria-pressed="false">正在处理</button>
+      <button class="chip" data-filter="wait" aria-pressed="false">等我</button>
+      <button class="chip" data-filter="blocked" aria-pressed="false">阻塞</button>
+    </div>
+    <input class="search" id="search" type="search" placeholder="搜索 issue 或仓库" aria-label="搜索">
+  </div>
+  <table class="board">
+    <thead>
+      <tr>
+        <th scope="col">ISSUE</th>
+        <th scope="col">阶段</th>
+        <th scope="col">进度</th>
+        <th scope="col">停留</th>
+        <th scope="col">PR</th>
+      </tr>
+    </thead>
+    <tbody id="tasks"></tbody>
+  </table>
+  <div class="empty" id="empty" hidden>
+    <strong>还没有任务</strong>
+    在 issue 里 @agent，或者把 issue assign 给它。
+  </div>
+</main>
+
+<section class="console" id="console">
+  <div class="console-head">
+    <h2 class="band-title">CONSOLE</h2>
+    <span class="spacer"></span>
+    <button class="toggle" id="log-toggle" aria-expanded="true">收起</button>
+    <button class="toggle" id="log-pause" aria-pressed="false">暂停</button>
+  </div>
+  <pre class="log" id="log" aria-live="off"></pre>
+</section>
+
+<aside class="drawer" id="drawer" aria-hidden="true" aria-label="任务详情">
+  <div class="drawer-head">
+    <div>
+      <h2 id="d-title">–</h2>
+      <div class="ref" id="d-ref"></div>
+    </div>
+    <button class="drawer-close" id="d-close" aria-label="关闭详情">×</button>
+  </div>
+  <div class="drawer-body" id="d-body"></div>
+</aside>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const state = { data: null, filter: "all", search: "", selected: null, logPaused: false, logOpen: true, failures: 0, down: false, live: false, drawerSig: "" };
+
+  const icon = (cls) => {
+    const span = document.createElement("span");
+    span.className = cls;
+    return span;
+  };
+  const text = (tag, value, cls) => {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    el.textContent = value;
+    return el;
+  };
+
+  const PHASES = {
+    "new": { label: "待处理", cls: "idle", step: 1 },
+    "": { label: "待处理", cls: "idle", step: 1 },
+    "planning": { label: "规划中", cls: "working", step: 1 },
+    "awaiting_approval": { label: "等待确认", cls: "waiting", step: 2 },
+    "implementing": { label: "实现中", cls: "working", step: 3 },
+    "blocked": { label: "阻塞", cls: "blocked", step: 3 },
+    "pr_open": { label: "PR 待合并", cls: "waiting", step: 5 },
+    "merging": { label: "合并中", cls: "working", step: 6 },
+    "done": { label: "已完成", cls: "done", step: 6 },
+    "cancelled": { label: "已取消", cls: "idle", step: 0 },
+  };
+
+  function fmtTime(raw) {
+    if (!raw) return "–";
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return raw;
+    return date.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function humanAge(seconds) {
+    if (!seconds || seconds < 0) return "–";
+    if (seconds < 60) return seconds + "s";
+    if (seconds < 3600) return Math.floor(seconds / 60) + "m";
+    if (seconds < 86400) return Math.floor(seconds / 3600) + "h";
+    return Math.floor(seconds / 86400) + "d";
+  }
+
+  function setText(id, value) {
+    const el = $(id);
+    if (el && el.textContent !== value) el.textContent = value;
+  }
+
+  function renderMeters(active, limit, prefix) {
+    setText(`s-${prefix}-text`, active + "/" + limit);
+    const holder = $(`s-${prefix}-cells`);
+    if (!holder) return;
+    holder.replaceChildren();
+    const slots = Math.max(limit, active, 1);
+    for (let i = 0; i < slots; i++) {
+      const cell = document.createElement("span");
+      cell.className = "cell" + (i < active ? " on" : "");
+      holder.appendChild(cell);
+    }
+  }
+
+  function renderHeader(data) {
+    setText("s-version", data.version || "dev");
+    setText("s-pid", String(data.pid));
+    setText("s-identity", "@" + data.identity);
+    setText("s-transport", data.webhook ? "smee + 轮询" : "轮询");
+    setText("s-config", data.configFile);
+    setText("s-active", String(data.active));
+    setText("s-queued", String(data.queued));
+    setText("s-repos", String(data.repos.length));
+    setText("s-uptime", humanAge(data.uptimeSec));
+    const planActive = data.tasks.filter((t) => t.active && t.phase === "planning").length;
+    const workActive = data.tasks.filter((t) => t.active && (t.phase === "implementing" || t.phase === "merging")).length;
+    renderMeters(planActive, data.planLimit, "plan");
+    renderMeters(workActive, data.workLimit, "work");
+    if (!state.down && !state.live) {
+      $("s-daemon").replaceChildren(icon("lamp live"), document.createTextNode("live"));
+      state.live = true;
+    }
+  }
+
+  function renderLines(data) {
+    const holder = $("lines");
+    holder.replaceChildren();
+    for (const repo of data.repos) {
+      const line = document.createElement("div");
+      line.className = "line";
+      const head = document.createElement("div");
+      head.className = "line-head";
+      head.appendChild(text("span", repo.name, "line-name"));
+      head.appendChild(text("span", repo.agent || "opencode", "line-agent"));
+      line.appendChild(head);
+
+      const counts = document.createElement("div");
+      counts.className = "counts";
+      const entries = Object.entries(repo.counts || {});
+      if (entries.length === 0) {
+        counts.appendChild(text("span", "空闲", "count"));
+      } else {
+        for (const [phase, n] of entries) {
+          const meta = PHASES[phase] || PHASES["new"];
+          const item = document.createElement("span");
+          item.className = "count";
+          const swatch = document.createElement("i");
+          swatch.className = "swatch " + meta.cls;
+          item.appendChild(swatch);
+          item.appendChild(document.createTextNode((meta.label || phase) + " "));
+          const strong = document.createElement("b");
+          strong.textContent = String(n);
+          item.appendChild(strong);
+          counts.appendChild(item);
+        }
+      }
+      line.appendChild(counts);
+
+      const foot = document.createElement("div");
+      foot.className = "line-foot";
+      foot.appendChild(text("span", `queue P${repo.queue.plan} W${repo.queue.work}`));
+      foot.appendChild(text("span", `${repo.issues} issues`));
+      foot.appendChild(text("span", repo.lastPoll ? "poll " + humanAge(Math.floor((Date.now() - Date.parse(repo.lastPoll)) / 1000)) + " ago" : "poll –"));
+      if (repo.base) foot.appendChild(text("span", repo.base));
+      line.appendChild(foot);
+      holder.appendChild(line);
+    }
+  }
+
+  function stepState(task) {
+    const meta = PHASES[task.phase] || PHASES["new"];
+    const now = meta.step;
+    const blocked = task.phase === "blocked";
+    const cancelled = task.phase === "cancelled";
+    const done = task.phase === "done";
+    return { meta, now, blocked, cancelled, done };
+  }
+
+  function renderRail(task) {
+    const rail = document.createElement("ol");
+    rail.className = "rail";
+    const { now, blocked, cancelled, done } = stepState(task);
+    const effective = blocked ? (task.prNumber ? 5 : 3) : now;
+    for (let step = 1; step <= 6; step++) {
+      const item = document.createElement("li");
+      if (cancelled) item.className = "skip";
+      else if (done) item.className = "done";
+      else if (blocked && step === effective) item.className = "blocked";
+      else if (step < effective) item.className = "done";
+      else if (step === effective) item.className = "now";
+      item.appendChild(document.createElement("i"));
+      item.title = ["规划", "批准", "实现", "检查", "PR", "合并"][step - 1];
+      rail.appendChild(item);
+    }
+    return rail;
+  }
+
+  function matches(task) {
+    if (state.filter === "active" && !(task.active || task.queued)) return false;
+    if (state.filter === "wait" && task.phase !== "awaiting_approval") return false;
+    if (state.filter === "blocked" && task.phase !== "blocked") return false;
+    const needle = state.search.trim().toLowerCase();
+    if (needle) {
+      const hay = `${task.repo} ${task.number} ${task.title}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  }
+
+  function renderTasks(data) {
+    const body = $("tasks");
+    const rows = data.tasks.filter(matches);
+    $("empty").hidden = rows.length !== 0;
+    if (rows.length === 0) {
+      body.replaceChildren();
+      if (data.tasks.length === 0) {
+        $("empty").hidden = false;
+      }
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const task of rows) {
+      const tr = document.createElement("tr");
+      tr.dataset.repo = task.repo;
+      tr.dataset.number = String(task.number);
+      tr.tabIndex = 0;
+      if (state.selected && state.selected.repo === task.repo && state.selected.number === task.number) {
+        tr.classList.add("selected");
+      }
+
+      const issueCell = document.createElement("td");
+      issueCell.className = "issue-cell";
+      const ref = document.createElement("span");
+      ref.className = "issue-ref";
+      ref.appendChild(icon("dot" + (task.active ? " active" : task.queued ? " queued" : "")));
+      ref.appendChild(document.createTextNode(`${task.repo} #${task.number}`));
+      issueCell.appendChild(ref);
+      issueCell.appendChild(text("span", task.title || "issue #" + task.number, "issue-title"));
+
+      const phaseCell = document.createElement("td");
+      const meta = PHASES[task.phase] || PHASES["new"];
+      phaseCell.appendChild(text("span", meta.label, "stamp " + meta.cls));
+
+      const railCell = document.createElement("td");
+      railCell.className = "rail-cell";
+      railCell.appendChild(renderRail(task));
+
+      const timeCell = document.createElement("td");
+      timeCell.className = "time-cell";
+      timeCell.appendChild(text("span", humanAge(task.elapsedSec), "time"));
+
+      const prCell = document.createElement("td");
+      prCell.className = "pr-cell";
+      if (task.prNumber) {
+        const link = document.createElement("a");
+        link.href = task.prUrl || "#";
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.textContent = "#" + task.prNumber;
+        link.className = "pr";
+        link.addEventListener("click", (event) => event.stopPropagation());
+        prCell.appendChild(link);
+      } else {
+        prCell.appendChild(text("span", "–", "time"));
+      }
+
+      tr.append(issueCell, phaseCell, railCell, timeCell, prCell);
+      tr.addEventListener("click", () => selectTask(task));
+      tr.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectTask(task);
+        }
+      });
+      frag.appendChild(tr);
+    }
+    body.replaceChildren(frag);
+  }
+
+  async function selectTask(task) {
+    if (state.selected && state.selected.repo === task.repo && state.selected.number === task.number) {
+      closeDrawer();
+      return;
+    }
+    state.selected = { repo: task.repo, number: task.number };
+    state.drawerSig = "";
+    markSelectedRow();
+    try {
+      const response = await fetch(`/api/issue?repo=${encodeURIComponent(task.repo)}&number=${task.number}`);
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      renderDrawer(await response.json(), task);
+    } catch (err) {
+      renderDrawerError(err);
+    }
+  }
+
+  function markSelectedRow() {
+    for (const row of $("tasks").querySelectorAll("tr")) {
+      const on = state.selected && row.dataset.repo === state.selected.repo && row.dataset.number === String(state.selected.number);
+      row.classList.toggle("selected", !!on);
+    }
+  }
+
+  function closeDrawer() {
+    state.selected = null;
+    state.drawerSig = "";
+    $("drawer").classList.remove("open");
+    $("drawer").setAttribute("aria-hidden", "true");
+    markSelectedRow();
+  }
+
+  function renderDrawer(issue, task) {
+    const drawer = $("drawer");
+    $("d-title").textContent = task.title || `issue #${task.number}`;
+    $("d-ref").textContent = `${task.repo} #${task.number}`;
+    const body = $("d-body");
+    body.replaceChildren();
+
+    const links = document.createElement("div");
+    links.className = "link-row";
+    if (task.url) {
+      const a = document.createElement("a");
+      a.href = task.url; a.target = "_blank"; a.rel = "noreferrer"; a.textContent = "打开 issue";
+      links.appendChild(a);
+    }
+    if (task.prUrl) {
+      const a = document.createElement("a");
+      a.href = task.prUrl; a.target = "_blank"; a.rel = "noreferrer"; a.textContent = "打开 PR #" + task.prNumber;
+      links.appendChild(a);
+    }
+    if (links.childNodes.length) body.appendChild(links);
+
+    if (issue.blockedReason) {
+      body.appendChild(text("div", issue.blockedReason, "note"));
+    }
+
+    body.appendChild(text("h3", "状态"));
+    const kv = document.createElement("dl");
+    kv.className = "kv";
+    const addKV = (key, value) => {
+      kv.appendChild(text("dt", key));
+      kv.appendChild(text("dd", value || "–"));
+    };
+    addKV("阶段", (PHASES[issue.phase] || {}).label || issue.phase || "–");
+    addKV("开始", fmtTime(issue.startedAt));
+    addKV("更新", fmtTime(issue.updatedAt));
+    addKV("分支", issue.branch || "–");
+    addKV("worktree", issue.worktree || "–");
+    addKV("session", issue.sessionId || "–");
+    body.appendChild(kv);
+
+    if (issue.checks && issue.checks.length) {
+      body.appendChild(text("h3", "检查"));
+      const table = document.createElement("table");
+      table.className = "checks";
+      const thead = document.createElement("thead");
+      const hr = document.createElement("tr");
+      hr.append(text("th", "名称"), text("th", "结果"), text("th", "耗时"));
+      thead.appendChild(hr);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      for (const check of issue.checks) {
+        const tr = document.createElement("tr");
+        const name = document.createElement("td");
+        if (check.outputTail) {
+          const details = document.createElement("details");
+          details.appendChild(text("summary", check.name || check.cmd));
+          details.appendChild(text("pre", check.outputTail));
+          name.appendChild(details);
+        } else {
+          name.textContent = check.name || check.cmd;
+        }
+        tr.appendChild(name);
+        tr.appendChild(text("td", check.ok ? "通过" : "失败", check.ok ? "ok" : "fail"));
+        tr.appendChild(text("td", (check.durationSec || 0) + "s"));
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      body.appendChild(table);
+    }
+
+    if (issue.screenshots && issue.screenshots.length) {
+      body.appendChild(text("h3", "截图"));
+      const shots = document.createElement("div");
+      shots.className = "shots";
+      for (const shot of issue.screenshots) {
+        const figure = document.createElement("figure");
+        const img = document.createElement("img");
+        img.src = shot.url;
+        img.alt = shot.caption || "截图";
+        img.loading = "lazy";
+        figure.appendChild(img);
+        figure.appendChild(text("figcaption", shot.caption || ""));
+        shots.appendChild(figure);
+      }
+      body.appendChild(shots);
+    }
+
+    if (issue.plan) {
+      body.appendChild(text("h3", "计划"));
+      body.appendChild(text("pre", issue.plan, "plan"));
+    }
+
+    drawer.classList.add("open");
+    drawer.setAttribute("aria-hidden", "false");
+  }
+
+  function renderDrawerError(err) {
+    const body = $("d-body");
+    body.replaceChildren(text("div", "读取详情失败：" + err.message, "note"));
+    $("drawer").classList.add("open");
+    $("drawer").setAttribute("aria-hidden", "false");
+  }
+
+  function renderLogLines(raw) {
+    const lines = raw.split("\n");
+    const frag = document.createDocumentFragment();
+    for (const line of lines) {
+      const match = line.match(/ (INFO|WARN|ERROR|DEBUG) /);
+      const span = document.createElement("span");
+      if (match) span.className = "lv-" + match[1];
+      span.appendChild(document.createTextNode(line + "\n"));
+      frag.appendChild(span);
+    }
+    const log = $("log");
+    const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 24;
+    log.replaceChildren(frag);
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+
+  async function refreshState() {
+    try {
+      const response = await fetch("/api/state", { cache: "no-store" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+      state.failures = 0;
+      state.down = false;
+      const changed = !state.data || JSON.stringify(state.data) !== JSON.stringify(data);
+      state.data = data;
+      renderHeader(data);
+      renderLines(data);
+      if (changed) renderTasks(data);
+      if (state.selected) {
+        const task = data.tasks.find((t) => t.repo === state.selected.repo && t.number === state.selected.number);
+        if (task) $("d-title").textContent = task.title;
+        const issue = await fetch(`/api/issue?repo=${encodeURIComponent(state.selected.repo)}&number=${state.selected.number}`).then((r) => r.ok ? r.json() : null);
+        if (issue) {
+          const sig = JSON.stringify([issue.phase, issue.blockedReason, (issue.checks || []).map((c) => [c.name, c.ok]), (issue.screenshots || []).length]);
+          if (sig !== state.drawerSig) {
+            state.drawerSig = sig;
+            renderDrawer(issue, task || { repo: state.selected.repo, number: state.selected.number });
+          }
+        }
+      }
+    } catch (err) {
+      state.failures++;
+      state.down = true;
+      state.live = false;
+      $("s-daemon").replaceChildren(icon("lamp stopped"), document.createTextNode("down · retry " + state.failures));
+    }
+  }
+
+  async function refreshLogs() {
+    if (state.logPaused || !state.logOpen) return;
+    try {
+      const response = await fetch("/api/logs?lines=160", { cache: "no-store" });
+      if (!response.ok) return;
+      renderLogLines(await response.text());
+    } catch (_) { /* the state poll reports the connection problem */ }
+  }
+
+  function wire() {
+    for (const chip of document.querySelectorAll(".chip")) {
+      chip.addEventListener("click", () => {
+        state.filter = chip.dataset.filter;
+        for (const other of document.querySelectorAll(".chip")) {
+          other.setAttribute("aria-pressed", other === chip ? "true" : "false");
+        }
+        if (state.data) renderTasks(state.data);
+      });
+    }
+    $("search").addEventListener("input", (event) => {
+      state.search = event.target.value;
+      if (state.data) renderTasks(state.data);
+    });
+    $("d-close").addEventListener("click", closeDrawer);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeDrawer();
+    });
+    $("log-toggle").addEventListener("click", () => {
+      state.logOpen = !state.logOpen;
+      $("console").classList.toggle("collapsed", !state.logOpen);
+      $("log-toggle").textContent = state.logOpen ? "收起" : "展开";
+      $("log-toggle").setAttribute("aria-expanded", String(state.logOpen));
+      if (state.logOpen) refreshLogs();
+    });
+    $("log-pause").addEventListener("click", () => {
+      state.logPaused = !state.logPaused;
+      $("log-pause").textContent = state.logPaused ? "继续" : "暂停";
+      $("log-pause").setAttribute("aria-pressed", String(state.logPaused));
+      if (!state.logPaused) refreshLogs();
+    });
+  }
+
+  wire();
+  refreshState();
+  refreshLogs();
+  setInterval(refreshState, 2000);
+  setInterval(refreshLogs, 3000);
+})();
+</script>
+</body>
+</html>

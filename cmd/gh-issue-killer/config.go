@@ -50,6 +50,7 @@ type Config struct {
 	PlanParallel          int
 	ImplementParallel     int
 	SelfUpdate            bool
+	WebPort               int
 	DeprecatedMaxParallel bool
 	PlanTimeout           time.Duration
 	ImplementTimeout      time.Duration
@@ -80,6 +81,7 @@ type rawConfig struct {
 	PlanParallel      int             `json:"planParallel"`
 	ImplementParallel int             `json:"implementParallel"`
 	SelfUpdate        bool            `json:"selfUpdate"`
+	WebPort           int             `json:"webPort"`
 	// MaxParallel is the old name for implementParallel.
 	MaxParallel         int `json:"maxParallel"`
 	PlanTimeoutMin      int `json:"planTimeoutMin"`
@@ -227,6 +229,7 @@ func loadConfig(file string) (*Config, error) {
 		PlanParallel:      raw.PlanParallel,
 		ImplementParallel: raw.ImplementParallel,
 		SelfUpdate:        raw.SelfUpdate,
+		WebPort:           raw.WebPort,
 		PlanTimeout:       time.Duration(raw.PlanTimeoutMin) * time.Minute,
 		ImplementTimeout:  time.Duration(raw.ImplementTimeoutMin) * time.Minute,
 		CodingAgent:       agentID,
@@ -252,6 +255,9 @@ func loadConfig(file string) (*Config, error) {
 	}
 	if cfg.ImplementParallel == 0 {
 		cfg.ImplementParallel = 1
+	}
+	if cfg.WebPort < 0 || cfg.WebPort > 65535 {
+		cfg.WebPort = 0
 	}
 	if cfg.PlanTimeout == 0 {
 		cfg.PlanTimeout = 15 * time.Minute

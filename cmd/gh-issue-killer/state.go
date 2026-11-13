@@ -192,6 +192,47 @@ func (s *Store) MarkFeedbackProcessed(fullName string, number int, id int64) {
 	})
 }
 
+type StoredIssue struct {
+	Repo   string
+	Number int
+	State  IssueState
+}
+
+// Snapshot copies every tracked issue for the web dashboard.
+func (s *Store) Snapshot() []StoredIssue {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]StoredIssue, 0)
+	for name, repo := range s.state.Repos {
+		for key, issue := range repo.Issues {
+			number, err := strconv.Atoi(key)
+			if err != nil {
+				continue
+			}
+			out = append(out, StoredIssue{Repo: name, Number: number, State: *issue})
+		}
+	}
+	return out
+}
+
+// MarkComments records the comment watermark without turning an unknown issue
+// into a task (UpdateIssue would give it phase "new").
+func (s *Store) MarkComments(fullName string, number int, ids []int64, last int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	repo := s.repoLocked(fullName)
+	key := itoa(number)
+	issue := repo.Issues[key]
+	if issue == nil {
+		issue = &IssueState{}
+		repo.Issues[key] = issue
+	}
+	issue.ProcessedComments = ids
+	issue.LastCommentID = last
+	issue.UpdatedAt = nowISO()
+	_ = s.SaveLocked()
+}
+
 // IssueByPR finds the tracked issue whose open PR matches prNumber.
 func (s *Store) IssueByPR(fullName string, prNumber int) (int, IssueState, bool) {
 	s.mu.Lock()

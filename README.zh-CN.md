@@ -53,6 +53,9 @@ flowchart LR
   堵住别的仓库。
 - **单个静态二进制。** 只发起出站 HTTPS；运行时不需要 `curl`、`ffmpeg`、
   ImageMagick 或 `gh`，只调用 `git`、一个编码 agent CLI 和 `/bin/sh`。
+- **实时看板。** 配置 `webPort` 后打开 `http://127.0.0.1:<port>`：每个仓库的
+  队列、正在跑的任务、每个 issue 的阶段进度、PR、检查、截图和 daemon 日志，
+  都在一块面板里。
 
 ## 用编码 agent 安装
 

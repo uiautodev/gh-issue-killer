@@ -104,6 +104,7 @@ type Router struct {
 	active     map[string]bool
 	queued     map[string]bool
 	cancels    map[string]context.CancelFunc
+	started    map[string]time.Time
 }
 
 func NewRouter(cfg *Config, contexts map[string]*AppContext, agentLogin string, store *Store, log *Logger) *Router {
@@ -117,6 +118,7 @@ func NewRouter(cfg *Config, contexts map[string]*AppContext, agentLogin string, 
 		active:     map[string]bool{},
 		queued:     map[string]bool{},
 		cancels:    map[string]context.CancelFunc{},
+		started:    map[string]time.Time{},
 	}
 	planWorkers := cfg.PlanParallel
 	if planWorkers < 1 {
@@ -149,6 +151,7 @@ func (r *Router) worker(jobs <-chan routerJob) {
 		r.mu.Lock()
 		delete(r.queued, job.key)
 		r.active[job.key] = true
+		r.started[job.key] = time.Now()
 		r.mu.Unlock()
 		r.log.Debug("job start %s", job.key)
 		func() {
@@ -162,6 +165,7 @@ func (r *Router) worker(jobs <-chan routerJob) {
 		r.mu.Lock()
 		delete(r.active, job.key)
 		delete(r.cancels, job.key)
+		delete(r.started, job.key)
 		r.mu.Unlock()
 		r.log.Debug("job done %s", job.key)
 	}
@@ -206,6 +210,37 @@ func (r *Router) cancelActive(fullName string, number int) {
 		r.log.Debug("cancel active job %s", key)
 		cancel()
 	}
+}
+
+// PoolDepth is the number of jobs waiting in one repository's queues.
+type PoolDepth struct {
+	Plan int
+	Work int
+}
+
+type RouterSnapshot struct {
+	Active map[string]bool
+	Queued map[string]bool
+	Pools  map[string]PoolDepth
+}
+
+// Snapshot copies the live scheduler state for the web dashboard.
+func (r *Router) Snapshot() RouterSnapshot {
+	r.mu.Lock()
+	active := make(map[string]bool, len(r.active))
+	for key := range r.active {
+		active[key] = true
+	}
+	queued := make(map[string]bool, len(r.queued))
+	for key := range r.queued {
+		queued[key] = true
+	}
+	r.mu.Unlock()
+	pools := make(map[string]PoolDepth, len(r.pools))
+	for name, pool := range r.pools {
+		pools[name] = PoolDepth{Plan: len(pool.plan), Work: len(pool.work)}
+	}
+	return RouterSnapshot{Active: active, Queued: queued, Pools: pools}
 }
 
 // Idle reports whether no job is running or queued.
@@ -682,7 +717,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 			if issue.State != "open" {
 				return
 			}
-			if !isRelevantIssue(issue, r.agentLogin) {
+			if !isRelevantIssue(issue, r.agentLogin) && st.Phase != "planning" {
 				return
 			}
 			comments, err := app.GH.ListComments(jobCtx, fullName, trigger.IssueNumber)
@@ -820,7 +855,10 @@ func (r *Router) StartupScan(ctx context.Context) {
 				continue
 			}
 
-			if (st.Phase == "" || st.Phase == "new" || st.Phase == "planning") && isRelevantIssue(issue, r.agentLogin) {
+			// A planning phase is resumed even when the trigger was a comment:
+			// isRelevantIssue only looks at the body and assignees.
+			resume := st.Phase == "planning" || ((st.Phase == "" || st.Phase == "new") && isRelevantIssue(issue, r.agentLogin))
+			if resume {
 				if st.Phase == "" {
 					comments, listErr := app.GH.ListComments(ctx, fullName, number)
 					if listErr == nil {
@@ -984,10 +1022,7 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 			ids = append(ids, comment.ID)
 			last = comment.ID
 		}
-		app.Store.UpdateIssue(fullName, number, func(state *IssueState) {
-			state.ProcessedComments = ids
-			state.LastCommentID = last
-		})
+		app.Store.MarkComments(fullName, number, ids, last)
 	}
 	r.checkReactions(ctx, app)
 	r.checkPRFeedback(ctx, app)

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -387,6 +388,18 @@ func main() {
 	}
 
 	router := NewRouter(cfg, contexts, identity.Login, store, log)
+
+	var web *http.Server
+	if !*once && cfg.WebPort > 0 {
+		server, webErr := startWeb(cfg, router, store, log, identity.Login, version)
+		if webErr != nil {
+			log.Warn("web UI disabled: %v", webErr)
+		} else {
+			web = server
+			log.Info("web UI: http://127.0.0.1:%d", cfg.WebPort)
+		}
+	}
+
 	router.StartupScan(ctx)
 
 	if *once {
@@ -466,6 +479,7 @@ func main() {
 	for _, stop := range stops {
 		stop()
 	}
+	shutdownWeb(web)
 	_ = store.Save()
 
 	if reloadRequested {

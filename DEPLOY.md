@@ -188,7 +188,8 @@ Non-zero exit or missing lines → see failures.
 
 Optional: `pollIntervalSec` (30), `webhook` (true), `maxFixRounds` (3),
 `planParallel` (5) and `implementParallel` (1), both **per repository**,
-`selfUpdate` (false), `planTimeoutMin` (15), `implementTimeoutMin` (60),
+`selfUpdate` (false), `webPort` (0 = off; `8787` serves the dashboard on
+127.0.0.1), `planTimeoutMin` (15), `implementTimeoutMin` (60),
 `worktreeRoot` (state dir).
 
 Per-repo overrides: the `repos` object form can set `codingAgent`, `model`,
@@ -274,6 +275,7 @@ macOS: start it once after login, or add it to login items. Nothing else.
 | task | command |
 | --- | --- |
 | status / paths | `gh-issue-killer -config "$CONFIG" -status` |
+| dashboard | set `webPort` and open `http://127.0.0.1:<port>` (loopback only, no auth) |
 | follow logs | `gh-issue-killer -config "$CONFIG" -logs` |
 | stop | `gh-issue-killer -config "$CONFIG" -stop` |
 | apply a config change | save the file; the daemon reloads in place when jobs finish (same PID) |

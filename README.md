@@ -60,6 +60,9 @@ flowchart LR
   implementation queues, so one slow repo never blocks another.
 - **One static binary.** Outbound HTTPS only; no `curl`, `ffmpeg`, ImageMagick,
   or `gh` at runtime. It shells out to `git`, one coding-agent CLI, and `/bin/sh`.
+- **Live console.** Set `webPort` and open `http://127.0.0.1:<port>`: per-repo
+  queues, active jobs, every task's stage rail, PR links, checks, screenshots
+  and the daemon log in one board.
 
 ## Install with a coding agent
 
