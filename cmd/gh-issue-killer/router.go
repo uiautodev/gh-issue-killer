@@ -119,7 +119,7 @@ func NewRouter(cfg *Config, contexts map[string]*AppContext, agentLogin string, 
 	if planWorkers < 1 {
 		planWorkers = 1
 	}
-	workWorkers := cfg.MaxParallel
+	workWorkers := cfg.ImplementParallel
 	if workWorkers < 1 {
 		workWorkers = 1
 	}

@@ -153,8 +153,8 @@ func TestSetupWizardAdvancedAndClaude(t *testing.T) {
 	if cfg.Proxy != "socks5h://127.0.0.1:10808" || cfg.Webhook {
 		t.Fatalf("proxy/webhook = %q/%v", cfg.Proxy, cfg.Webhook)
 	}
-	if cfg.PollInterval.Seconds() != 45 || cfg.MaxFixRounds != 5 || cfg.PlanParallel != 5 || cfg.MaxParallel != 2 {
-		t.Fatalf("poll/fix/parallel = %v/%d/%d/%d", cfg.PollInterval, cfg.MaxFixRounds, cfg.PlanParallel, cfg.MaxParallel)
+	if cfg.PollInterval.Seconds() != 45 || cfg.MaxFixRounds != 5 || cfg.PlanParallel != 5 || cfg.ImplementParallel != 2 {
+		t.Fatalf("poll/fix/parallel = %v/%d/%d/%d", cfg.PollInterval, cfg.MaxFixRounds, cfg.PlanParallel, cfg.ImplementParallel)
 	}
 	if cfg.PlanTimeout.Minutes() != 20 || cfg.ImplementTimeout.Minutes() != 90 {
 		t.Fatalf("timeouts = %v/%v", cfg.PlanTimeout, cfg.ImplementTimeout)
@@ -225,7 +225,7 @@ func TestSetupWizardKeepsExistingValuesAndRepoOverrides(t *testing.T) {
   "pollIntervalSec": 60,
   "webhook": false,
   "maxFixRounds": 4,
-  "maxParallel": 2,
+  "implementParallel": 2,
   "planTimeoutMin": 20,
   "implementTimeoutMin": 90
 }
@@ -284,8 +284,8 @@ func TestSetupWizardKeepsExistingValuesAndRepoOverrides(t *testing.T) {
 	if cfg.Webhook || cfg.PollInterval.Seconds() != 60 {
 		t.Fatalf("webhook/poll = %v/%v", cfg.Webhook, cfg.PollInterval)
 	}
-	if cfg.MaxFixRounds != 4 || cfg.MaxParallel != 2 {
-		t.Fatalf("fix/parallel = %d/%d", cfg.MaxFixRounds, cfg.MaxParallel)
+	if cfg.MaxFixRounds != 4 || cfg.ImplementParallel != 2 {
+		t.Fatalf("fix/parallel = %d/%d", cfg.MaxFixRounds, cfg.ImplementParallel)
 	}
 	if cfg.PlanTimeout.Minutes() != 20 || cfg.ImplementTimeout.Minutes() != 90 {
 		t.Fatalf("timeouts = %v/%v", cfg.PlanTimeout, cfg.ImplementTimeout)

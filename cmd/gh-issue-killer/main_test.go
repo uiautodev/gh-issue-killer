@@ -283,7 +283,7 @@ func TestEnsureGhAgentWrapper(t *testing.T) {
 }
 
 func TestRouterSeparatesPlanAndWorkPools(t *testing.T) {
-	cfg := &Config{PlanParallel: 1, MaxParallel: 1}
+	cfg := &Config{PlanParallel: 1, ImplementParallel: 1}
 	router := NewRouter(cfg, map[string]*AppContext{}, "bot", nil, NewSilentLogger())
 
 	block := make(chan struct{})
@@ -306,5 +306,31 @@ func TestRouterSeparatesPlanAndWorkPools(t *testing.T) {
 	case <-planRan:
 	case <-time.After(2 * time.Second):
 		t.Fatal("plan job was blocked behind the work pool")
+	}
+}
+
+func TestLoadConfigParallelKeys(t *testing.T) {
+	cases := []struct {
+		body       string
+		want       int
+		deprecated bool
+	}{
+		{`{"repos":["me/app"],"implementParallel":2}`, 2, false},
+		{`{"repos":["me/app"],"maxParallel":3}`, 3, true},
+		{`{"repos":["me/app"]}`, 1, false},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.json")
+		if err := os.WriteFile(path, []byte(c.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := loadConfig(path)
+		if err != nil {
+			t.Fatalf("%s: %v", c.body, err)
+		}
+		if cfg.ImplementParallel != c.want || cfg.DeprecatedMaxParallel != c.deprecated {
+			t.Fatalf("%s: implementParallel=%d deprecated=%v", c.body, cfg.ImplementParallel, cfg.DeprecatedMaxParallel)
+		}
 	}
 }

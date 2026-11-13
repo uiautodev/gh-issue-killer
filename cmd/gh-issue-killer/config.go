@@ -41,20 +41,21 @@ type RepoConfig struct {
 }
 
 type Config struct {
-	File             string
-	Repos            []RepoConfig
-	Proxy            string
-	PollInterval     time.Duration
-	Webhook          bool
-	MaxFixRounds     int
-	PlanParallel     int
-	MaxParallel      int
-	PlanTimeout      time.Duration
-	ImplementTimeout time.Duration
-	CodingAgent      string
-	Model            string
-	Approvers        []string
-	DeprecatedAgent  string
+	File                  string
+	Repos                 []RepoConfig
+	Proxy                 string
+	PollInterval          time.Duration
+	Webhook               bool
+	MaxFixRounds          int
+	PlanParallel          int
+	ImplementParallel     int
+	DeprecatedMaxParallel bool
+	PlanTimeout           time.Duration
+	ImplementTimeout      time.Duration
+	CodingAgent           string
+	Model                 string
+	Approvers             []string
+	DeprecatedAgent       string
 }
 
 type repoOptions struct {
@@ -66,19 +67,21 @@ type repoOptions struct {
 }
 
 type rawConfig struct {
-	Repos               json.RawMessage `json:"repos"`
-	CodingAgent         string          `json:"codingAgent"`
-	Model               string          `json:"model"`
-	Approvers           []string        `json:"approvers"`
-	Proxy               string          `json:"proxy"`
-	PollIntervalSec     int             `json:"pollIntervalSec"`
-	Webhook             *bool           `json:"webhook"`
-	WorktreeRoot        string          `json:"worktreeRoot"`
-	MaxFixRounds        int             `json:"maxFixRounds"`
-	PlanParallel        int             `json:"planParallel"`
-	MaxParallel         int             `json:"maxParallel"`
-	PlanTimeoutMin      int             `json:"planTimeoutMin"`
-	ImplementTimeoutMin int             `json:"implementTimeoutMin"`
+	Repos             json.RawMessage `json:"repos"`
+	CodingAgent       string          `json:"codingAgent"`
+	Model             string          `json:"model"`
+	Approvers         []string        `json:"approvers"`
+	Proxy             string          `json:"proxy"`
+	PollIntervalSec   int             `json:"pollIntervalSec"`
+	Webhook           *bool           `json:"webhook"`
+	WorktreeRoot      string          `json:"worktreeRoot"`
+	MaxFixRounds      int             `json:"maxFixRounds"`
+	PlanParallel      int             `json:"planParallel"`
+	ImplementParallel int             `json:"implementParallel"`
+	// MaxParallel is the old name for implementParallel.
+	MaxParallel         int `json:"maxParallel"`
+	PlanTimeoutMin      int `json:"planTimeoutMin"`
+	ImplementTimeoutMin int `json:"implementTimeoutMin"`
 	// Agent is the old opencode sub-agent field. It is kept only so the daemon
 	// can warn about it once; the value is otherwise ignored.
 	Agent string `json:"agent"`
@@ -214,19 +217,19 @@ func loadConfig(file string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		File:             file,
-		Proxy:            strings.TrimSpace(raw.Proxy),
-		PollInterval:     time.Duration(raw.PollIntervalSec) * time.Second,
-		Webhook:          true,
-		MaxFixRounds:     raw.MaxFixRounds,
-		PlanParallel:     raw.PlanParallel,
-		MaxParallel:      raw.MaxParallel,
-		PlanTimeout:      time.Duration(raw.PlanTimeoutMin) * time.Minute,
-		ImplementTimeout: time.Duration(raw.ImplementTimeoutMin) * time.Minute,
-		CodingAgent:      agentID,
-		Model:            strings.TrimSpace(raw.Model),
-		Approvers:        raw.Approvers,
-		DeprecatedAgent:  strings.TrimSpace(raw.Agent),
+		File:              file,
+		Proxy:             strings.TrimSpace(raw.Proxy),
+		PollInterval:      time.Duration(raw.PollIntervalSec) * time.Second,
+		Webhook:           true,
+		MaxFixRounds:      raw.MaxFixRounds,
+		PlanParallel:      raw.PlanParallel,
+		ImplementParallel: raw.ImplementParallel,
+		PlanTimeout:       time.Duration(raw.PlanTimeoutMin) * time.Minute,
+		ImplementTimeout:  time.Duration(raw.ImplementTimeoutMin) * time.Minute,
+		CodingAgent:       agentID,
+		Model:             strings.TrimSpace(raw.Model),
+		Approvers:         raw.Approvers,
+		DeprecatedAgent:   strings.TrimSpace(raw.Agent),
 	}
 	if raw.Webhook != nil {
 		cfg.Webhook = *raw.Webhook
@@ -237,11 +240,15 @@ func loadConfig(file string) (*Config, error) {
 	if cfg.MaxFixRounds == 0 {
 		cfg.MaxFixRounds = 3
 	}
+	if raw.ImplementParallel == 0 && raw.MaxParallel != 0 {
+		cfg.ImplementParallel = raw.MaxParallel
+		cfg.DeprecatedMaxParallel = true
+	}
 	if cfg.PlanParallel == 0 {
 		cfg.PlanParallel = 5
 	}
-	if cfg.MaxParallel == 0 {
-		cfg.MaxParallel = 1
+	if cfg.ImplementParallel == 0 {
+		cfg.ImplementParallel = 1
 	}
 	if cfg.PlanTimeout == 0 {
 		cfg.PlanTimeout = 15 * time.Minute

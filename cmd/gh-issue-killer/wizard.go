@@ -36,7 +36,7 @@ type wizardConfig struct {
 	Webhook             *bool    `json:"webhook,omitempty"`
 	MaxFixRounds        int      `json:"maxFixRounds,omitempty"`
 	PlanParallel        int      `json:"planParallel,omitempty"`
-	MaxParallel         int      `json:"maxParallel,omitempty"`
+	ImplementParallel   int      `json:"implementParallel,omitempty"`
 	PlanTimeoutMin      int      `json:"planTimeoutMin,omitempty"`
 	ImplementTimeoutMin int      `json:"implementTimeoutMin,omitempty"`
 	WorktreeRoot        string   `json:"worktreeRoot,omitempty"`
@@ -631,8 +631,8 @@ func buildWizardJSON(answers wizardConfig) ([]byte, error) {
 	if answers.PlanParallel != 0 && answers.PlanParallel != 5 {
 		output["planParallel"] = answers.PlanParallel
 	}
-	if answers.MaxParallel != 0 && answers.MaxParallel != 1 {
-		output["maxParallel"] = answers.MaxParallel
+	if answers.ImplementParallel != 0 && answers.ImplementParallel != 1 {
+		output["implementParallel"] = answers.ImplementParallel
 	}
 	if answers.PlanTimeoutMin != 0 && answers.PlanTimeoutMin != 15 {
 		output["planTimeoutMin"] = answers.PlanTimeoutMin
@@ -739,7 +739,7 @@ func loadWizardDefaults(file string) wizardConfig {
 		Webhook:             &webhook,
 		MaxFixRounds:        3,
 		PlanParallel:        5,
-		MaxParallel:         1,
+		ImplementParallel:   1,
 		PlanTimeoutMin:      15,
 		ImplementTimeoutMin: 60,
 	}
@@ -771,8 +771,11 @@ func loadWizardDefaults(file string) wizardConfig {
 	if raw.PlanParallel > 0 {
 		defaults.PlanParallel = raw.PlanParallel
 	}
-	if raw.MaxParallel > 0 {
-		defaults.MaxParallel = raw.MaxParallel
+	if raw.ImplementParallel > 0 {
+		defaults.ImplementParallel = raw.ImplementParallel
+	} else if raw.MaxParallel > 0 {
+		// legacy key, still pre-fill it so the next save migrates the config
+		defaults.ImplementParallel = raw.MaxParallel
 	}
 	if raw.PlanTimeoutMin > 0 {
 		defaults.PlanTimeoutMin = raw.PlanTimeoutMin
@@ -782,7 +785,7 @@ func loadWizardDefaults(file string) wizardConfig {
 	}
 	defaults.WorktreeRoot = strings.TrimSpace(raw.WorktreeRoot)
 	defaults.hasAdvanced = raw.PollIntervalSec != 0 || raw.Webhook != nil ||
-		raw.MaxFixRounds != 0 || raw.PlanParallel != 0 || raw.MaxParallel != 0 || raw.PlanTimeoutMin != 0 ||
+		raw.MaxFixRounds != 0 || raw.PlanParallel != 0 || raw.ImplementParallel != 0 || raw.MaxParallel != 0 || raw.PlanTimeoutMin != 0 ||
 		raw.ImplementTimeoutMin != 0 || defaults.WorktreeRoot != ""
 
 	var keyed map[string]repoOptions
@@ -949,7 +952,7 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 		if answers.PlanParallel, err = ui.integer("Plans generated in parallel", answers.PlanParallel, 1, 16); err != nil {
 			return err
 		}
-		if answers.MaxParallel, err = ui.integer("Issues implemented in parallel", answers.MaxParallel, 1, 16); err != nil {
+		if answers.ImplementParallel, err = ui.integer("Issues implemented in parallel", answers.ImplementParallel, 1, 16); err != nil {
 			return err
 		}
 		if answers.PlanTimeoutMin, err = ui.integer("Plan timeout, minutes", answers.PlanTimeoutMin, 1, 600); err != nil {
@@ -966,7 +969,7 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 		answers.Webhook = nil
 		answers.MaxFixRounds = 0
 		answers.PlanParallel = 0
-		answers.MaxParallel = 0
+		answers.ImplementParallel = 0
 		answers.PlanTimeoutMin = 0
 		answers.ImplementTimeoutMin = 0
 		answers.WorktreeRoot = ""
