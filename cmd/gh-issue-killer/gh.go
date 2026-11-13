@@ -418,49 +418,36 @@ func (g *GH) ReactComment(ctx context.Context, fullName string, commentID int64,
 	return g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/comments/%d/reactions", fullName, commentID), map[string]string{"content": content}, nil)
 }
 
-var phaseLabels = [][3]string{
-	{"agent:planning", "d4c5f0", "opencode is analyzing the issue"},
-	{"agent:awaiting-approval", "fbca04", "plan posted, waiting for lgtm/continue"},
-	{"agent:in-progress", "1d76db", "opencode is implementing"},
-	{"agent:pr-open", "5319e7", "PR opened, waiting for merge command"},
-	{"agent:blocked", "d93f0b", "agent is blocked and needs input"},
-	{"agent:done", "0e8a16", "agent finished the task"},
-	{"agent:cancelled", "6a737d", "agent task cancelled"},
-}
+// awaitingLabel is the only label the daemon manages. It is on an issue exactly
+// while the flow is stopped waiting for the user to act.
+const awaitingLabel = "agent:awaiting-approval"
 
-func phaseLabelNames() []string {
-	names := make([]string, 0, len(phaseLabels))
-	for _, label := range phaseLabels {
-		names = append(names, label[0])
-	}
-	return names
-}
+var awaitingLabelSpec = [3]string{awaitingLabel, "fbca04", "waiting for user confirmation"}
 
 func (g *GH) EnsureLabels(ctx context.Context, fullName string) {
-	for _, label := range phaseLabels {
-		err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/labels/%s", fullName, url.PathEscape(label[0])), nil, nil)
-		if err == nil {
-			continue
-		}
-		if !isStatus(err, http.StatusNotFound) {
-			continue
-		}
-		_ = g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/labels", fullName), map[string]string{
-			"name":        label[0],
-			"color":       label[1],
-			"description": label[2],
-		}, nil)
+	name, color, description := awaitingLabelSpec[0], awaitingLabelSpec[1], awaitingLabelSpec[2]
+	err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/labels/%s", fullName, url.PathEscape(name)), nil, nil)
+	if err == nil {
+		return
 	}
+	if !isStatus(err, http.StatusNotFound) {
+		return
+	}
+	_ = g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/labels", fullName), map[string]string{
+		"name":        name,
+		"color":       color,
+		"description": description,
+	}, nil)
 }
 
-func (g *GH) SetPhaseLabel(ctx context.Context, fullName string, number int, target string) {
-	for _, name := range phaseLabelNames() {
-		if name == target {
-			continue
-		}
-		_ = g.do(ctx, http.MethodDelete, fmt.Sprintf("/repos/%s/issues/%d/labels/%s", fullName, number, url.PathEscape(name)), nil, nil)
+// SetWaitingLabel puts the single awaiting label on the issue, or takes it off.
+// Other labels are left untouched.
+func (g *GH) SetWaitingLabel(ctx context.Context, fullName string, number int, waiting bool) {
+	_ = g.do(ctx, http.MethodDelete, fmt.Sprintf("/repos/%s/issues/%d/labels/%s", fullName, number, url.PathEscape(awaitingLabel)), nil, nil)
+	if !waiting {
+		return
 	}
-	_ = g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/labels", fullName, number), map[string][]string{"labels": {target}}, nil)
+	_ = g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/labels", fullName, number), map[string][]string{"labels": {awaitingLabel}}, nil)
 }
 
 func (g *GH) CreatePR(ctx context.Context, fullName, title, head, base, body string) (PullRequest, error) {

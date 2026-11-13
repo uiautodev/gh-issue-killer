@@ -632,7 +632,7 @@ func (r *Router) HandleReopened(ctx context.Context, fullName string, issue Issu
 			state.CancelledAt = ""
 			state.IssueClosed = false
 		})
-		app.GH.SetPhaseLabel(ctx, fullName, issue.Number, "agent:awaiting-approval")
+		app.GH.SetWaitingLabel(ctx, fullName, issue.Number, true)
 		return
 	} else {
 		app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {

@@ -308,7 +308,7 @@ Interrupted implementations resume from their worktree on the next start.
 | checks failed, issue `blocked` | inspect `$STATE/runs/<owner>-<repo>/issue-<n>/checks/`; fix in the kept worktree, then `@agent continue` |
 | new issue produces nothing | issue must @ the bot or assign it; the author must not be the bot |
 | 👍 on the plan does nothing | reaction must be on the plan comment by an approver; the poll checks every 30 s |
-| stale `agent:*` label after closing | close the issue again; cleanup runs in its own goroutine |
+| stale `agent:*` labels | only `agent:awaiting-approval` is still managed; delete the leftover old labels by hand in the repo settings |
 | `already running (pid N)` | use `-status` / `-stop`; never start a second instance |
 
 ## 9. Invariants — NEVER
