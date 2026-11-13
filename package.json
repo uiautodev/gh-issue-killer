@@ -1,0 +1,16 @@
+{
+  "name": "gh-issue-killer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Watch GitHub issues and let opencode plan, implement, test and ship fixes.",
+  "scripts": {
+    "start": "node src/index.mjs",
+    "dev": "node --watch src/index.mjs",
+    "test": "node --test test/*.test.mjs",
+    "lint": "node --check src/index.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

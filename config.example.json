@@ -1,0 +1,7 @@
+{
+  "repos": ["codeskyblue/weektodo"],
+  "agent": "opencode",
+  "model": "magpie/group/deepseek",
+  "approvers": ["codeskyblue"],
+  "proxy": "socks5h://127.0.0.1:10808"
+}
