@@ -89,6 +89,23 @@ type Reaction struct {
 	User    User   `json:"user"`
 }
 
+type ReviewComment struct {
+	ID        int64     `json:"id"`
+	Body      string    `json:"body"`
+	User      User      `json:"user"`
+	Path      string    `json:"path"`
+	Line      int       `json:"line"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Review struct {
+	ID          int64     `json:"id"`
+	Body        string    `json:"body"`
+	User        User      `json:"user"`
+	State       string    `json:"state"`
+	SubmittedAt time.Time `json:"submitted_at"`
+}
+
 type Comment struct {
 	ID        int64     `json:"id"`
 	Body      string    `json:"body"`
@@ -397,7 +414,7 @@ func (g *GH) GetComment(ctx context.Context, fullName string, id int64) (Comment
 // command, while the daemon's own status comments are ignored.
 const agentCommentMarker = "<!-- ghik:agent -->"
 
-var hookEvents = []string{"issues", "issue_comment", "reaction"}
+var hookEvents = []string{"issues", "issue_comment", "reaction", "pull_request_review", "pull_request_review_comment"}
 
 func (g *GH) PostComment(ctx context.Context, fullName string, number int, body string) (Comment, error) {
 	var comment Comment
@@ -416,6 +433,44 @@ func (g *GH) ReactIssue(ctx context.Context, fullName string, number int, conten
 
 func (g *GH) ReactComment(ctx context.Context, fullName string, commentID int64, content string) error {
 	return g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/comments/%d/reactions", fullName, commentID), map[string]string{"content": content}, nil)
+}
+
+func (g *GH) GetReviewComment(ctx context.Context, fullName string, commentID int64) (ReviewComment, error) {
+	var comment ReviewComment
+	err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/comments/%d", fullName, commentID), nil, &comment)
+	return comment, err
+}
+
+func (g *GH) ListReviewComments(ctx context.Context, fullName string, prNumber int) ([]ReviewComment, error) {
+	var all []ReviewComment
+	for page := 1; page <= 5; page++ {
+		var comments []ReviewComment
+		path := fmt.Sprintf("/repos/%s/pulls/%d/comments?per_page=100&sort=created&direction=asc&page=%d", fullName, prNumber, page)
+		if err := g.do(ctx, http.MethodGet, path, nil, &comments); err != nil {
+			return nil, err
+		}
+		all = append(all, comments...)
+		if len(comments) < 100 {
+			break
+		}
+	}
+	return all, nil
+}
+
+func (g *GH) GetReview(ctx context.Context, fullName string, prNumber int, reviewID int64) (Review, error) {
+	var review Review
+	err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d", fullName, prNumber, reviewID), nil, &review)
+	return review, err
+}
+
+func (g *GH) ListReviews(ctx context.Context, fullName string, prNumber int) ([]Review, error) {
+	var reviews []Review
+	err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/reviews?per_page=100", fullName, prNumber), nil, &reviews)
+	return reviews, err
+}
+
+func (g *GH) ReactReviewComment(ctx context.Context, fullName string, commentID int64, content string) error {
+	return g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/pulls/comments/%d/reactions", fullName, commentID), map[string]string{"content": content}, nil)
 }
 
 // awaitingLabel is the only label the daemon manages. It is on an issue exactly

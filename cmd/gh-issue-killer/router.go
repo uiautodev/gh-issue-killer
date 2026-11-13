@@ -263,6 +263,77 @@ func (r *Router) HandleReaction(ctx context.Context, fullName string, number int
 	}
 }
 
+// HandlePRReviewComment turns an inline review comment on a tracked PR into a
+// revision round.
+func (r *Router) HandlePRReviewComment(ctx context.Context, fullName string, prNumber int, comment ReviewComment) {
+	text := comment.Body
+	if comment.Path != "" {
+		location := comment.Path
+		if comment.Line > 0 {
+			location = fmt.Sprintf("%s:%d", location, comment.Line)
+		}
+		text = fmt.Sprintf("%s\n\n(review comment on %s)", text, location)
+	}
+	r.handlePRFeedback(ctx, fullName, prNumber, comment.ID, text, comment.User.Login, true)
+}
+
+// HandlePRReview handles a review body (a review with prose but no inline
+// comments).
+func (r *Router) HandlePRReview(ctx context.Context, fullName string, prNumber int, review Review) {
+	r.handlePRFeedback(ctx, fullName, prNumber, review.ID, review.Body, review.User.Login, false)
+}
+
+func (r *Router) handlePRFeedback(ctx context.Context, fullName string, prNumber int, id int64, body, author string, inline bool) {
+	app := r.contexts[fullName]
+	if app == nil || prNumber == 0 || id == 0 || strings.TrimSpace(body) == "" {
+		return
+	}
+	number, st, ok := r.store.IssueByPR(fullName, prNumber)
+	if !ok {
+		r.log.Debug("review feedback on %s PR #%d does not match a tracked issue", fullName, prNumber)
+		return
+	}
+	if !isApproverLogin(author, app.Repo.Approvers) && !strings.EqualFold(author, r.agentLogin) {
+		r.log.Debug("ignore review feedback from non-approver @%s on %s#%d", author, fullName, number)
+		return
+	}
+	if r.store.IsFeedbackProcessed(fullName, number, id) {
+		return
+	}
+	r.store.MarkFeedbackProcessed(fullName, number, id)
+	if st.Phase != "pr_open" {
+		r.log.Debug("review feedback on %s#%d ignored (phase=%s)", fullName, number, firstNonEmpty(st.Phase, "none"))
+		return
+	}
+	if inline {
+		_ = app.GH.ReactReviewComment(ctx, fullName, id, "eyes")
+	}
+	key := fmt.Sprintf("%s#%d", fullName, number)
+	trigger := Trigger{
+		Type:        "review",
+		IssueNumber: number,
+		CommentBody: body,
+		Sender:      author,
+		Key:         fmt.Sprintf("review-%d", id),
+	}
+	r.enqueue(key, stageWork, func(jobCtx context.Context) {
+		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
+		if err != nil {
+			blockIssue(jobCtx, app, number, err)
+			return
+		}
+		if issue.State != "open" {
+			return
+		}
+		current := r.store.Issue(fullName, number)
+		if current.Phase != "pr_open" {
+			return
+		}
+		r.log.Info("review feedback on %s#%d; revising PR #%d", fullName, number, prNumber)
+		doRevise(jobCtx, app, trigger, issue, current)
+	})
+}
+
 func (r *Router) enqueueApprove(app *AppContext, fullName string, number int, sender string) {
 	key := fmt.Sprintf("%s#%d", fullName, number)
 	trigger := Trigger{
@@ -337,6 +408,40 @@ func (r *Router) commentThumbsUp(ctx context.Context, app *AppContext, commentID
 
 // checkReactions is the polling fallback for 👍 approvals: reactions do not
 // bump an issue's updated_at, so these issues need their own scan.
+// checkPRFeedback is the polling fallback for inline review comments and
+// review bodies, because GitHub's review webhooks are not always delivered.
+func (r *Router) checkPRFeedback(ctx context.Context, app *AppContext) {
+	issues, err := app.GH.ListIssues(ctx, app.Repo.FullName, "open", nil)
+	if err != nil {
+		return
+	}
+	for _, issue := range issues {
+		st := r.store.Issue(app.Repo.FullName, issue.Number)
+		if st.Phase != "pr_open" || st.PRNumber == 0 {
+			continue
+		}
+		if comments, err := app.GH.ListReviewComments(ctx, app.Repo.FullName, st.PRNumber); err == nil {
+			for _, comment := range comments {
+				if r.store.IsFeedbackProcessed(app.Repo.FullName, issue.Number, comment.ID) {
+					continue
+				}
+				r.HandlePRReviewComment(ctx, app.Repo.FullName, st.PRNumber, comment)
+			}
+		}
+		if reviews, err := app.GH.ListReviews(ctx, app.Repo.FullName, st.PRNumber); err == nil {
+			for _, review := range reviews {
+				if strings.TrimSpace(review.Body) == "" || review.State == "PENDING" {
+					continue
+				}
+				if r.store.IsFeedbackProcessed(app.Repo.FullName, issue.Number, review.ID) {
+					continue
+				}
+				r.HandlePRReview(ctx, app.Repo.FullName, st.PRNumber, review)
+			}
+		}
+	}
+}
+
 func (r *Router) checkReactions(ctx context.Context, app *AppContext) {
 	issues, err := app.GH.ListIssues(ctx, app.Repo.FullName, "open", nil)
 	if err != nil {
@@ -844,6 +949,7 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 		})
 	}
 	r.checkReactions(ctx, app)
+	r.checkPRFeedback(ctx, app)
 	r.log.Debug("poll %s: handled %d new comments", fullName, freshComments)
 	app.Store.UpdateMeta(fullName, func(meta *RepoMeta) {
 		meta.LastPollAt = nowISO()

@@ -215,12 +215,18 @@ func TestHasThumbsUp(t *testing.T) {
 }
 
 func TestMissingHookEvents(t *testing.T) {
-	if got := missingHookEvents([]string{"issues", "issue_comment", "reaction"}); len(got) != 0 {
+	if got := missingHookEvents(hookEvents); len(got) != 0 {
 		t.Fatalf("nothing should be missing, got %v", got)
 	}
 	got := missingHookEvents([]string{"issues", "issue_comment"})
-	if len(got) != 1 || got[0] != "reaction" {
-		t.Fatalf("missing events = %v, want [reaction]", got)
+	want := []string{"reaction", "pull_request_review", "pull_request_review_comment"}
+	if len(got) != len(want) {
+		t.Fatalf("missing events = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("missing events = %v, want %v", got, want)
+		}
 	}
 }
 
@@ -341,5 +347,33 @@ func TestHeadFromLSRemote(t *testing.T) {
 	}
 	if got := headFromLSRemote("  \n"); got != "" {
 		t.Fatalf("empty head = %q", got)
+	}
+}
+
+func TestIssueByPRAndFeedback(t *testing.T) {
+	old := stateDirOverride
+	stateDirOverride = t.TempDir()
+	t.Cleanup(func() { stateDirOverride = old })
+
+	store, err := LoadStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.UpdateIssue("o/r", 9, func(state *IssueState) {
+		state.Phase = "pr_open"
+		state.PRNumber = 42
+	})
+	if number, st, ok := store.IssueByPR("o/r", 42); !ok || number != 9 || st.Phase != "pr_open" {
+		t.Fatalf("IssueByPR = %d %+v %v", number, st, ok)
+	}
+	if _, _, ok := store.IssueByPR("o/r", 43); ok {
+		t.Fatal("unknown PR should not match")
+	}
+	if store.IsFeedbackProcessed("o/r", 9, 77) {
+		t.Fatal("feedback should start unprocessed")
+	}
+	store.MarkFeedbackProcessed("o/r", 9, 77)
+	if !store.IsFeedbackProcessed("o/r", 9, 77) {
+		t.Fatal("feedback should be marked processed")
 	}
 }

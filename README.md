@@ -46,9 +46,10 @@ flowchart LR
 - **PR and merge.** The daemon opens the PR, annotates it with checks and
   screenshots, waits for CI, and squash-merges on command — then closes the
   issue and cleans the worktree.
-- **Feedback loop.** A non-command comment that mentions the agent on an open
-  PR is treated as review feedback: the agent keeps working on the same branch.
-  Closing an issue cancels the task and closes the PR; reopening resumes it.
+- **Feedback loop.** A non-command comment that mentions the agent, an inline
+  review comment, or a review body on an open PR is treated as review feedback:
+  the agent keeps working on the same branch. Closing an issue cancels the task
+  and closes the PR; reopening resumes it.
 - **Real-time, with a fallback.** Webhooks arrive through a `smee.io` relay
   (no inbound port); every event is re-read from the GitHub API before acting.
   Without hook permissions the daemon simply polls every 30 s.

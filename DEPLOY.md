@@ -340,11 +340,13 @@ All four `ok` lines present → deployment complete. Anything else → step 8.
 ## Appendix A: internals
 
 **Webhooks.** When the token can manage hooks, the daemon creates a `smee.io`
-channel, registers a repository webhook (`issues`, `issue_comment`, `reaction`)
+channel, registers a repository webhook (`issues`, `issue_comment`, `reaction`,
+`pull_request_review`, `pull_request_review_comment`)
 pointing at it, and keeps an SSE connection open. Every event is re-fetched from
 the GitHub API before a command, author or body is trusted, so the relay can
 never forge one. Hook failures fall back to polling. Reactions on comments
-(👍) are polled from the API because GitHub rarely delivers `reaction` events.
+(👍) and review comments/review bodies are also polled from the API, because
+GitHub does not always deliver those events.
 
 **Worktrees.** Each watched repo has a managed clone at
 `$STATE/repos/<owner>-<repo>`; `git fetch` runs before every plan and

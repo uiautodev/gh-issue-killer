@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"sync"
 )
 
@@ -42,6 +43,7 @@ type IssueState struct {
 	SessionID         string        `json:"sessionId,omitempty"`
 	LastCommentID     int64         `json:"lastCommentId,omitempty"`
 	ProcessedComments []int64       `json:"processedComments,omitempty"`
+	ProcessedFeedback []int64       `json:"processedFeedback,omitempty"`
 	Branch            string        `json:"branch,omitempty"`
 	Worktree          string        `json:"worktree,omitempty"`
 	PRNumber          int           `json:"prNumber,omitempty"`
@@ -164,6 +166,48 @@ func (s *Store) IsCommentProcessed(fullName string, number int, commentID int64)
 		}
 	}
 	return false
+}
+
+func (s *Store) IsFeedbackProcessed(fullName string, number int, id int64) bool {
+	issue := s.Issue(fullName, number)
+	for _, seen := range issue.ProcessedFeedback {
+		if seen == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) MarkFeedbackProcessed(fullName string, number int, id int64) {
+	s.UpdateIssue(fullName, number, func(issue *IssueState) {
+		for _, seen := range issue.ProcessedFeedback {
+			if seen == id {
+				return
+			}
+		}
+		issue.ProcessedFeedback = append(issue.ProcessedFeedback, id)
+		if len(issue.ProcessedFeedback) > 500 {
+			issue.ProcessedFeedback = issue.ProcessedFeedback[len(issue.ProcessedFeedback)-500:]
+		}
+	})
+}
+
+// IssueByPR finds the tracked issue whose open PR matches prNumber.
+func (s *Store) IssueByPR(fullName string, prNumber int) (int, IssueState, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	repo := s.repoLocked(fullName)
+	for key, issue := range repo.Issues {
+		if issue.PRNumber != prNumber {
+			continue
+		}
+		number, err := strconv.Atoi(key)
+		if err != nil {
+			continue
+		}
+		return number, *issue, true
+	}
+	return 0, IssueState{}, false
 }
 
 func (s *Store) MarkCommentProcessed(fullName string, number int, commentID int64) {

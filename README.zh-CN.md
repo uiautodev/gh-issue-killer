@@ -42,8 +42,9 @@ flowchart LR
   对比截图，裁到改动区域，中间有分隔线。
 - **PR 与合并。** 自动开 PR，附上检查和截图，等 CI，收到命令后 squash merge，
   然后关 issue、清理 worktree。
-- **反馈闭环。** 在已开的 PR 上 @ agent 提非命令类评论，会被当作评审意见，
-  在同一个分支继续改。关闭 issue 等于取消并关 PR；重新打开会恢复。
+- **反馈闭环。** 在已开的 PR 上 @ agent 提非命令类评论、留行内 review 评论或
+  review 正文，都会被当作评审意见，在同一个分支继续改。关闭 issue 等于取消并
+  关 PR；重新打开会恢复。
 - **实时 + 兜底。** webhook 通过 `smee.io` 中转（不需要公网入口），每个事件
   都会先回 GitHub API 复核再执行；没有 hook 权限时自动退化为 30 秒轮询。
 - **重启安全。** daemon 重启会从中断的 worktree 自动续跑，不会把 issue 挂起。

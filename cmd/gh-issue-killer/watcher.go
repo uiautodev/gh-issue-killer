@@ -133,6 +133,17 @@ type smeePayload struct {
 	Comment struct {
 		ID int64 `json:"id"`
 	} `json:"comment"`
+	PullRequest struct {
+		Number int `json:"number"`
+	} `json:"pull_request"`
+	Review struct {
+		ID    int64  `json:"id"`
+		Body  string `json:"body"`
+		State string `json:"state"`
+		User  struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	} `json:"review"`
 	Reaction struct {
 		Content string `json:"content"`
 		User    struct {
@@ -157,6 +168,32 @@ func dispatchSmee(ctx context.Context, app *AppContext, router *Router, envelope
 		return
 	}
 	log.Debug("smee event: type=%s action=%s delivery=%s issue=%d comment=%d", envelope.Event, payload.Action, envelope.Delivery, payload.Issue.Number, payload.Comment.ID)
+
+	if envelope.Event == "pull_request_review_comment" {
+		if payload.Action != "created" || payload.Comment.ID == 0 || payload.PullRequest.Number == 0 {
+			return
+		}
+		comment, err := app.GH.GetReviewComment(ctx, app.Repo.FullName, payload.Comment.ID)
+		if err != nil {
+			log.Warn("smee: fetch review comment %d: %v", payload.Comment.ID, err)
+			return
+		}
+		router.HandlePRReviewComment(ctx, app.Repo.FullName, payload.PullRequest.Number, comment)
+		return
+	}
+
+	if envelope.Event == "pull_request_review" {
+		if payload.Action != "submitted" || payload.Review.ID == 0 || payload.PullRequest.Number == 0 {
+			return
+		}
+		review, err := app.GH.GetReview(ctx, app.Repo.FullName, payload.PullRequest.Number, payload.Review.ID)
+		if err != nil {
+			log.Warn("smee: fetch review %d: %v", payload.Review.ID, err)
+			return
+		}
+		router.HandlePRReview(ctx, app.Repo.FullName, payload.PullRequest.Number, review)
+		return
+	}
 
 	if envelope.Event == "reaction" {
 		if payload.Action != "created" || payload.Comment.ID == 0 {
