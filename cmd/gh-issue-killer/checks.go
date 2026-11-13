@@ -141,8 +141,8 @@ func runChecks(ctx context.Context, checks []CheckSpec, worktree, runDir string,
 	return results, allOK
 }
 
-// checksSummary is the one-line form used in comments and PR bodies: counts
-// only, no raw commands (absolute paths in them are unreadable noise).
+// checksSummary is the compact form used in comments and PR bodies: a count
+// plus one short label per check, never the raw command with its run paths.
 func checksSummary(results []CheckResult) string {
 	if len(results) == 0 {
 		return ""
@@ -153,8 +153,50 @@ func checksSummary(results []CheckResult) string {
 			failed++
 		}
 	}
+	head := fmt.Sprintf("✅ 检查通过（%d 项）", len(results))
 	if failed > 0 {
-		return fmt.Sprintf("❌ 检查未通过（%d/%d 项）", failed, len(results))
+		head = fmt.Sprintf("❌ 检查未通过（%d/%d 项）", failed, len(results))
 	}
-	return fmt.Sprintf("✅ 检查通过（%d 项）", len(results))
+	lines := []string{head}
+	for _, item := range results {
+		icon := "✅"
+		if !item.OK {
+			icon = "❌"
+		}
+		lines = append(lines, fmt.Sprintf("- %s %s", icon, checkLabel(item)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// checkLabel prefers the human name from checks.json and falls back to a
+// shortened command when the agent did not provide one.
+func checkLabel(item CheckResult) string {
+	if name := strings.TrimSpace(item.Name); name != "" {
+		return name
+	}
+	fields := strings.Fields(item.Cmd)
+	if len(fields) == 0 {
+		return "check"
+	}
+	if len(fields) >= 2 && fields[1] == "-e" {
+		return "node -e"
+	}
+	parts := make([]string, 0, 3)
+	for _, field := range fields {
+		if strings.HasPrefix(field, "-") {
+			continue
+		}
+		if strings.Contains(field, "/") {
+			field = filepath.Base(field)
+		}
+		parts = append(parts, field)
+		if len(parts) == 3 {
+			break
+		}
+	}
+	label := strings.Join(parts, " ")
+	if len([]rune(label)) > 60 {
+		label = string([]rune(label)[:60]) + "…"
+	}
+	return label
 }
