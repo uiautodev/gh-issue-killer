@@ -916,9 +916,8 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 			})
 			continue
 		}
-		if st.Phase == "" {
-			continue
-		}
+		// Even untracked issues are scanned: a mention in a comment (rather
+		// than the body) is what usually starts the flow.
 		comments, listErr := app.GH.ListComments(ctx, fullName, number)
 		if listErr != nil {
 			continue
