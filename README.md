@@ -10,8 +10,9 @@ owner: @agent 合并        →     wait CI → squash merge → close issue/PR 
 owner: @agent cancel     →     abort, keep the issue open
 ```
 
-> Running it for real? [DEPLOY.md](DEPLOY.md) covers the agent account, a
-> stable install, boot persistence, disk cleanup, upgrades and troubleshooting.
+> Running it for real? [DEPLOY.md](DEPLOY.md) is a step-by-step deployment
+> runbook written for an AI operator: preflight checks, agent account and
+> token, non-interactive config, verification, upgrades, failure → action.
 
 ## Why Go, no curl/ffmpeg
 
