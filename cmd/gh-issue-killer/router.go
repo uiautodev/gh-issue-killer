@@ -477,6 +477,27 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 			return
 		}
 
+		// Feedback on a pending plan rewrites the plan instead of being dropped.
+		if mentioned && isApprover && st.Phase == "awaiting_approval" {
+			r.enqueue(key, stagePlan, func(jobCtx context.Context) {
+				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
+				if err != nil {
+					blockIssue(jobCtx, app, trigger.IssueNumber, err)
+					return
+				}
+				if issue.State != "open" {
+					return
+				}
+				current := r.store.Issue(fullName, trigger.IssueNumber)
+				if current.Phase != "awaiting_approval" {
+					return
+				}
+				r.log.Info("plan feedback on %s#%d; regenerating the plan", fullName, trigger.IssueNumber)
+				doPlan(jobCtx, app, trigger, issue)
+			})
+			return
+		}
+
 		// A mention with prose (not a command) on an issue with an open PR is
 		// feedback: keep working on the same branch instead of merging.
 		if mentioned && isApprover && st.Phase == "pr_open" {
