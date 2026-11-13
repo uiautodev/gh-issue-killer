@@ -528,14 +528,29 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		key := fmt.Sprintf("%s#%d", fullName, trigger.IssueNumber)
 
 		if command == "cancel" && (st.Phase == "new" || st.Phase == "planning" || st.Phase == "awaiting_approval" || st.Phase == "blocked" || st.Phase == "implementing" || st.Phase == "pr_open") {
-			r.enqueue(key, stageWork, func(jobCtx context.Context) {
+			// Cancel must work while a job is running, so it cannot go through
+			// the queue (same key = duplicate). Mark the issue cancelled first
+			// so the dying job suppresses its error, then clean up once it is
+			// actually gone.
+			r.log.Info("cancel requested for %s#%d; stopping the active job", fullName, trigger.IssueNumber)
+			app.Store.UpdateIssue(fullName, trigger.IssueNumber, func(state *IssueState) {
+				state.Phase = "cancelled"
+				state.CancelledAt = nowISO()
+				state.IssueClosed = false
+			})
+			app.GH.SetWaitingLabel(ctx, fullName, trigger.IssueNumber, false)
+			r.cancelActive(fullName, trigger.IssueNumber)
+			go func() {
+				jobCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+				r.waitInactive(jobCtx, key, 60*time.Second)
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
-					blockIssue(jobCtx, app, trigger.IssueNumber, err)
+					app.Log.Warn("cancel %s#%d: %v", fullName, trigger.IssueNumber, err)
 					return
 				}
-				doCancel(jobCtx, app, trigger, issue, st)
-			})
+				doCancel(jobCtx, app, trigger, issue, r.store.Issue(fullName, trigger.IssueNumber))
+			}()
 			return
 		}
 

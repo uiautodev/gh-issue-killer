@@ -156,6 +156,14 @@ func removeWorktree(ctx context.Context, local *LocalRepo, dir string, force boo
 	}
 	args = append(args, dir)
 	_, _ = gitRun(ctx, local, 2*time.Minute, true, args...)
+	// git can refuse while a killed agent's children still hold files; make
+	// sure a cancelled issue does not leave its checkout behind.
+	if info, err := os.Stat(dir); err == nil && info.IsDir() {
+		root := filepath.Clean(treesDir()) + string(os.PathSeparator)
+		if strings.HasPrefix(filepath.Clean(dir)+string(os.PathSeparator), root) {
+			_ = os.RemoveAll(dir)
+		}
+	}
 	_, _ = gitRun(ctx, local, 1*time.Minute, true, "worktree", "prune")
 }
 

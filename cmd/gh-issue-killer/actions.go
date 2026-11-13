@@ -738,7 +738,7 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 		_ = app.GH.UpdateIssue(ctx, app.Repo.FullName, number, map[string]any{"state": "closed", "state_reason": "completed"})
 	}
 	if st.Worktree != "" {
-		removeWorktree(ctx, app.Local, st.Worktree, false)
+		removeWorktree(ctx, app.Local, st.Worktree, true)
 		deleteLocalBranch(ctx, app.Local, st.Branch)
 	}
 
@@ -797,6 +797,8 @@ func doCancel(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		state.Phase = "cancelled"
 		state.CancelledAt = nowISO()
 		state.IssueClosed = false
+		state.Worktree = ""
+		state.Branch = ""
 	})
 	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, false)
 }
