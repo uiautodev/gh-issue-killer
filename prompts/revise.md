@@ -27,7 +27,9 @@ Apply that feedback on top of the current worktree. Hard rules:
 - Keep the change small; do not revert earlier work unless the feedback asks for it.
 - Commit your work with clear, conventional commit messages (you may make several commits).
 - Do NOT push, do NOT create a PR, do NOT merge, do NOT change git remotes or config.
-- Stop and clean up any dev servers / background processes you started.
+- Stop and clean up any dev servers / background processes you started, but
+  never with `pkill -f <pattern>`: this prompt is part of your own command line,
+  so a pattern copied from it kills this agent. Kill by PID or by port instead.
 
 After implementing and verifying, refresh these two files:
 

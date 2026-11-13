@@ -26,6 +26,10 @@ Hard rules:
 - Commit your work with clear, conventional commit messages (you may make several commits).
 - Do NOT push, do NOT create a PR, do NOT merge, do NOT change git remotes or config.
 - Stop and clean up any dev servers / background processes you started.
+- NEVER clean up with `pkill -f <pattern>`: this whole prompt (plan included) is
+  part of your own command line, so a pattern copied from it (ports, env vars,
+  paths) matches and kills this agent. Keep the PID (`cmd & echo $!`) or kill
+  by port (`lsof -ti tcp:<port> | xargs -r kill`).
 
 After implementing and verifying, write these two files:
 
