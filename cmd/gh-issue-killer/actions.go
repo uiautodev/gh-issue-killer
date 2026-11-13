@@ -163,7 +163,7 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 		st.Phase = "planning"
 		st.Issue = issueMeta(issue)
 	})
-	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:planning")
+	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, false)
 
 	comments, err := app.GH.ListComments(ctx, app.Repo.FullName, number)
 	if err != nil {
@@ -259,7 +259,7 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 		st.SessionID = result.SessionID
 		st.LastCommentID = lastComment
 	})
-	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:awaiting-approval")
+	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, true)
 	app.Log.Info("plan posted for %s#%d (comment %d)", app.Repo.FullName, number, posted.ID)
 }
 
@@ -328,7 +328,7 @@ func reportCheckFailures(ctx context.Context, app *AppContext, number int, workt
 		state.BlockedReason = "checks failed"
 		state.Checks = checkResults
 	})
-	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:blocked")
+	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, true)
 }
 
 func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
@@ -354,7 +354,7 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "implementing"
 	})
-	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:in-progress")
+	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, false)
 
 	runDir := runDirFor(app, number)
 	_ = os.MkdirAll(filepath.Join(runDir, "screenshots"), 0o755)
@@ -427,7 +427,7 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 			state.Screenshots = shots
 		}
 	})
-	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:pr-open")
+	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, true)
 
 	body := []string{
 		fmt.Sprintf("### 🤖 已按评论更新 %s", st.PRURL),
@@ -461,7 +461,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		state.Phase = "implementing"
 		state.StartedAt = nowISO()
 	})
-	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:in-progress")
+	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, false)
 
 	if err := fetchBase(ctx, app.Local); err != nil {
 		blockIssue(ctx, app, number, fmt.Errorf("fetch base: %w", err))
@@ -619,7 +619,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		state.Checks = checkResults
 		state.Screenshots = shots
 	})
-	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:pr-open")
+	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, true)
 
 	commentParts := []string{fmt.Sprintf("### 🤖 实现完成：%s", pr.HTMLURL), "", manifest.Summary, "", checksSummary(checkResults)}
 	if shotsMD != "" {
@@ -697,7 +697,7 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 	}
 	if pr.State != "open" {
 		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) { state.Phase = "done" })
-		app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:done")
+		app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, false)
 		return
 	}
 
@@ -708,7 +708,7 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 				state.Phase = "blocked"
 				state.BlockedReason = note
 			})
-			app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:blocked")
+			app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, true)
 			_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
 				fmt.Sprintf("### 🤖 暂不合并\n\nCI 未通过或仍在等待：%s\n\n解决后回复 **合并** 重试。", note))
 			return
@@ -726,7 +726,7 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 			state.Phase = "blocked"
 			state.BlockedReason = sanitize(detail)
 		})
-		app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:blocked")
+		app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, true)
 		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
 			fmt.Sprintf("### 🤖 合并失败\n\n```\n%s\n```\n\n处理冲突后回复 **合并** 重试。", sanitize(detail)))
 		return
@@ -746,7 +746,7 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 		state.Phase = "done"
 		state.MergedAt = nowISO()
 	})
-	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:done")
+	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, false)
 	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
 		"### 🤖 已完成",
 		"",
@@ -778,7 +778,7 @@ func doCloseIssue(ctx context.Context, app *AppContext, issue Issue, st IssueSta
 		state.CancelledAt = nowISO()
 		state.IssueClosed = true
 	})
-	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:cancelled")
+	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, false)
 }
 
 func issueCancelled(app *AppContext, number int) bool {
@@ -798,7 +798,7 @@ func doCancel(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		state.CancelledAt = nowISO()
 		state.IssueClosed = false
 	})
-	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:cancelled")
+	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, false)
 }
 
 func blockIssue(ctx context.Context, app *AppContext, number int, err error) {
@@ -812,7 +812,7 @@ func blockIssue(ctx context.Context, app *AppContext, number int, err error) {
 		state.Phase = "blocked"
 		state.BlockedReason = message
 	})
-	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:blocked")
+	app.GH.SetWaitingLabel(ctx, app.Repo.FullName, number, true)
 	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
 		fmt.Sprintf("### 🤖 流程出错\n\n```\n%s\n```\n\n回复 `@%s continue` 重试。", tailString(message, 12), app.AgentLogin))
 }
