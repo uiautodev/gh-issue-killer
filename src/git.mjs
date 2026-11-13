@@ -1,29 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOME, STATE_DIR, run, ensureDir } from './util.mjs';
+import { STATE_DIR, run, ensureDir } from './util.mjs';
 import { gitProxyEntries } from './proxy.mjs';
 
-const SEARCH_ROOTS = [
-  path.join(HOME, 'src'),
-  path.join(HOME, 'Sync', 'Projects'),
-  path.join(HOME, 'Projects'),
-  path.join(HOME, 'Developer'),
-  path.join(HOME, 'code')
-];
-
-const FALLBACK_ROOT = path.join(STATE_DIR, 'repos');
-
-function normalizeRemote(url) {
-  if (!url) return '';
-  return url
-    .trim()
-    .toLowerCase()
-    .replace(/^git@github\.com:/, '')
-    .replace(/^ssh:\/\/git@ssh\.github\.com:443\//, '')
-    .replace(/^ssh:\/\/git@github\.com(:22)?\//, '')
-    .replace(/^https:\/\/[^@]*@?github\.com\//, '')
-    .replace(/\.git$/, '');
-}
+const REPOS_ROOT = path.join(STATE_DIR, 'repos');
+const WORKTREES_ROOT = path.join(STATE_DIR, 'worktrees');
 
 async function git(args, cwd, env, options = {}) {
   return run('git', args, {
@@ -62,95 +43,32 @@ export function buildGitEnv({ proxy, token, identity }) {
   return env;
 }
 
-function candidateDirs() {
-  const dirs = [];
-  for (const root of SEARCH_ROOTS) {
-    if (!fs.existsSync(root)) continue;
-    let children = [];
-    try {
-      children = fs.readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory());
-    } catch {
-      continue;
-    }
-    for (const child of children) {
-      const dir = path.join(root, child.name);
-      if (child.name.startsWith('.') || child.name.endsWith('-work')) continue;
-      if (fs.existsSync(path.join(dir, '.git'))) {
-        dirs.push(dir);
-        continue;
-      }
-      // one level deeper, e.g. ~/Sync/Projects/<org>/<repo>
-      try {
-        const nested = fs
-          .readdirSync(dir, { withFileTypes: true })
-          .filter((entry) => entry.isDirectory());
-        for (const item of nested) {
-          const sub = path.join(dir, item.name);
-          if (item.name.startsWith('.') || item.name.endsWith('-work')) continue;
-          if (fs.existsSync(path.join(sub, '.git'))) dirs.push(sub);
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }
-  return dirs;
-}
-
-async function probeClone(dir, fullName, env) {
-  try {
-    const remote = await git(['remote', 'get-url', 'origin'], dir, env, { allowFailure: true, timeout: 15_000 });
-    if (remote.code !== 0) return null;
-    if (normalizeRemote(remote.stdout) !== fullName.toLowerCase()) return null;
-    const status = await git(['status', '--porcelain'], dir, env, { allowFailure: true, timeout: 30_000 });
-    return { dir, clean: status.code === 0 && status.stdout.trim() === '' };
-  } catch {
-    return null;
-  }
-}
-
+/**
+ * Every watched repo lives in its own managed clone under
+ * ~/.gh-issue-killer/repos/<owner>-<repo>. We never look at (or touch) the
+ * user's working clones. If the managed clone already exists we just fetch the
+ * base branch to the latest origin/<base>.
+ */
 export async function resolveRepo({ repo, repoInfo, identity, token, proxy }) {
   const env = buildGitEnv({ proxy, token, identity });
   const httpsUrl = `https://github.com/${repo.fullName}.git`;
   const base = repoInfo.defaultBranch;
 
-  let cloneDir = null;
-  if (repo.clone) {
-    if (!fs.existsSync(path.join(repo.clone, '.git'))) {
-      throw new Error(`configured clone is not a git repository: ${repo.clone}`);
-    }
-    const probed = await probeClone(repo.clone, repo.fullName, env);
-    if (!probed) throw new Error(`configured clone remote does not match ${repo.fullName}`);
-    cloneDir = repo.clone;
-  } else {
-    const candidates = candidateDirs();
-    const probed = await Promise.all(candidates.map((dir) => probeClone(dir, repo.fullName, env)));
-    const matches = probed.filter(Boolean);
-    // Prefer a clone with a sibling -work directory (the convention this setup
-    // already uses), then a clean one.
-    matches.sort((a, b) => {
-      const aWork = fs.existsSync(`${a.dir}-work`) ? 0 : 1;
-      const bWork = fs.existsSync(`${b.dir}-work`) ? 0 : 1;
-      if (aWork !== bWork) return aWork - bWork;
-      if (a.clean !== b.clean) return a.clean ? -1 : 1;
-      return 0;
-    });
-    cloneDir = matches[0]?.dir || null;
-  }
+  const cloneDir = path.join(REPOS_ROOT, `${repo.owner}-${repo.name}`);
+  ensureDir(REPOS_ROOT);
 
-  let cloned = false;
-  if (!cloneDir) {
-    cloneDir = path.join(FALLBACK_ROOT, `${repo.owner}-${repo.name}`);
-    if (!fs.existsSync(path.join(cloneDir, '.git'))) {
-      ensureDir(path.dirname(cloneDir));
-      await git(['clone', httpsUrl, cloneDir], path.dirname(cloneDir), env, { timeout: 600_000 });
-      cloned = true;
+  if (!fs.existsSync(path.join(cloneDir, '.git'))) {
+    if (fs.existsSync(cloneDir) && fs.readdirSync(cloneDir).length > 0) {
+      throw new Error(`managed clone path exists but is not a git repository: ${cloneDir}`);
     }
+    await git(['clone', httpsUrl, cloneDir], path.dirname(cloneDir), env, { timeout: 900_000 });
+  } else {
+    await git(['remote', 'set-url', 'origin', httpsUrl], cloneDir, env, { allowFailure: true });
   }
 
   const worktreeRoot =
-    repo.worktreeRoot ||
-    (cloned ? path.join(STATE_DIR, 'worktrees', `${repo.owner}-${repo.name}`) : `${cloneDir}-work`);
+    repo.worktreeRoot || path.join(WORKTREES_ROOT, `${repo.owner}-${repo.name}`);
+  ensureDir(worktreeRoot);
 
   return { dir: cloneDir, httpsUrl, base, worktreeRoot, env };
 }
@@ -234,6 +152,13 @@ export async function diffStat(dir, local) {
     allowFailure: true
   });
   return result.stdout.trim();
+}
+
+export async function changedFiles(dir, local) {
+  const result = await git(['diff', '--name-only', `origin/${local.base}...HEAD`], dir, local.env, {
+    allowFailure: true
+  });
+  return result.stdout.trim().split('\n').filter(Boolean);
 }
 
 export async function headSha(dir, env) {

@@ -14,6 +14,7 @@ import {
   deleteLocalBranch,
   logSinceBase,
   diffStat,
+  changedFiles,
   headSha
 } from './git.mjs';
 import { loadChecks, runChecks, formatChecksForComment } from './checks.mjs';
@@ -270,14 +271,26 @@ export async function doImplement(ctx, trigger, issue, st) {
 
   await commitAll(worktree, ctx.childEnv, `chore: finalize changes for #${number}`);
   const manifest = readJsonSync(path.join(runDir, 'result.json'), {}) || {};
-  const shots = await collectScreenshots({
-    runDir,
-    repoId: ctx.repoInfo.id,
-    token: ctx.token,
-    proxy: ctx.proxy,
-    log: ctx.log
-  });
+  const changed = await changedFiles(worktree, ctx.local);
+  const uiFiles = changed.filter((file) => /\.(svelte|tsx|jsx|vue|css|scss|sass|less|html)$/i.test(file));
+  const uiChanged =
+    manifest.uiChanged === true || (manifest.uiChanged === undefined && uiFiles.length > 0);
+  const shots = uiChanged
+    ? await collectScreenshots({
+        runDir,
+        manifest,
+        repoId: ctx.repoInfo.id,
+        token: ctx.token,
+        proxy: ctx.proxy,
+        log: ctx.log
+      })
+    : [];
   const shotsMd = screenshotsMarkdown(shots);
+  const uiNote = !uiChanged
+    ? '未涉及 UI 改动，无截图。'
+    : shots.length === 0
+      ? '⚠️ 本次改动涉及 UI，但没有产出 before/after 截图。'
+      : null;
 
   const commits = await logSinceBase(worktree, ctx.local);
   const stat = await diffStat(worktree, ctx.local);
@@ -304,6 +317,7 @@ export async function doImplement(ctx, trigger, issue, st) {
     manifest.tests?.length ? `## 功能验证\n${manifest.tests.map((t) => `- ${t}`).join('\n')}` : '',
     '',
     shotsMd ? `## 截图\n\n${shotsMd}` : '',
+    uiNote ? `## UI 验证\n\n${uiNote}` : '',
     '',
     '```diff',
     stat || '(no diff)',
@@ -341,6 +355,7 @@ export async function doImplement(ctx, trigger, issue, st) {
       '## 检查',
       formatChecksForComment(outcome.results),
       shotsMd ? `\n## 截图\n\n${shotsMd}` : '',
+      uiNote ? `\n## UI 验证\n\n${uiNote}` : '',
       '',
       '确认无误回复 **合并**，我会 squash merge 到主干并关闭本 issue。'
     ].join('\n')

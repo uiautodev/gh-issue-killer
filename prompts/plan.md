@@ -28,7 +28,13 @@ Bulleted list of files that will be touched, one line each with the intent.
 Numbered, concrete steps a coder can follow without guessing.
 
 ## 测试计划
-How to verify: unit tests to add/update, exact commands to run (the harness will execute exactly these commands, so give install commands too if dependencies are needed), E2E/UI verification steps. If this change touches the UI, describe how to start the app locally, which URL to open, and which screenshots to capture.
+How to verify: unit tests to add/update, exact commands to run (the harness will execute exactly these commands, so give install commands too if dependencies are needed), E2E/UI verification steps.
+
+If this change is user-visible in the UI, describe:
+- the exact component/region to screenshot (tight crop, not the full page),
+- the base version (before) and changed version (after) to compare,
+- viewport and theme(s) to use.
+The harness will merge before/after into one side-by-side image, so do not plan separate full-page shots. If the change is not user-visible, explicitly say "无 UI 改动，不需要截图".
 
 ## 风险
 Edge cases, backwards compatibility, anything the reviewer should double-check.

@@ -62,7 +62,7 @@ GH_CONFIG_DIR="$HOME/.config/gh-agent" gh auth refresh -h github.com -s admin:re
 
 ## Worktrees
 
-The daemon reuses your existing clone when it can find one (`~/src/<repo>`, `~/Sync/Projects/**/<repo>`, preferring a clone that already has a `<clone>-work` sibling) and never touches your working tree. Implementation worktrees live at `<clone>-work/issue-<n>-<id>` on branch `agent/issue-<n>-<id>`; a temporary detached worktree is used for the read-only planning pass. If no local clone exists it clones into `~/.gh-issue-killer/repos/`.
+The daemon never looks at or touches your working clones. Every watched repo gets a managed clone at `~/.gh-issue-killer/repos/<owner>-<repo>`; on startup it is cloned if missing, otherwise fetched to the latest base branch. Implementation worktrees live at `~/.gh-issue-killer/worktrees/<owner>-<repo>/issue-<n>-<id>` on branch `agent/issue-<n>-<id>`; a temporary detached worktree under `~/.gh-issue-killer/tmp/` is used for the read-only planning pass. `worktreeRoot` in the config can override the worktree location.
 
 Git auth uses a one-shot `http.extraheader` with the gh-agent token (never written to any gitconfig), and commits are authored as the gh-agent noreply identity.
 
@@ -70,7 +70,7 @@ Git auth uses a one-shot `http.extraheader` with the gh-agent token (never writt
 
 The implement agent writes `~/.gh-issue-killer/runs/<repo>/issue-<n>/checks.json`; the daemon executes those commands itself (install / lint / typecheck / unit / e2e) and only ships when they all pass. Failing checks are fed back to the agent for up to `maxFixRounds` fix rounds.
 
-Screenshots (PNG) written by the agent into `runs/<issue>/screenshots/` are uploaded via GitHub's user-attachments endpoint (same as drag & drop in the web UI) and embedded in the PR and issue comments.
+Screenshots are only required for user-visible UI changes. The agent captures just the changed component/region (tight crop, not the full page) in both its base version and its changed version, and the daemon composes them side by side into a single image (12 px white gap, padded to a common height with `ffmpeg`) before uploading it via GitHub's user-attachments endpoint. Backend/docs/test-only PRs get no screenshots and say so explicitly.
 
 ## Run
 
