@@ -57,7 +57,8 @@ func isRelevantIssue(issue Issue, agentLogin string) bool {
 
 type routerJob struct {
 	key string
-	fn  func()
+	ctx context.Context
+	fn  func(context.Context)
 }
 
 type Router struct {
@@ -70,6 +71,7 @@ type Router struct {
 	mu         sync.Mutex
 	active     map[string]bool
 	queued     map[string]bool
+	cancels    map[string]context.CancelFunc
 }
 
 func NewRouter(cfg *Config, contexts map[string]*AppContext, agentLogin string, store *Store, log *Logger) *Router {
@@ -82,6 +84,7 @@ func NewRouter(cfg *Config, contexts map[string]*AppContext, agentLogin string, 
 		jobs:       make(chan routerJob, 128),
 		active:     map[string]bool{},
 		queued:     map[string]bool{},
+		cancels:    map[string]context.CancelFunc{},
 	}
 	workers := cfg.MaxParallel
 	if workers < 1 {
@@ -106,26 +109,59 @@ func (r *Router) worker() {
 					r.log.Error("job %s panicked: %v", job.key, recovered)
 				}
 			}()
-			job.fn()
+			job.fn(job.ctx)
 		}()
 		r.mu.Lock()
 		delete(r.active, job.key)
+		delete(r.cancels, job.key)
 		r.mu.Unlock()
 		r.log.Debug("job done %s", job.key)
 	}
 }
 
-func (r *Router) enqueue(key string, fn func()) {
+func (r *Router) enqueue(key string, fn func(context.Context)) {
+	jobCtx, cancel := context.WithCancel(context.Background())
 	r.mu.Lock()
 	if r.active[key] || r.queued[key] {
 		r.mu.Unlock()
+		cancel()
 		r.log.Debug("skip duplicate job %s", key)
 		return
 	}
 	r.queued[key] = true
+	r.cancels[key] = cancel
 	r.mu.Unlock()
 	r.log.Debug("enqueue job %s", key)
-	r.jobs <- routerJob{key: key, fn: fn}
+	r.jobs <- routerJob{key: key, ctx: jobCtx, fn: fn}
+}
+
+func (r *Router) cancelActive(fullName string, number int) {
+	key := fmt.Sprintf("%s#%d", fullName, number)
+	r.mu.Lock()
+	cancel := r.cancels[key]
+	r.mu.Unlock()
+	if cancel != nil {
+		r.log.Debug("cancel active job %s", key)
+		cancel()
+	}
+}
+
+func (r *Router) waitInactive(ctx context.Context, key string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		r.mu.Lock()
+		active := r.active[key]
+		queued := r.queued[key]
+		r.mu.Unlock()
+		if !active && !queued {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Trigger) {
@@ -173,50 +209,59 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		key := fmt.Sprintf("%s#%d", fullName, trigger.IssueNumber)
 
 		if command == "cancel" && (st.Phase == "new" || st.Phase == "planning" || st.Phase == "awaiting_approval" || st.Phase == "blocked" || st.Phase == "implementing" || st.Phase == "pr_open") {
-			r.enqueue(key, func() {
-				issue, err := app.GH.GetIssue(ctx, fullName, trigger.IssueNumber)
+			r.enqueue(key, func(jobCtx context.Context) {
+				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
-					blockIssue(ctx, app, trigger.IssueNumber, err)
+					blockIssue(jobCtx, app, trigger.IssueNumber, err)
 					return
 				}
-				doCancel(ctx, app, trigger, issue, st)
+				doCancel(jobCtx, app, trigger, issue, st)
 			})
 			return
 		}
 
 		if command == "merge" && (st.Phase == "pr_open" || (st.Phase == "blocked" && st.PRNumber > 0)) {
-			r.enqueue(key, func() {
-				issue, err := app.GH.GetIssue(ctx, fullName, trigger.IssueNumber)
+			r.enqueue(key, func(jobCtx context.Context) {
+				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
-					blockIssue(ctx, app, trigger.IssueNumber, err)
+					blockIssue(jobCtx, app, trigger.IssueNumber, err)
 					return
 				}
-				doMerge(ctx, app, trigger, issue, st)
+				if issue.State != "open" {
+					return
+				}
+				doMerge(jobCtx, app, trigger, issue, st)
 			})
 			return
 		}
 
-		if command == "approve" && (st.Phase == "awaiting_approval" || st.Phase == "blocked" || st.Phase == "cancelled") {
-			r.enqueue(key, func() {
-				issue, err := app.GH.GetIssue(ctx, fullName, trigger.IssueNumber)
+		if command == "approve" && (st.Phase == "awaiting_approval" || st.Phase == "blocked") {
+			r.enqueue(key, func(jobCtx context.Context) {
+				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
-					blockIssue(ctx, app, trigger.IssueNumber, err)
+					blockIssue(jobCtx, app, trigger.IssueNumber, err)
 					return
 				}
-				doImplement(ctx, app, trigger, issue, st)
+				if issue.State != "open" {
+					return
+				}
+				doImplement(jobCtx, app, trigger, issue, st)
 			})
 			return
 		}
 
 		if mentioned && (st.Phase == "" || st.Phase == "new") {
-			r.enqueue(key, func() {
-				issue, err := app.GH.GetIssue(ctx, fullName, trigger.IssueNumber)
+			r.enqueue(key, func(jobCtx context.Context) {
+				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 				if err != nil {
-					blockIssue(ctx, app, trigger.IssueNumber, err)
+					blockIssue(jobCtx, app, trigger.IssueNumber, err)
+					return
+				}
+				if issue.State != "open" {
 					return
 				}
 				if isRelevantIssue(issue, r.agentLogin) || mentioned {
-					doPlan(ctx, app, trigger, issue)
+					doPlan(jobCtx, app, trigger, issue)
 				}
 			})
 			return
@@ -233,10 +278,10 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 			return
 		}
 		key := fmt.Sprintf("%s#%d", fullName, trigger.IssueNumber)
-		r.enqueue(key, func() {
-			issue, err := app.GH.GetIssue(ctx, fullName, trigger.IssueNumber)
+		r.enqueue(key, func(jobCtx context.Context) {
+			issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
 			if err != nil {
-				blockIssue(ctx, app, trigger.IssueNumber, err)
+				blockIssue(jobCtx, app, trigger.IssueNumber, err)
 				return
 			}
 			if issue.State != "open" {
@@ -245,7 +290,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 			if !isRelevantIssue(issue, r.agentLogin) {
 				return
 			}
-			comments, err := app.GH.ListComments(ctx, fullName, trigger.IssueNumber)
+			comments, err := app.GH.ListComments(jobCtx, fullName, trigger.IssueNumber)
 			if err == nil {
 				ids := make([]int64, 0, len(comments))
 				last := int64(0)
@@ -259,9 +304,82 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 					state.LastCommentID = last
 				})
 			}
-			doPlan(ctx, app, trigger, issue)
+			doPlan(jobCtx, app, trigger, issue)
 		})
 	}
+}
+
+func closablePhase(phase string) bool {
+	switch phase {
+	case "new", "planning", "implementing", "awaiting_approval", "blocked", "pr_open":
+		return true
+	}
+	return false
+}
+
+// HandleClosed cancels any work for an issue that was closed by the user and,
+// when there is an open PR, closes it as well.
+func (r *Router) HandleClosed(ctx context.Context, fullName string, issue Issue) {
+	st := r.store.Issue(fullName, issue.Number)
+	if !closablePhase(st.Phase) {
+		r.log.Debug("closed issue %s#%d ignored (phase=%s)", fullName, issue.Number, firstNonEmpty(st.Phase, "none"))
+		return
+	}
+	app := r.contexts[fullName]
+	if app == nil {
+		return
+	}
+	key := fmt.Sprintf("%s#%d", fullName, issue.Number)
+	r.log.Info("issue %s#%d closed; cancelling task", fullName, issue.Number)
+	app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {
+		state.Phase = "cancelled"
+		state.CancelledAt = nowISO()
+	})
+	r.cancelActive(fullName, issue.Number)
+	r.enqueue(key+"#closed", func(jobCtx context.Context) {
+		r.waitInactive(jobCtx, key, 60*time.Second)
+		current := r.store.Issue(fullName, issue.Number)
+		if current.Phase == "done" || current.Phase == "merging" {
+			return
+		}
+		if fresh, err := app.GH.GetIssue(jobCtx, fullName, issue.Number); err == nil && fresh.State == "open" {
+			return
+		}
+		doCloseIssue(jobCtx, app, issue, current)
+	})
+}
+
+// HandleReopened resumes a cancelled task. An existing plan returns to
+// awaiting_approval; without a plan it starts a fresh planning pass.
+func (r *Router) HandleReopened(ctx context.Context, fullName string, issue Issue) {
+	st := r.store.Issue(fullName, issue.Number)
+	if st.Phase != "cancelled" {
+		return
+	}
+	app := r.contexts[fullName]
+	if app == nil {
+		return
+	}
+	r.log.Info("issue %s#%d reopened; resuming", fullName, issue.Number)
+	if st.Plan != "" {
+		app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {
+			state.Phase = "awaiting_approval"
+			state.CancelledAt = ""
+		})
+		app.GH.SetPhaseLabel(ctx, fullName, issue.Number, "agent:awaiting-approval")
+		_, _ = app.GH.PostComment(ctx, fullName, issue.Number, "### ♻️ 已重新打开\n\n回复 **lgtm** / **continue** 继续实施。")
+		return
+	}
+	app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {
+		state.Phase = "new"
+		state.CancelledAt = ""
+	})
+	r.HandleTrigger(ctx, fullName, Trigger{
+		Type:        "issue",
+		IssueNumber: issue.Number,
+		Sender:      issue.User.Login,
+		Key:         fmt.Sprintf("reopened-%d", time.Now().UnixNano()),
+	})
 }
 
 func (r *Router) StartupScan(ctx context.Context) {
@@ -273,6 +391,13 @@ func (r *Router) StartupScan(ctx context.Context) {
 			continue
 		}
 		r.log.Debug("startup scan %s: %d open issues", fullName, len(issues))
+		if closedIssues, closedErr := app.GH.ListIssues(ctx, fullName, "closed", nil); closedErr == nil {
+			for _, issue := range closedIssues {
+				if closablePhase(r.store.Issue(fullName, issue.Number).Phase) {
+					r.HandleClosed(ctx, fullName, issue)
+				}
+			}
+		}
 		for _, issue := range issues {
 			number := issue.Number
 			st := r.store.Issue(fullName, number)
@@ -363,7 +488,7 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 			since = &safe
 		}
 	}
-	issues, err := app.GH.ListOpenIssues(ctx, fullName, since)
+	issues, err := app.GH.ListIssues(ctx, fullName, "all", since)
 	if err != nil {
 		r.log.Warn("poll %s: %v", fullName, err)
 		return
@@ -377,6 +502,12 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 	for _, issue := range issues {
 		number := issue.Number
 		st := r.store.Issue(fullName, number)
+		if issue.State == "closed" {
+			if closablePhase(st.Phase) {
+				r.HandleClosed(ctx, fullName, issue)
+			}
+			continue
+		}
 		if st.Phase == "" && isRelevantIssue(issue, r.agentLogin) {
 			r.HandleTrigger(ctx, fullName, Trigger{
 				Type:        "issue",

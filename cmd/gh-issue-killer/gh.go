@@ -332,9 +332,13 @@ func (g *GH) GetIssue(ctx context.Context, fullName string, number int) (Issue, 
 }
 
 func (g *GH) ListOpenIssues(ctx context.Context, fullName string, since *time.Time) ([]Issue, error) {
+	return g.ListIssues(ctx, fullName, "open", since)
+}
+
+func (g *GH) ListIssues(ctx context.Context, fullName, state string, since *time.Time) ([]Issue, error) {
 	var all []Issue
 	for page := 1; page <= 10; page++ {
-		path := fmt.Sprintf("/repos/%s/issues?state=open&per_page=100&sort=updated&direction=desc&page=%d", fullName, page)
+		path := fmt.Sprintf("/repos/%s/issues?state=%s&per_page=100&sort=updated&direction=desc&page=%d", fullName, url.QueryEscape(state), page)
 		if since != nil {
 			path += "&since=" + url.QueryEscape(since.UTC().Format(time.RFC3339))
 		}
@@ -475,6 +479,10 @@ func (g *GH) GetPR(ctx context.Context, fullName string, number int) (PullReques
 	var pr PullRequest
 	err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d", fullName, number), nil, &pr)
 	return pr, err
+}
+
+func (g *GH) ClosePR(ctx context.Context, fullName string, number int) error {
+	return g.do(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/pulls/%d", fullName, number), map[string]string{"state": "closed"}, nil)
 }
 
 type mergeResult struct {

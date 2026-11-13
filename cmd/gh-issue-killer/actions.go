@@ -149,6 +149,9 @@ func react(ctx context.Context, app *AppContext, trigger Trigger, content string
 
 func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) {
 	number := issue.Number
+	if issueCancelled(app, number) {
+		return
+	}
 	app.Log.Info("plan start for %s#%d", app.Repo.FullName, number)
 	trigger2 := trigger
 	trigger2.IssueNumber = number
@@ -219,6 +222,10 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 	if len(plan) > 55000 {
 		plan = plan[:55000] + "\n\n…(截断)"
 	}
+	if issueCancelled(app, number) {
+		app.Log.Debug("skip plan comment for cancelled %s#%d", app.Repo.FullName, number)
+		return
+	}
 
 	body := strings.Join([]string{
 		"### 🤖 修复计划",
@@ -254,6 +261,9 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 
 func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
 	number := issue.Number
+	if issueCancelled(app, number) {
+		return
+	}
 	app.Log.Info("implement start for %s#%d", app.Repo.FullName, number)
 	trigger2 := trigger
 	trigger2.IssueNumber = number
@@ -428,6 +438,10 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 
 	commits := logSinceBase(ctx, worktree, app.Local)
 	stat := diffStat(ctx, worktree, app.Local)
+	if issueCancelled(app, number) {
+		app.Log.Debug("skip push/PR for cancelled %s#%d", app.Repo.FullName, number)
+		return
+	}
 	if err := pushBranch(ctx, worktree, app.Local, branch); err != nil {
 		blockIssue(ctx, app, number, fmt.Errorf("push: %w", err))
 		return
@@ -541,6 +555,9 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 	trigger2 := trigger
 	trigger2.IssueNumber = number
 	react(ctx, app, trigger2, "hooray")
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Phase = "merging"
+	})
 
 	pr, err := app.GH.GetPR(ctx, app.Repo.FullName, st.PRNumber)
 	if err != nil {
@@ -610,6 +627,34 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 	app.Log.Info("merged %s#%d", app.Repo.FullName, number)
 }
 
+func doCloseIssue(ctx context.Context, app *AppContext, issue Issue, st IssueState) {
+	number := issue.Number
+	app.Log.Info("issue %s#%d closed; closing PR and cleaning up", app.Repo.FullName, number)
+	if st.PRNumber > 0 {
+		_ = app.GH.ClosePR(ctx, app.Repo.FullName, st.PRNumber)
+		if st.Branch != "" {
+			_ = app.GH.DeleteBranch(ctx, app.Repo.FullName, st.Branch)
+		}
+	}
+	if st.Worktree != "" {
+		removeWorktree(ctx, app.Local, st.Worktree, true)
+		if st.Branch != "" {
+			deleteLocalBranch(ctx, app.Local, st.Branch)
+		}
+	}
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Phase = "cancelled"
+		state.CancelledAt = nowISO()
+	})
+	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:cancelled")
+	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
+		"### 🤖 已取消\n\nissue 已关闭，任务终止，PR 已关闭，worktree 已清理。")
+}
+
+func issueCancelled(app *AppContext, number int) bool {
+	return app.Store.Issue(app.Repo.FullName, number).Phase == "cancelled"
+}
+
 func doCancel(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
 	number := issue.Number
 	app.Log.Info("cancel for %s#%d", app.Repo.FullName, number)
@@ -629,6 +674,10 @@ func doCancel(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 }
 
 func blockIssue(ctx context.Context, app *AppContext, number int, err error) {
+	if issueCancelled(app, number) {
+		app.Log.Debug("suppress error for cancelled %s#%d: %v", app.Repo.FullName, number, err)
+		return
+	}
 	message := sanitize(err.Error())
 	app.Log.Error("job for %s#%d failed: %s", app.Repo.FullName, number, message)
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {

@@ -142,6 +142,10 @@ func dispatchSmee(ctx context.Context, app *AppContext, router *Router, envelope
 		if payload.Action != "" && payload.Action != "created" {
 			return
 		}
+		if issue, issueErr := app.GH.GetIssue(ctx, app.Repo.FullName, payload.Issue.Number); issueErr == nil && issue.State != "open" {
+			log.Debug("smee: ignore comment on closed issue %s#%d", app.Repo.FullName, payload.Issue.Number)
+			return
+		}
 		router.HandleTrigger(ctx, app.Repo.FullName, Trigger{
 			Type:        "comment",
 			IssueNumber: payload.Issue.Number,
@@ -157,6 +161,14 @@ func dispatchSmee(ctx context.Context, app *AppContext, router *Router, envelope
 	issue, err := app.GH.GetIssue(ctx, app.Repo.FullName, payload.Issue.Number)
 	if err != nil {
 		log.Warn("smee: fetch issue %d: %v", payload.Issue.Number, err)
+		return
+	}
+	if issue.State == "closed" {
+		router.HandleClosed(ctx, app.Repo.FullName, issue)
+		return
+	}
+	if payload.Action == "reopened" {
+		router.HandleReopened(ctx, app.Repo.FullName, issue)
 		return
 	}
 	sender := payload.Sender.Login

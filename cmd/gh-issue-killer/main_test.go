@@ -132,3 +132,16 @@ func TestIsRelevantIssue(t *testing.T) {
 		t.Fatal("self-authored issue must be ignored")
 	}
 }
+
+func TestClosablePhase(t *testing.T) {
+	for _, phase := range []string{"new", "planning", "implementing", "awaiting_approval", "blocked", "pr_open"} {
+		if !closablePhase(phase) {
+			t.Fatalf("%q should be closable", phase)
+		}
+	}
+	for _, phase := range []string{"", "done", "cancelled", "merging"} {
+		if closablePhase(phase) {
+			t.Fatalf("%q should not be closable", phase)
+		}
+	}
+}
