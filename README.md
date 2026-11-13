@@ -4,9 +4,9 @@ Watch GitHub issues, let a coding agent (opencode, Claude Code, or Codex) plan �
 
 ```
 issue @agent / assigned        👀 reaction + plan comment
-owner: lgtm / continue   →     worktree + code + unit/E2E checks + before/after screenshot + PR
-owner: 合并 / merge      →     wait CI → squash merge → close issue/PR → clean worktree
-owner: cancel / 停止     →     abort, keep the issue open
+owner: @agent lgtm       →     worktree + code + unit/E2E checks + before/after screenshot + PR
+owner: @agent 合并        →     wait CI → squash merge → close issue/PR → clean worktree
+owner: @agent cancel     →     abort, keep the issue open
 ```
 
 ## Why Go, no curl/ffmpeg
@@ -160,10 +160,12 @@ State: `~/.gh-issue-killer/state.json` · logs: `~/.gh-issue-killer/logs/daemon.
 
 ## Commands the daemon understands
 
-| comment (by an approver) | effect |
-| --- | --- |
-| `lgtm`, `continue` | approve the plan (or retry after blocked) |
-| `合并`, `merge`, `ship` | squash merge the PR, close issue + PR, clean the worktree |
-| `cancel`, `stop`, `停止` | abort the current task |
+Commands must come from an approver **and mention the agent**, for example `@my-agent lgtm`. A comment that merely contains a keyword is ignored, so ordinary discussion never starts or cancels work.
 
-Anyone can `@<agent-login>` an issue (or assign it) to request a plan. The agent never reacts to its own comments and never treats its own issues as triggers.
+| comment | effect |
+| --- | --- |
+| `@agent lgtm`, `@agent continue` | approve the plan (or retry after blocked) |
+| `@agent 合并`, `@agent merge`, `@agent ship` | squash merge the PR, close issue + PR, clean the worktree |
+| `@agent cancel`, `@agent stop`, `@agent 停止` | abort the current task |
+
+Anyone can `@<agent-login>` an issue (or assign it) to request a plan. The agent never reacts to its own generated comments and never treats its own issues as triggers.

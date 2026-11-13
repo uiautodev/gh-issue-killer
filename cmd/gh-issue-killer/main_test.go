@@ -160,3 +160,23 @@ func TestIsAgentComment(t *testing.T) {
 		t.Fatal("inline heading text must not be treated as daemon output")
 	}
 }
+
+func TestResolveCommandNeedsMention(t *testing.T) {
+	cases := []struct {
+		body     string
+		approver bool
+		want     string
+	}{
+		{"@my-agent lgtm", true, "approve"},
+		{"lgtm", true, ""},
+		{"looks good, lgtm", true, ""},
+		{"@my-agent 合并", true, "merge"},
+		{"@my-agent lgtm", false, ""},
+		{"随便聊聊 continue", true, ""},
+	}
+	for _, c := range cases {
+		if got := resolveCommand(c.body, c.approver, "my-agent"); got != c.want {
+			t.Fatalf("resolveCommand(%q, approver=%v) = %q, want %q", c.body, c.approver, got, c.want)
+		}
+	}
+}

@@ -233,7 +233,7 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 		plan,
 		"",
 		"---",
-		"Reply **LGTM** / **continue** to proceed.",
+		fmt.Sprintf("Reply `@%s lgtm` / `@%s continue` to proceed.", app.AgentLogin, app.AgentLogin),
 	}, "\n")
 	posted, err := app.GH.PostComment(ctx, app.Repo.FullName, number, body)
 	if err != nil {
@@ -394,7 +394,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 			"",
 			strings.Join(details, "\n"),
 			"",
-			fmt.Sprintf("worktree 保留在 `%s`。修复后回复 **continue** 重跑。", worktree),
+			fmt.Sprintf("worktree 保留在 `%s`。修复后回复 `@%s continue` 重跑。", worktree, app.AgentLogin),
 		}, "\n")
 		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, body)
 		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
@@ -683,5 +683,5 @@ func blockIssue(ctx context.Context, app *AppContext, number int, err error) {
 	})
 	app.GH.SetPhaseLabel(ctx, app.Repo.FullName, number, "agent:blocked")
 	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
-		fmt.Sprintf("### 🤖 流程出错\n\n```\n%s\n```\n\n回复 **continue** 重试。", tailString(message, 12)))
+		fmt.Sprintf("### 🤖 流程出错\n\n```\n%s\n```\n\n回复 `@%s continue` 重试。", tailString(message, 12), app.AgentLogin))
 }

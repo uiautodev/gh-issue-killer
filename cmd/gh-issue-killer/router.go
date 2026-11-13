@@ -23,6 +23,16 @@ func isMention(text, login string) bool {
 	return pattern.MatchString(text)
 }
 
+// resolveCommand returns the command a comment carries. Only approvers can
+// command the agent, and the comment must mention it explicitly so casual
+// replies never start or cancel work.
+func resolveCommand(body string, isApprover bool, agentLogin string) string {
+	if !isApprover || !isMention(body, agentLogin) {
+		return ""
+	}
+	return parseCommand(body)
+}
+
 // isAgentComment reports whether a comment is daemon output rather than a
 // command. Comments written before the marker existed all start with the
 // bot heading.
@@ -216,7 +226,11 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		}
 		command := ""
 		if isApprover {
-			command = parseCommand(trigger.CommentBody)
+			command = resolveCommand(trigger.CommentBody, isApprover, r.agentLogin)
+			if command == "" && parseCommand(trigger.CommentBody) != "" {
+				r.log.Info("comment %d on %s#%d looks like a command but does not mention @%s; ignored",
+					trigger.CommentID, fullName, trigger.IssueNumber, r.agentLogin)
+			}
 		}
 		r.log.Info("comment trigger %s#%d from @%s mentioned=%v command=%s", fullName, trigger.IssueNumber, trigger.Sender, mentioned, firstNonEmpty(command, "-"))
 
@@ -451,7 +465,7 @@ func (r *Router) StartupScan(ctx context.Context) {
 					state.BlockedReason = "interrupted by restart"
 				})
 				app.GH.SetPhaseLabel(ctx, fullName, number, "agent:blocked")
-				_, _ = app.GH.PostComment(ctx, fullName, number, "### 🤖 实现被重启中断\n\n回复 **continue** 从当前 worktree 继续修复。")
+				_, _ = app.GH.PostComment(ctx, fullName, number, fmt.Sprintf("### 🤖 实现被重启中断\n\n回复 `@%s continue` 从当前 worktree 继续修复。", r.agentLogin))
 			}
 
 			comments, listErr := app.GH.ListComments(ctx, fullName, number)
