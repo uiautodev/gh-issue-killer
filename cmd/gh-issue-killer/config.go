@@ -87,9 +87,6 @@ type rawConfig struct {
 }
 
 func defaultConfigPath() string {
-	if value := strings.TrimSpace(os.Getenv("GWIK_CONFIG")); value != "" {
-		return value
-	}
 	cwd, _ := os.Getwd()
 	return filepath.Join(cwd, "config.json")
 }

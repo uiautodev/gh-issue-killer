@@ -269,7 +269,9 @@ func (r *opencodeRunner) Run(ctx context.Context, opts RunnerOptions) (RunnerRes
 			eventErr = event.Error.Message
 		}
 	})
-	result.Text = strings.TrimSpace(strings.Join(texts, ""))
+	// Join with a blank line: text parts are separated messages, not one stream,
+	// so "I'll explore..." followed by "## 问题分析" must not become one line.
+	result.Text = strings.TrimSpace(strings.Join(texts, "\n\n"))
 	result.Stderr = tailString(proc.Stderr, 50)
 	result.Code = proc.Code
 	result.TimedOut = proc.TimedOut

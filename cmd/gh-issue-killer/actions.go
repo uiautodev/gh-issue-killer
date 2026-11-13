@@ -49,6 +49,53 @@ func sanitize(text string) string {
 	return out
 }
 
+// trimToPlan drops any narration printed before the plan itself. The plan
+// starts at the first Markdown heading, even when the agent glued it to the end
+// of a sentence ("...build the plan.## 问题分析"); without a heading the text is
+// kept as is.
+func trimToPlan(text string) string {
+	trimmed := strings.TrimSpace(text)
+	lines := strings.Split(trimmed, "\n")
+	for i, line := range lines {
+		if isMarkdownHeading(line) {
+			if i == 0 {
+				break
+			}
+			return strings.TrimSpace(strings.Join(lines[i:], "\n"))
+		}
+		if heading, ok := midLineHeading(line); ok {
+			return strings.TrimSpace(strings.Join(append([]string{heading}, lines[i+1:]...), "\n"))
+		}
+	}
+	return trimmed
+}
+
+var midLineHeadingRe = regexp.MustCompile(`[.。:：!?！？]\s*(#{1,3}[ \t])`)
+
+func midLineHeading(line string) (string, bool) {
+	match := midLineHeadingRe.FindStringSubmatchIndex(line)
+	if match == nil {
+		return "", false
+	}
+	candidate := line[match[2]:]
+	if !isMarkdownHeading(candidate) {
+		return "", false
+	}
+	return strings.TrimSpace(candidate), true
+}
+
+func isMarkdownHeading(line string) bool {
+	line = strings.TrimSpace(line)
+	level := 0
+	for level < len(line) && line[level] == '#' {
+		level++
+	}
+	if level < 1 || level > 3 {
+		return false
+	}
+	return level == len(line) || line[level] == ' '
+}
+
 func stripFences(text string) string {
 	trimmed := strings.TrimSpace(text)
 	if strings.HasPrefix(trimmed, "```") && strings.HasSuffix(trimmed, "```") {
@@ -160,10 +207,13 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 		blockIssue(ctx, app, number, fmt.Errorf("plan failed: %w", err))
 		return
 	}
-	plan := stripFences(result.Text)
+	plan := trimToPlan(stripFences(result.Text))
 	if len(plan) < 40 {
 		blockIssue(ctx, app, number, fmt.Errorf("plan is empty"))
 		return
+	}
+	if lines := len(strings.Split(plan, "\n")); lines > 40 || len(plan) > 3000 {
+		app.Log.Warn("plan for %s#%d is long (%d lines, %d chars); prompts/plan.md may need tightening", app.Repo.FullName, number, lines, len(plan))
 	}
 	if len(plan) > 55000 {
 		plan = plan[:55000] + "\n\n…(截断)"
@@ -175,7 +225,7 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 		plan,
 		"",
 		"---",
-		"确认请回复 **lgtm** 或 **continue**，我会新建 worktree 开始实现；回复 **cancel** 取消。 / Reply **lgtm** / **continue** to proceed.",
+		"Reply **LGTM** / **continue** to proceed.",
 	}, "\n")
 	posted, err := app.GH.PostComment(ctx, app.Repo.FullName, number, body)
 	if err != nil {

@@ -14,9 +14,6 @@ var (
 )
 
 func promptsDir() string {
-	if value := strings.TrimSpace(os.Getenv("GWIK_PROMPTS_DIR")); value != "" {
-		return expandHome(value)
-	}
 	if cwd, err := os.Getwd(); err == nil {
 		candidate := filepath.Join(cwd, "prompts")
 		if info, statErr := os.Stat(candidate); statErr == nil && info.IsDir() {

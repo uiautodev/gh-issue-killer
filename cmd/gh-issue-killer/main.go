@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -64,28 +65,181 @@ func stopDaemon(log *Logger) {
 	log.Warn("daemon pid %d did not exit after 10s", pid)
 }
 
+func readLockPID() (int, bool) {
+	data, err := os.ReadFile(lockFile())
+	if err != nil {
+		return 0, false
+	}
+	pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
+	if parseErr != nil || pid <= 0 {
+		return 0, false
+	}
+	if err := syscall.Kill(pid, 0); err == nil || errors.Is(err, syscall.EPERM) {
+		return pid, true
+	}
+	return pid, false
+}
+
+func shouldDaemonize(foreground, initConfig, once, stop, status, child bool) bool {
+	if foreground || initConfig || once || stop || status || child {
+		return false
+	}
+	return true
+}
+
+const daemonChildEnv = "GHIK_DAEMON_CHILD"
+
+func isDaemonChild() bool {
+	return os.Getenv(daemonChildEnv) == "1"
+}
+
+func printStatus(configPath string) {
+	configFile := firstNonEmpty(configPath, defaultConfigPath())
+	if pid, running := readLockPID(); running {
+		fmt.Printf("daemon: running (pid %d)\n", pid)
+	} else {
+		fmt.Printf("daemon: stopped\n")
+	}
+	fmt.Printf("config: %s\n", configFile)
+	fmt.Printf("log:    %s (rotate %d MB, keep %d)\n", daemonLogPath(), logRotateSizeMB, logRotateKeep)
+	fmt.Printf("state:  %s\n", stateFile())
+	cfg, err := loadConfig(configFile)
+	if err != nil {
+		fmt.Printf("repos:  (config error: %v)\n", err)
+		return
+	}
+	for _, repo := range cfg.Repos {
+		fmt.Printf("repo:   %s (%s)\n", repo.FullName, repo.CodingAgent)
+	}
+}
+
+// startBackground re-execs this binary in a new session. The child is marked
+// with GHIK_DAEMON_CHILD=1 so it runs the daemon loop instead of forking again.
+func startBackground(configPath string) error {
+	if pid, running := readLockPID(); running {
+		fmt.Printf("already running (pid %d)\n", pid)
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	args := make([]string, 0, 2)
+	if configPath != "" {
+		args = append(args, "-config", configPath)
+	}
+	command := exec.Command(exe, args...)
+	command.Env = append(os.Environ(), daemonChildEnv+"=1")
+	if cwd, err := os.Getwd(); err == nil {
+		command.Dir = cwd
+	}
+	command.Stdin = nil
+	command.Stdout = nil
+	command.Stderr = nil
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	if err := command.Start(); err != nil {
+		return err
+	}
+	pid := command.Process.Pid
+	alive := false
+	for attempt := 0; attempt < 20; attempt++ {
+		if lockPID, _ := readLockPID(); lockPID == pid {
+			alive = true
+			break
+		}
+		if err := syscall.Kill(pid, 0); err != nil && !errors.Is(err, syscall.EPERM) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !alive {
+		alive = syscall.Kill(pid, 0) == nil || errors.Is(syscall.Kill(pid, 0), syscall.EPERM)
+	}
+	_ = command.Process.Release()
+	if !alive {
+		fmt.Fprintf(os.Stderr, "failed to start gh-issue-killer; see %s\n", daemonLogPath())
+		if data, err := os.ReadFile(daemonLogPath()); err == nil {
+			fmt.Fprintln(os.Stderr, tailString(string(data), 15))
+		}
+		return errors.New("daemon failed to start")
+	}
+
+	fmt.Printf("started gh-issue-killer (pid %d)\n", pid)
+	fmt.Printf("log: %s (rotate %d MB, keep %d)\n", daemonLogPath(), logRotateSizeMB, logRotateKeep)
+	fmt.Printf("stop: gh-issue-killer -stop\n")
+	return nil
+}
+
 func main() {
 	configPath := flag.String("config", "", "path to config.json")
 	initConfig := flag.Bool("init", false, "run the interactive setup wizard and write config.json")
 	once := flag.Bool("once", false, "run startup scan and one poll, then exit")
-	foreground := flag.Bool("foreground", false, "run attached to the terminal (default behaviour, logs stream to stdout)")
+	foreground := flag.Bool("foreground", false, "run attached to the terminal (default is background)")
 	flag.BoolVar(foreground, "f", false, "shorthand for -foreground")
 	stop := flag.Bool("stop", false, "stop the running daemon and exit")
+	status := flag.Bool("status", false, "show daemon status and paths")
+	logs := flag.Bool("logs", false, "follow the daemon log in real time")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "gh-issue-killer - GitHub issue watcher\n\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  gh-issue-killer [flags]\n\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Flags:\n")
 		flag.PrintDefaults()
-		fmt.Fprintf(flag.CommandLine.Output(), "\nExamples:\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -init         # guided config.json setup\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -foreground   # run attached, Ctrl+C to stop\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -f            # shorthand\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "\nWithout flags the daemon runs in the background.\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Examples:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer               # start in the background\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -f            # run attached, Ctrl+C to stop\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -logs         # follow the daemon log\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -status       # pid, config, log and state paths\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -stop         # stop the running daemon\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -init         # guided config.json setup\n")
 	}
 	flag.Parse()
 
+	if *logs {
+		if err := followDaemonLog(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *initConfig {
 		if err := runSetupWizard(*configPath, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *status {
+		printStatus(*configPath)
+		return
+	}
+	if *stop {
+		if err := ensureDirs(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		stopDaemon(NewLogger("daemon"))
+		return
+	}
+
+	configFile := firstNonEmpty(*configPath, defaultConfigPath())
+	child := isDaemonChild()
+
+	if _, err := os.Stat(configFile); errors.Is(err, fs.ErrNotExist) {
+		if isTerminal(os.Stdin) && !child {
+			if wizardErr := runSetupWizard(configFile, os.Stdin, os.Stdout); wizardErr != nil {
+				fmt.Fprintln(os.Stderr, wizardErr)
+				os.Exit(1)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "no config at %s: run `gh-issue-killer -init` to create one\n", configFile)
+			os.Exit(1)
+		}
+	}
+
+	if shouldDaemonize(*foreground, *initConfig, *once, *stop, *status, child) {
+		if err := startBackground(*configPath); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -97,25 +251,14 @@ func main() {
 		os.Exit(1)
 	}
 	log := NewLogger("daemon")
-
-	if *stop {
-		stopDaemon(log)
-		return
-	}
+	log.Info("log file %s (rotate %d MB, keep %d)", daemonLogPath(), logRotateSizeMB, logRotateKeep)
 	if *foreground {
 		log.Info("foreground mode: attached to this terminal, Ctrl+C to stop")
 	}
-
-	configFile := firstNonEmpty(*configPath, defaultConfigPath())
-	cfg, err := loadConfig(configFile)
-	if err != nil && errors.Is(err, fs.ErrNotExist) && isTerminal(os.Stdin) {
-		log.Info("no config at %s, starting the setup wizard", configFile)
-		if wizardErr := runSetupWizard(configFile, os.Stdin, os.Stdout); wizardErr != nil {
-			log.Error("setup: %v", wizardErr)
-			os.Exit(1)
-		}
-		cfg, err = loadConfig(configFile)
+	if child {
+		log.Info("daemon child mode: detached")
 	}
+	cfg, err := loadConfig(configFile)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			log.Error("no config at %s: run `gh-issue-killer -init` to create one", configFile)
@@ -190,7 +333,6 @@ func main() {
 
 		envOverrides := goProxyEnv(proxy)
 		envOverrides["GH_CONFIG_DIR"] = filepath.Join(homeDir(), ".config", "gh-agent")
-		envOverrides["GWIK_AGENT"] = identity.Login
 		childEnv := mergeEnv(buildGitEnv(proxy, token, identity), envOverrides, "GH_TOKEN", "GITHUB_TOKEN")
 
 		contexts[repo.FullName] = &AppContext{

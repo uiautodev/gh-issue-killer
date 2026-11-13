@@ -27,15 +27,15 @@ func homeDir() string {
 	return home
 }
 
-func envDefault(key, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-		return value
-	}
-	return fallback
-}
+// stateDirOverride lets tests isolate state without introducing a public
+// environment variable. The daemon always uses ~/.gh-issue-killer.
+var stateDirOverride string
 
 func stateDir() string {
-	return envDefault("GWIK_STATE_DIR", filepath.Join(homeDir(), ".gh-issue-killer"))
+	if stateDirOverride != "" {
+		return stateDirOverride
+	}
+	return filepath.Join(homeDir(), ".gh-issue-killer")
 }
 
 func logsDir() string   { return filepath.Join(stateDir(), "logs") }
@@ -128,23 +128,23 @@ type Logger struct {
 	mu    sync.Mutex
 	level Level
 	out   io.Writer
-	file  *os.File
+	file  io.WriteCloser
+}
+
+const (
+	logRotateSizeMB = 10
+	logRotateKeep   = 5
+)
+
+func daemonLogPath() string {
+	return filepath.Join(logsDir(), "daemon.log")
 }
 
 func NewLogger(name string) *Logger {
-	level := levelInfo
-	switch strings.ToLower(os.Getenv("GWIK_LOG_LEVEL")) {
-	case "debug":
-		level = levelDebug
-	case "warn":
-		level = levelWarn
-	case "error":
-		level = levelError
-	}
-	logger := &Logger{level: level, out: os.Stdout}
+	logger := &Logger{level: levelInfo, out: os.Stdout}
 	if err := os.MkdirAll(logsDir(), 0o755); err == nil {
-		if file, err := os.OpenFile(filepath.Join(logsDir(), name+".log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
-			logger.file = file
+		if writer, err := openRotatingFile(filepath.Join(logsDir(), name+".log"), logRotateSizeMB*1024*1024, logRotateKeep); err == nil {
+			logger.file = writer
 		}
 	}
 	return logger
@@ -154,6 +154,87 @@ func NewLogger(name string) *Logger {
 // or pollute the daemon log.
 func NewSilentLogger() *Logger {
 	return &Logger{level: levelError, out: io.Discard}
+}
+
+// rotatingFile is a small size-based rotating writer. It keeps at most
+// maxFiles rotated files (path.1 ... path.N) and is safe for concurrent use.
+type rotatingFile struct {
+	mu       sync.Mutex
+	path     string
+	maxBytes int64
+	maxFiles int
+	file     *os.File
+	size     int64
+}
+
+func openRotatingFile(path string, maxBytes int64, maxFiles int) (*rotatingFile, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+	return &rotatingFile{
+		path:     path,
+		maxBytes: maxBytes,
+		maxFiles: maxFiles,
+		file:     file,
+		size:     info.Size(),
+	}, nil
+}
+
+func (r *rotatingFile) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.maxBytes > 0 && r.size > 0 && r.size+int64(len(p)) > r.maxBytes {
+		if err := r.rotateLocked(); err != nil {
+			return 0, err
+		}
+	}
+	n, err := r.file.Write(p)
+	r.size += int64(n)
+	return n, err
+}
+
+func (r *rotatingFile) rotateLocked() error {
+	if err := r.file.Close(); err != nil {
+		return err
+	}
+	if r.maxFiles > 0 {
+		oldest := fmt.Sprintf("%s.%d", r.path, r.maxFiles)
+		_ = os.Remove(oldest)
+		for index := r.maxFiles - 1; index >= 1; index-- {
+			from := fmt.Sprintf("%s.%d", r.path, index)
+			to := fmt.Sprintf("%s.%d", r.path, index+1)
+			_ = os.Rename(from, to)
+		}
+		_ = os.Rename(r.path, r.path+".1")
+	}
+	file, err := os.OpenFile(r.path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	r.file = file
+	r.size = 0
+	return nil
+}
+
+func (r *rotatingFile) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.file == nil {
+		return nil
+	}
+	err := r.file.Close()
+	r.file = nil
+	return err
 }
 
 func (l *Logger) logf(level Level, label, format string, args ...any) {

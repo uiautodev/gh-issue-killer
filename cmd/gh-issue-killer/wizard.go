@@ -539,6 +539,7 @@ func (w *wizardUI) printSummary(file string, answers wizardConfig, access []repo
 
 	w.printf("\n%s\n", w.heading("Summary / 配置摘要"))
 	w.printf("  Config:       %s (%s)\n", file, status)
+	w.printf("  Logs:         %s (rotate %d MB, keep %d)\n", daemonLogPath(), logRotateSizeMB, logRotateKeep)
 	w.printf("  Coding agent: %s\n", agent)
 	w.printf("  Repos:        %s\n", strings.Join(answers.Repos, ", "))
 	if len(access) > 0 {

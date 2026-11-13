@@ -30,7 +30,9 @@ func TestVerifySignature(t *testing.T) {
 
 func TestStoreRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("GWIK_STATE_DIR", dir)
+	oldStateDir := stateDirOverride
+	stateDirOverride = dir
+	t.Cleanup(func() { stateDirOverride = oldStateDir })
 	if err := ensureDirs(); err != nil {
 		t.Fatal(err)
 	}

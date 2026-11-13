@@ -37,7 +37,7 @@ Run the wizard — it detects the coding agents installed on `PATH`, asks for th
 ./bin/gh-issue-killer -init -config ~/elsewhere/config.json    # or another path
 ```
 
-Starting the daemon without a config, in an interactive terminal, launches the same wizard automatically. `-config` and `GWIK_CONFIG` select the path.
+Starting the daemon without a config, in an interactive terminal, launches the same wizard automatically. `-config` selects a different config path.
 
 Or edit `config.json` by hand (gitignored, copy from `config.example.json`):
 
@@ -125,15 +125,34 @@ Screenshots are only required for user-visible UI changes. The agent captures ju
 
 ```bash
 ./bin/gh-issue-killer -init          # guided config.json setup
-./bin/gh-issue-killer -foreground   # attached: logs stream to the terminal, Ctrl+C to stop
-./bin/gh-issue-killer -f            # shorthand for -foreground
-./bin/gh-issue-killer               # same as -foreground (kept for compatibility)
-./bin/gh-issue-killer -stop         # stop the running daemon and clean the lock
-./bin/gh-issue-killer -once         # startup scan + one poll, then exit (smoke check)
-scripts/smoke-test.sh <owner/repo>  # full loop using YOUR gh as the human
+./bin/gh-issue-killer                # start in the background (default)
+./bin/gh-issue-killer -foreground    # attached: logs stream to the terminal, Ctrl+C to stop
+./bin/gh-issue-killer -f             # shorthand for -foreground
+./bin/gh-issue-killer -logs          # follow daemon.log in real time
+./bin/gh-issue-killer -status        # pid, config, log and state paths
+./bin/gh-issue-killer -stop          # stop the running daemon and clean the lock
+./bin/gh-issue-killer -once          # startup scan + one poll, then exit (smoke check)
+scripts/smoke-test.sh <owner/repo>   # full loop using YOUR gh as the human
 ```
 
-`-foreground` prints a banner and keeps the process attached to the terminal; it is the recommended mode for debugging. The single-instance lock still applies, so run `-stop` first if a background copy is running. In background you can use `nohup ./bin/gh-issue-killer >> ~/.gh-issue-killer/logs/daemon.out 2>&1 &`, and stop it with `-stop`.
+The default is a background daemon; it re-execs itself in a new session, writes the lock, and prints the pid plus the log path. No `nohup`, `launchd`, or `logrotate` is required. `-foreground` keeps the process attached for debugging. The single-instance lock still applies, so run `-stop` first if a copy is already running.
+
+## Logs
+
+The daemon log has a fixed location and rotation:
+
+```
+~/.gh-issue-killer/logs/daemon.log     # 10 MB × 5, pure Go rotation
+~/.gh-issue-killer/logs/daemon.log.1
+...
+~/.gh-issue-killer/logs/daemon.log.5
+```
+
+The resolved path and rotation policy are printed at startup, in `-status`, and in the `-init` summary. Per-issue coding-agent output lives under `~/.gh-issue-killer/runs/<owner>-<repo>/issue-<n>/` (`plan-*.log`, `implement-*.log`, `fix-*.log`, `checks/*.log`). There is no `daemon.out`; background stdout/stderr go to `/dev/null` and everything goes through the rotating log file.
+
+```bash
+./bin/gh-issue-killer -logs   # follow daemon.log (last 50 lines, rotation-aware, Ctrl+C to stop)
+```
 
 State: `~/.gh-issue-killer/state.json` · logs: `~/.gh-issue-killer/logs/daemon.log` · single instance enforced by `daemon.lock`.
 

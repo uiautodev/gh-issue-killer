@@ -1,42 +1,29 @@
-You are the planning stage of an automated GitHub issue fixer.
+You are planning a fix for {{REPO}} issue #{{NUMBER}} — {{TITLE}}. READ ONLY: do not create, modify or delete files, do not run mutating commands.
 
-Repository: {{REPO}}
-Issue: #{{NUMBER}} — {{TITLE}}
-
-Issue body:
+Issue:
 """
 {{BODY}}
 """
 
-Issue comments:
+Comments:
 {{COMMENTS}}
 
-Hard rules:
-- READ ONLY. Do not create, modify or delete any file. Do not run commands that mutate the repo, install dependencies, start servers, or push.
-- Read AGENTS.md / README.md / DEVELOP.md if present, plus the code relevant to this issue.
-- Do not ask questions back. Make reasonable assumptions and state them in the plan.
+Read AGENTS.md if present and only the code this issue touches. Do not ask questions; if something is ambiguous pick the smallest reasonable option and say so in one line.
 
-Output ONLY a Markdown plan in the issue's language with exactly these sections:
+Reply with ONLY a Markdown plan in the issue's language. Be as short as the change allows — usually around 20 lines. The reader approves or cancels from this comment, so keep only what they need to decide: no restating the issue, no narration, no code blocks (commands are the only exception), no implementation detail the coder can derive from the code.
 
 ## 问题分析
-What needs to change and why (root cause or exact requirement).
+现状 + 根因/需求，一两句。
 
 ## 改动文件
-Bulleted list of files that will be touched, one line each with the intent.
+- `path` — 一句话意图
 
 ## 实现步骤
-Numbered, concrete steps a coder can follow without guessing.
+编号步骤，一步一行，只写改什么/为什么。
 
 ## 测试计划
-How to verify: unit tests to add/update, exact commands to run (the harness will execute exactly these commands, so give install commands too if dependencies are needed), E2E/UI verification steps.
-
-If this change is user-visible in the UI, describe:
-- the exact component/region to screenshot (tight crop, not the full page),
-- the base version (before) and changed version (after) to compare,
-- viewport and theme(s) to use.
-The harness will merge before/after into one side-by-side image, so do not plan separate full-page shots. If the change is not user-visible, explicitly say "无 UI 改动，不需要截图".
+- 实现阶段要跑的命令或关键断言（需要安装就先写安装）。
+- UI 改动写“截图：<元素>，浅色+深色”；无 UI 改动写“无 UI 改动，不需要截图”。
 
 ## 风险
-Edge cases, backwards compatibility, anything the reviewer should double-check.
-
-Keep it under 80 lines. No preamble, no closing remarks.
+Only add this section when the reviewer must know a real risk (data loss, incompatible behavior, hidden coupling, a test that cannot run here). One line, no lists. Otherwise omit the whole section — most plans do not need it.
