@@ -16,21 +16,25 @@ const (
 	logFollowPoll = 250 * time.Millisecond
 )
 
-// tailLines returns the last n non-empty-terminated lines of a file.
+// tailLines returns the last n lines of a file.
 func tailLines(path string, n int) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+	return tailLinesFrom(data, n), nil
+}
+
+func tailLinesFrom(data []byte, n int) []string {
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	if len(lines) == 1 && lines[0] == "" {
-		return nil, nil
+		return nil
 	}
 	if n > 0 && len(lines) > n {
 		lines = lines[len(lines)-n:]
 	}
-	return lines, nil
+	return lines
 }
 
 func followDaemonLog(out io.Writer) error {
@@ -151,13 +155,17 @@ func followFile(ctx context.Context, path string, out io.Writer, initialLines in
 		info = stat
 		offset = 0
 		if initial {
-			if lines, readErr := tailLines(path, initialLines); readErr == nil {
-				for _, line := range lines {
+			// Read from the handle itself: re-reading the path and then seeking
+			// to the current end can skip data that appears in between (the
+			// file may be created empty and written right after).
+			initial = false
+			data, readErr := io.ReadAll(handle)
+			if readErr == nil {
+				for _, line := range tailLinesFrom(data, initialLines) {
 					fmt.Fprintln(out, line)
 				}
 			}
-			initial = false
-			offset, _ = handle.Seek(0, io.SeekEnd)
+			offset = int64(len(data))
 		}
 		return nil
 	}

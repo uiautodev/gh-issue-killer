@@ -6,9 +6,28 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// syncBuffer is a bytes.Buffer that is safe to read while followFile writes.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 func TestTailLines(t *testing.T) {
 	dir := t.TempDir()
@@ -35,7 +54,7 @@ func TestTailLines(t *testing.T) {
 	}
 }
 
-func waitForText(t *testing.T, buffer *bytes.Buffer, text string, timeout time.Duration) {
+func waitForText(t *testing.T, buffer *syncBuffer, text string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -55,7 +74,7 @@ func TestFollowFileAppends(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var out bytes.Buffer
+	var out syncBuffer
 	done := make(chan struct{})
 	go func() {
 		_ = followFile(ctx, path, &out, 10, 10*time.Millisecond)
@@ -89,7 +108,7 @@ func TestFollowFileRotation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var out bytes.Buffer
+	var out syncBuffer
 	done := make(chan struct{})
 	go func() {
 		_ = followFile(ctx, path, &out, 10, 10*time.Millisecond)
@@ -117,7 +136,7 @@ func TestFollowFileWaitsForFile(t *testing.T) {
 	path := filepath.Join(dir, "daemon.log")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var out bytes.Buffer
+	var out syncBuffer
 	done := make(chan struct{})
 	go func() {
 		_ = followFile(ctx, path, &out, 10, 10*time.Millisecond)
