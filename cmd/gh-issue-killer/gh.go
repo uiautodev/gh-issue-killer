@@ -116,21 +116,28 @@ type Comment struct {
 }
 
 type PullRequest struct {
-	Number         int    `json:"number"`
-	HTMLURL        string `json:"html_url"`
-	State          string `json:"state"`
-	Title          string `json:"title"`
-	Body           string `json:"body"`
-	Mergeable      *bool  `json:"mergeable"`
-	MergeableState string `json:"mergeable_state"`
-	User           User   `json:"user"`
-	Head           struct {
-		Ref string `json:"ref"`
-		SHA string `json:"sha"`
+	Number              int    `json:"number"`
+	HTMLURL             string `json:"html_url"`
+	State               string `json:"state"`
+	Title               string `json:"title"`
+	Body                string `json:"body"`
+	Mergeable           *bool  `json:"mergeable"`
+	MergeableState      string `json:"mergeable_state"`
+	MaintainerCanModify bool   `json:"maintainer_can_modify"`
+	User                User   `json:"user"`
+	Head                struct {
+		Ref  string `json:"ref"`
+		SHA  string `json:"sha"`
+		Repo struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
 	} `json:"head"`
 	Base struct {
-		Ref string `json:"ref"`
-		SHA string `json:"sha"`
+		Ref  string `json:"ref"`
+		SHA  string `json:"sha"`
+		Repo struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
 	} `json:"base"`
 }
 

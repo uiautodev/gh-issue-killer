@@ -117,6 +117,7 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 | `@agent lgtm`、`@agent continue`、`@agent 继续` | 批准计划（或 blocked 后重试） |
 | `@agent 合并`、`@agent merge`、`@agent ship` | squash merge PR，关 issue + PR，清理 worktree |
 | `@agent review`、`@agent cr`（在 PR 上） | 审查这个 PR 的 diff，发表总结 + 行内意见 |
+| `@agent <指令>`（在 PR 上） | 直接改这个 PR：agent 改代码、跑检查，把提交推到 PR head |
 | `@agent cancel`、`@agent stop`、`@agent 停止` | 中止当前任务 |
 | plan 评论上的 👍 | 等同 `@agent lgtm` |
 | PR 公告评论上的 👍 | 等同 `@agent 合并` |
@@ -136,6 +137,9 @@ input-group 里」不会触发合并。其他 @ 了 agent 的评论会被当作�
 `review` 对**任何**被监听仓库的 PR 都可用，不只是 daemon 自己开的：它只读地
 checkout PR head，审 diff，然后以 GitHub review 的形式发一条总结 + 最多 10 条
 行内意见，不会向 PR 分支推送任何东西。
+
+在 PR 上 @ agent 并给一条指令，它就会直接改这个 PR：同仓库分支直接推；fork 来的
+PR 只有在作者勾选了 allow edits by maintainers 时才推，否则会在 PR 里说明原因。
 
 ## 配置
 

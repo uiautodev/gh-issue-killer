@@ -724,6 +724,148 @@ func postReviewFailure(ctx context.Context, app *AppContext, prNumber int, err e
 		fmt.Sprintf("### 🤖 Review 失败\n\n```\n%s\n```\n\n回复 `@%s review` 重试。", sanitize(err.Error()), app.AgentLogin))
 }
 
+// canPushToPR reports whether the bot may push to the PR's head branch: same
+// repository, or a fork whose author allowed edits by maintainers.
+func canPushToPR(app *AppContext, pr PullRequest) bool {
+	head := strings.TrimSpace(pr.Head.Repo.FullName)
+	if head == "" {
+		return false
+	}
+	if strings.EqualFold(head, app.Repo.FullName) {
+		return true
+	}
+	return pr.MaintainerCanModify
+}
+
+func prPushURL(app *AppContext, pr PullRequest) string {
+	if strings.EqualFold(pr.Head.Repo.FullName, app.Repo.FullName) || pr.Head.Repo.FullName == "" {
+		return app.Local.HTTPSURL
+	}
+	return fmt.Sprintf("https://github.com/%s.git", pr.Head.Repo.FullName)
+}
+
+// doModifyPR applies a maintainer's instructions to someone else's pull
+// request and pushes the result to the PR head branch. It never force-pushes
+// and never opens a second PR.
+func doModifyPR(ctx context.Context, app *AppContext, trigger Trigger, pr PullRequest, instructions string) {
+	number := pr.Number
+	if strings.TrimSpace(instructions) == "" {
+		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
+			fmt.Sprintf("告诉我要改什么：`@%s <具体指令>`。", app.AgentLogin))
+		return
+	}
+	if !canPushToPR(app, pr) {
+		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
+			"### 🤖 无法直接修改这个 PR",
+			"",
+			fmt.Sprintf("它来自 fork `%s`，作者没有勾选 allow edits by maintainers，我没有推送权限。", firstNonEmpty(pr.Head.Repo.FullName, "(deleted fork)")),
+			"",
+			"让作者勾选后再试；或者我也可以从 PR head 开一个新分支，另提一个 PR。",
+		}, "\n"))
+		return
+	}
+	app.Log.Info("pr modify start for %s#%d", app.Repo.FullName, number)
+	react(ctx, app, trigger, "eyes")
+	runDir := runDirForPR(app, number)
+	_ = os.MkdirAll(filepath.Join(runDir, "screenshots"), 0o755)
+
+	if err := fetchBase(ctx, app.Local); err != nil {
+		postReviewFailure(ctx, app, number, fmt.Errorf("fetch %s: %w", app.Local.Base, err))
+		return
+	}
+	ref, err := fetchPullRequestHead(ctx, app.Local, number)
+	if err != nil {
+		postReviewFailure(ctx, app, number, fmt.Errorf("fetch PR head: %w", err))
+		return
+	}
+	branch := fmt.Sprintf("pr-%d-%s", number, shortID(fmt.Sprintf("%d", time.Now().UnixNano())))
+	worktree, err := createWorktreeFromRef(ctx, app.Local, branch, ref)
+	if err != nil {
+		postReviewFailure(ctx, app, number, fmt.Errorf("worktree: %w", err))
+		return
+	}
+	defer func() {
+		removeWorktree(ctx, app.Local, worktree, true)
+		deleteLocalBranch(ctx, app.Local, branch)
+	}()
+
+	runner, err := newCodingRunner(app.Repo.CodingAgent)
+	if err != nil {
+		postReviewFailure(ctx, app, number, err)
+		return
+	}
+	prompt, err := renderPrompt("modify_pr", map[string]string{
+		"REPO":         app.Repo.FullName,
+		"PR":           fmt.Sprintf("#%d %s", number, pr.HTMLURL),
+		"NUMBER":       itoa(number),
+		"TITLE":        pr.Title,
+		"BODY":         firstNonEmpty(pr.Body, "(no description)"),
+		"BASE":         app.Local.Base,
+		"BRANCH":       pr.Head.Ref,
+		"HEAD_REPO":    pr.Head.Repo.FullName,
+		"WORKTREE":     worktree,
+		"RUN_DIR":      runDir,
+		"SENDER":       firstNonEmpty(trigger.Sender, "maintainer"),
+		"INSTRUCTIONS": instructions,
+	})
+	if err != nil {
+		postReviewFailure(ctx, app, number, err)
+		return
+	}
+	if _, err := runner.Run(ctx, RunnerOptions{
+		Cwd:     worktree,
+		Prompt:  prompt,
+		Model:   app.Repo.Model,
+		RunDir:  runDir,
+		Env:     app.Env,
+		Timeout: app.Cfg.ImplementTimeout,
+		LogFile: filepath.Join(runDir, fmt.Sprintf("modify-pr-%s.log", app.Repo.CodingAgent)),
+		Log:     app.Log,
+	}); err != nil {
+		postReviewFailure(ctx, app, number, fmt.Errorf("modify agent: %w", err))
+		return
+	}
+	if gitStatus(ctx, worktree, app.Env) == "" {
+		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
+			"### 🤖 没有产生改动\n\nagent 认为按这条指令不需要改代码；如果它理解错了，补充说明后再试。")
+		return
+	}
+	checkResults, ok := runChecksWithFixes(ctx, app, runner, "", worktree, runDir)
+	if !ok {
+		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
+			"### 🤖 修改未推送：本地检查失败",
+			"",
+			checksSummary(checkResults),
+			"",
+			fmt.Sprintf("再给一条指令，比如 `@%s 修掉失败的测试`。", app.AgentLogin),
+		}, "\n"))
+		return
+	}
+	if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("chore: apply maintainer instructions for #%d", number)); err != nil {
+		postReviewFailure(ctx, app, number, fmt.Errorf("commit: %w", err))
+		return
+	}
+	if err := pushBranchTo(ctx, worktree, prPushURL(app, pr), app.Env, pr.Head.Ref); err != nil {
+		postReviewFailure(ctx, app, number, fmt.Errorf("push to %s: %w", pr.Head.Repo.FullName, err))
+		return
+	}
+
+	manifest := loadManifest(runDir)
+	body := []string{
+		fmt.Sprintf("### 🤖 已按指令更新 PR（%s）", pr.Head.Repo.FullName),
+		"",
+		firstNonEmpty(strings.TrimSpace(manifest.Summary), "改动已推送到 `"+pr.Head.Ref+"`。"),
+		"",
+		checksSummary(checkResults),
+	}
+	if shotsMD := screenshotsMarkdown(collectScreenshots(ctx, app.GH, runDir, manifest, app.RepoInfo.ID, app.Log)); shotsMD != "" {
+		body = append(body, "", "## 截图", "", shotsMD)
+	}
+	body = append(body, "", fmt.Sprintf("继续修改直接 `@%s <指令>`。", app.AgentLogin))
+	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join(body, "\n"))
+	app.Log.Info("pr modified for %s#%d (%s)", app.Repo.FullName, number, pr.Head.Repo.FullName)
+}
+
 func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
 	number := issue.Number
 	if issueCancelled(app, number) {

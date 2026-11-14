@@ -6,7 +6,7 @@ import (
 )
 
 func TestEmbeddedPrompts(t *testing.T) {
-	for _, name := range []string{"plan", "implement", "fix", "revise", "ci_fix", "conflict_fix", "review"} {
+	for _, name := range []string{"plan", "implement", "fix", "revise", "ci_fix", "conflict_fix", "review", "modify_pr"} {
 		text, err := loadPrompt(name)
 		if err != nil {
 			t.Fatalf("loadPrompt(%s): %v", name, err)

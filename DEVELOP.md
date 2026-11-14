@@ -154,6 +154,11 @@ Other rules:
 - `review` is the only command that targets a PR directly. It works for any PR
   in a watched repo, not only the daemon's own, and runs on the plan queue with
   its own job key (`<repo>#<pr>#review`).
+- A non-command mention from an approver on a pull request the daemon does not
+  own is a **modification request** (`doModifyPR`): edit the PR head, run the
+  checks and push back to the head branch. Same-repository branches are pushed
+  directly; a fork is pushed only when the PR has
+  `maintainer_can_modify`, otherwise the daemon replies instead of failing.
 - A non-command comment that mentions the agent, an inline review comment or a
   review body on an open PR becomes `doRevise` (feedback on the same branch).
 - Closing an issue cancels the task and closes the PR; reopening resumes. A
@@ -213,6 +218,14 @@ worktree, runs the agent with `review.md` and reads `review.json`
 at a file or line outside the diff cannot be attached inline (GitHub answers
 422 “Path could not be resolved”), so they are listed in the review body
 instead. Nothing is ever pushed and the worktree is removed afterwards.
+
+**Modify PR** (`doModifyPR`) — applies an approver's instruction to a PR the
+daemon does not own. It fetches the PR head into a branch worktree, runs the
+agent with `modify_pr.md`, runs `checks.json` (with repair rounds), commits and
+pushes to `pr.Head.Ref` on `pr.Head.Repo` (`pushBranchTo`). `canPushToPR`
+allows same-repository branches and forks with `maintainer_can_modify`; without
+it the daemon comments that it cannot push. The worktree and local branch are
+removed afterwards.
 
 **CI settle** (`settleCIGate`, runs on the CI queue) — if the repo has no
 workflows it returns immediately; otherwise it waits briefly for the new check
@@ -358,6 +371,7 @@ keeps tests quiet. Notable coverage:
 | `conflict_test.go` | conflict detection, merge-API error classification, `conflictedFiles` on a real repo |
 | `cirepair_test.go` | worktree-ahead detection used to publish a stranded repair commit |
 | `review_test.go` | review command parsing, `review.json` loading, inline filtering, fallback body, review API payload |
+| `modifypr_test.go` | which PR heads can be pushed (same repo, fork with allow-edits-by-maintainers) |
 | `router_ci_test.go` | the CI queue does not block work; cancel stops CI jobs |
 | `gh_test.go` | label transitions and GitHub helpers |
 | `main_test.go` | proxy/env parsing, repo normalization, mentions and commands, closable phases |
@@ -403,6 +417,7 @@ must stay clean; `gofmt -l .` must print nothing.
 | a phase, its transitions, or `IssueState` fields | §5 |
 | a command keyword, 👍 handling, lifecycle rules | §6 |
 | the PR review command, `review.md`, review posting | §6, §8 and §17 |
+| the PR modify flow, `modify_pr.md`, push-to-head rules | §6, §8 and §17 |
 | queue stages, worker counts, job keys, cancel/wait rules | §7 |
 | a stage’s steps or post conditions | §8 |
 | the CI gate, stuck detection, repair loop, `ci_fix` prompt | §9 |

@@ -868,7 +868,16 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 					return
 				}
 				if issue.PullRequest != nil {
-					app.Log.Info("ignoring issue-style comment on pull request %s#%d; use @%s review", fullName, trigger.IssueNumber, r.agentLogin)
+					if !mentioned || !isApprover {
+						app.Log.Info("ignoring comment on pull request %s#%d (no approver instruction)", fullName, trigger.IssueNumber)
+						return
+					}
+					pr, prErr := app.GH.GetPR(jobCtx, fullName, trigger.IssueNumber)
+					if prErr != nil {
+						app.Log.Warn("modify PR %s#%d: %v", fullName, trigger.IssueNumber, prErr)
+						return
+					}
+					doModifyPR(jobCtx, app, trigger, pr, strings.TrimSpace(stripMention(trigger.CommentBody, r.agentLogin)))
 					return
 				}
 				if isRelevantIssue(issue, r.agentLogin) || mentioned {

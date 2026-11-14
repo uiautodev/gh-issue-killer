@@ -172,6 +172,19 @@ func createDetachedWorktreeAt(ctx context.Context, local *LocalRepo, suffix, ref
 	return dir, err
 }
 
+// createWorktreeFromRef creates a real branch at ref inside the repo's worktree
+// root, for edits that will be pushed back to a pull request.
+func createWorktreeFromRef(ctx context.Context, local *LocalRepo, branch, ref string) (string, error) {
+	dir := filepath.Join(local.WorktreeRoot, branch)
+	if err := os.MkdirAll(local.WorktreeRoot, 0o755); err != nil {
+		return "", err
+	}
+	if _, err := gitRun(ctx, local, 2*time.Minute, false, "worktree", "add", "-b", branch, dir, ref); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
 func removeWorktree(ctx context.Context, local *LocalRepo, dir string, force bool) {
 	args := []string{"worktree", "remove"}
 	if force {
@@ -287,13 +300,19 @@ func changedFiles(ctx context.Context, dir string, local *LocalRepo) []string {
 }
 
 func pushBranch(ctx context.Context, dir string, local *LocalRepo, branch string) error {
+	return pushBranchTo(ctx, dir, local.HTTPSURL, local.Env, branch)
+}
+
+// pushBranchTo pushes to an explicit remote, which may be another repository
+// (a pull request head that lives in a fork the author opened for maintainers).
+func pushBranchTo(ctx context.Context, dir, remoteURL string, env []string, branch string) error {
 	git, err := gitBinary()
 	if err != nil {
 		return err
 	}
-	_, err = runCmd(ctx, git, []string{"push", local.HTTPSURL, branch + ":" + branch}, CmdOptions{
+	_, err = runCmd(ctx, git, []string{"push", remoteURL, branch + ":" + branch}, CmdOptions{
 		Cwd:     dir,
-		Env:     local.Env,
+		Env:     env,
 		Timeout: 10 * time.Minute,
 	})
 	return err

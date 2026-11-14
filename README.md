@@ -136,6 +136,7 @@ Open an issue that mentions the bot (or assign it to the bot). Then:
 | `@agent lgtm`, `@agent continue`, `@agent 继续` | approve the plan (or retry after blocked) |
 | `@agent 合并`, `@agent merge`, `@agent ship` | squash merge the PR, close issue + PR, clean the worktree |
 | `@agent review`, `@agent cr` (on a pull request) | review that PR's diff and post a summary plus inline findings |
+| `@agent <instruction>` (on a pull request) | change that PR: the agent edits the branch, runs the checks and pushes to the PR head |
 | `@agent cancel`, `@agent stop`, `@agent 停止` | abort the current task |
 | 👍 on the plan comment | same as `@agent lgtm` |
 | 👍 on the PR-announcement comment | same as `@agent 合并` |
@@ -160,6 +161,11 @@ comments or issues.
 this daemon opened: it checks out the PR head read-only, reviews the diff, and
 posts a GitHub review with a summary and up to 10 inline comments. It never
 pushes to the PR branch.
+
+Mention the agent with an instruction on a pull request and it edits that PR
+instead: same-repository branches are pushed directly, and forked PRs only when
+the author allowed edits by maintainers. Without that permission the daemon
+replies on the PR instead of failing.
 
 ## Configuration
 
