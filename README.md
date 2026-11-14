@@ -48,7 +48,9 @@ flowchart LR
   before/after screenshots, tightly cropped and split by a visible divider.
 - **PR and merge.** The daemon opens the PR, annotates it with checks and
   screenshots, waits for CI, and squash-merges on command — then closes the
-  issue and cleans the worktree.
+  issue and cleans the worktree. A red or abandoned check (for example a job
+  queued on a retired runner) fails the gate immediately and is reported by
+  name, with checks that already fail on the base branch marked as such.
 - **Feedback loop.** A non-command comment that mentions the agent, an inline
   review comment, or a review body on an open PR is treated as review feedback:
   the agent keeps working on the same branch. Closing an issue cancels the task

@@ -689,8 +689,38 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 	app.Log.Info("PR opened for %s#%d: %s", app.Repo.FullName, number, pr.HTMLURL)
 }
 
-func waitForChecks(ctx context.Context, app *AppContext, sha string, timeout time.Duration) (bool, string) {
+const (
+	checkPollInterval = 15 * time.Second
+	// checkStuckAfter is how long a check may sit queued without a runner
+	// picking it up before it is treated as a job that will never run, such as
+	// one scheduled on a retired runner label.
+	checkStuckAfter = 5 * time.Minute
+)
+
+type checkProblem struct {
+	name   string
+	detail string
+}
+
+func (p checkProblem) String() string { return p.name + ": " + p.detail }
+
+// waitForChecks gates a merge on GitHub check runs. It fails as soon as a
+// completed check is red or a queued check has clearly lost its runner, so one
+// abandoned job cannot hide a real failure until the timeout. On a protected
+// branch only the required checks gate the merge. Problems that also occur on
+// the base branch are annotated, so broken repository CI is not mistaken for a
+// regression.
+func waitForChecks(ctx context.Context, app *AppContext, sha, baseRef string, timeout time.Duration) (bool, string) {
 	started := time.Now()
+	var required map[string]bool
+	if names, err := app.GH.RequiredChecks(ctx, app.Repo.FullName, baseRef); err != nil {
+		app.Log.Warn("required checks for %s: %v", firstNonEmpty(baseRef, "base"), err)
+	} else if len(names) > 0 {
+		required = make(map[string]bool, len(names))
+		for _, name := range names {
+			required[name] = true
+		}
+	}
 	for {
 		runs, err := app.GH.ListCheckRuns(ctx, app.Repo.FullName, sha)
 		if err != nil {
@@ -699,11 +729,20 @@ func waitForChecks(ctx context.Context, app *AppContext, sha string, timeout tim
 		if runs.TotalCount == 0 || len(runs.CheckRuns) == 0 {
 			return true, "no CI configured"
 		}
-		pending := 0
-		failed := make([]string, 0)
+		problems := make([]checkProblem, 0)
+		pending := make([]string, 0)
+		counted := 0
 		for _, run := range runs.CheckRuns {
+			if !checkRunGates(run.Name, required) {
+				continue
+			}
+			counted++
 			if run.Status != "completed" {
-				pending++
+				if checkRunStuck(run, time.Now()) {
+					problems = append(problems, checkProblem{run.Name, "queued with no runner (check the workflow's runner label)"})
+					continue
+				}
+				pending = append(pending, run.Name)
 				continue
 			}
 			conclusion := ""
@@ -713,25 +752,83 @@ func waitForChecks(ctx context.Context, app *AppContext, sha string, timeout tim
 			switch conclusion {
 			case "success", "neutral", "skipped":
 			default:
-				failed = append(failed, run.Name+": "+conclusion)
+				problems = append(problems, checkProblem{run.Name, conclusion})
 			}
 		}
-		if pending == 0 {
-			if len(failed) > 0 {
-				return false, strings.Join(failed, ", ")
-			}
-			return true, fmt.Sprintf("%d checks passed", len(runs.CheckRuns))
+		if len(problems) > 0 {
+			return false, describeCheckProblems(ctx, app, baseRef, problems)
+		}
+		if len(pending) == 0 {
+			return true, fmt.Sprintf("%d checks passed", counted)
 		}
 		if time.Since(started) > timeout {
-			return false, fmt.Sprintf("checks still pending after %d min", int(timeout.Minutes()))
+			return false, fmt.Sprintf("still running after %d min: %s", int(timeout.Minutes()), strings.Join(pending, ", "))
 		}
-		app.Log.Info("waiting for %d checks...", pending)
+		app.Log.Info("waiting for %d checks...", len(pending))
 		select {
 		case <-ctx.Done():
 			return false, "cancelled"
-		case <-time.After(15 * time.Second):
+		case <-time.After(checkPollInterval):
 		}
 	}
+}
+
+// checkRunGates reports whether a check run should block the merge. An empty
+// required set means the branch has no protection, so every check gates.
+func checkRunGates(name string, required map[string]bool) bool {
+	if len(required) == 0 {
+		return true
+	}
+	return required[name]
+}
+
+func checkRunStuck(run CheckRun, now time.Time) bool {
+	if run.Status == "completed" || run.Status == "in_progress" || run.StartedAt != nil || run.CreatedAt.IsZero() {
+		return false
+	}
+	return now.Sub(run.CreatedAt) > checkStuckAfter
+}
+
+// describeCheckProblems renders failures and points out the ones the base
+// branch already has, so a red repository-wide CI is visible at a glance.
+func describeCheckProblems(ctx context.Context, app *AppContext, baseRef string, problems []checkProblem) string {
+	broken := baseCheckProblems(ctx, app, baseRef)
+	parts := make([]string, 0, len(problems))
+	for _, problem := range problems {
+		text := problem.String()
+		if broken[problem.name] {
+			text += fmt.Sprintf(" (also failing on %s)", baseRef)
+		}
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func baseCheckProblems(ctx context.Context, app *AppContext, ref string) map[string]bool {
+	if ref == "" {
+		return nil
+	}
+	runs, err := app.GH.ListCheckRuns(ctx, app.Repo.FullName, ref)
+	if err != nil {
+		return nil
+	}
+	broken := make(map[string]bool, len(runs.CheckRuns))
+	for _, run := range runs.CheckRuns {
+		if run.Status != "completed" {
+			broken[run.Name] = true
+			continue
+		}
+		conclusion := ""
+		if run.Conclusion != nil {
+			conclusion = *run.Conclusion
+		}
+		switch conclusion {
+		case "success", "neutral", "skipped":
+		default:
+			broken[run.Name] = true
+		}
+	}
+	return broken
 }
 
 func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
@@ -755,7 +852,7 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 	}
 
 	if pr.Head.SHA != "" {
-		ok, note := waitForChecks(ctx, app, pr.Head.SHA, 10*time.Minute)
+		ok, note := waitForChecks(ctx, app, pr.Head.SHA, pr.Base.Ref, 10*time.Minute)
 		if !ok {
 			app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 				state.Phase = "blocked"
@@ -763,7 +860,7 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 			})
 			app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
 			_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
-				fmt.Sprintf("### 🤖 暂不合并\n\nCI 未通过或仍在等待：%s\n\n解决后回复 **合并** 重试。", note))
+				fmt.Sprintf("### 🤖 暂不合并\n\nCI 未通过或仍在等待：\n\n- %s\n\n修好 CI 后回复 **合并** 重试（会重新检查）。", note))
 			return
 		}
 		app.Log.Info("merge gate: %s", note)

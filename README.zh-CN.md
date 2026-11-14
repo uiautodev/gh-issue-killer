@@ -43,7 +43,8 @@ flowchart LR
   执行，失败自动让 agent 修 `maxFixRounds` 轮，全过才推送。UI 改动会附前后
   对比截图，裁到改动区域，中间有分隔线。
 - **PR 与合并。** 自动开 PR，附上检查和截图，等 CI，收到命令后 squash merge，
-  然后关 issue、清理 worktree。
+  然后关 issue、清理 worktree。检查一旦变红或卡死（比如 runner 标签下线导致
+  一直排队）就立即判定失败并按名字报告，主干上同样红的检查会被标注出来。
 - **反馈闭环。** 在已开的 PR 上 @ agent 提非命令类评论、留行内 review 评论或
   review 正文，都会被当作评审意见，在同一个分支继续改。关闭 issue 等于取消并
   关 PR；重新打开会恢复。

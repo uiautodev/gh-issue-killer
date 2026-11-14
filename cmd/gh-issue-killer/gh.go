@@ -129,13 +129,17 @@ type PullRequest struct {
 	} `json:"head"`
 	Base struct {
 		Ref string `json:"ref"`
+		SHA string `json:"sha"`
 	} `json:"base"`
 }
 
 type CheckRun struct {
-	Name       string  `json:"name"`
-	Status     string  `json:"status"`
-	Conclusion *string `json:"conclusion"`
+	Name       string     `json:"name"`
+	Status     string     `json:"status"`
+	Conclusion *string    `json:"conclusion"`
+	DetailsURL string     `json:"details_url"`
+	CreatedAt  time.Time  `json:"created_at"`
+	StartedAt  *time.Time `json:"started_at"`
 }
 
 type CheckRuns struct {
@@ -576,6 +580,35 @@ func (g *GH) ListCheckRuns(ctx context.Context, fullName, sha string) (CheckRuns
 	var runs CheckRuns
 	err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/commits/%s/check-runs?per_page=100", fullName, sha), nil, &runs)
 	return runs, err
+}
+
+// RequiredChecks returns the status check names a protected branch requires
+// before merging. A nil slice means the branch has no required checks (or no
+// protection at all, which the API reports as 404), so every check run is
+// treated as a gate.
+func (g *GH) RequiredChecks(ctx context.Context, fullName, branch string) ([]string, error) {
+	if branch == "" {
+		return nil, nil
+	}
+	var payload struct {
+		Contexts []string `json:"contexts"`
+		Checks   []struct {
+			Context string `json:"context"`
+		} `json:"checks"`
+	}
+	path := fmt.Sprintf("/repos/%s/branches/%s/protection/required_status_checks", fullName, url.PathEscape(branch))
+	if err := g.do(ctx, http.MethodGet, path, nil, &payload); err != nil {
+		if isStatus(err, http.StatusNotFound) || isStatus(err, http.StatusForbidden) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	names := make([]string, 0, len(payload.Contexts)+len(payload.Checks))
+	names = append(names, payload.Contexts...)
+	for _, check := range payload.Checks {
+		names = append(names, check.Context)
+	}
+	return names, nil
 }
 
 func (g *GH) ListHooks(ctx context.Context, fullName string) ([]Hook, error) {
