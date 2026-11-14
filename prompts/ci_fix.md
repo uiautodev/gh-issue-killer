@@ -45,4 +45,5 @@ do not need to change anything; the harness approves it.
 - Run the checks and update `{{RUN_DIR}}/checks.json` if the commands changed.
 - Do not commit logs, build artifacts or screenshots.
 - Finish by writing `{{RUN_DIR}}/result.json` with the same schema as before,
-  and make the `summary` say whether you fixed the workflow or the code.
+  and make the `summary` say whether you fixed the workflow or the code, written
+  in {{LANGUAGE}}.

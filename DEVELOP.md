@@ -346,8 +346,10 @@ Parsed in `config.go`, documented in DEPLOY.md §4.1. Defaults that matter to
 the code: `pollIntervalSec` 30, `webhook` true, `maxFixRounds` 3 (local checks
 **and** CI repair rounds), `planParallel` 5, `implementParallel` 1,
 `planTimeoutMin` 15, `implementTimeoutMin` 60, `webPort` 0 (off), `selfUpdate`
-false, `worktreeRoot` = state dir. `repos` also accepts an object for per-repo
-`codingAgent`/`model`/`approvers`/`worktreeRoot`.
+false, `worktreeRoot` = state dir, `replyLanguage` `auto` (the coding agent
+writes in the issue's or PR's language; a language tag forces one and is passed
+to the prompts as `{{LANGUAGE}}`). `repos` also accepts an object for per-repo
+`codingAgent`/`model`/`approvers`/`worktreeRoot`/`replyLanguage`.
 
 A valid `config.json` save triggers a graceful re-exec: jobs finish, state is
 saved, `syscall.Exec` replaces the process (same pid).

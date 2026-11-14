@@ -50,6 +50,7 @@ Write `{{RUN_DIR}}/review.json` (valid JSON, no markdown fence):
 - `verdict` is one of `approve`, `comment`, `request_changes`.
 - At most 10 `comments`. `line` must be a line that exists in the file at the PR
   head; omit the entry if you cannot pin an exact line.
-- Keep each inline body to a short paragraph.
+- Keep each inline body to a short paragraph. Write `summary` and every
+`body` in {{LANGUAGE}}; keep code, identifiers and paths unchanged.
 
 Finish with a one-line summary of your verdict; the harness posts the review.

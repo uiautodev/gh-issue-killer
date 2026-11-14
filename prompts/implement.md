@@ -67,6 +67,10 @@ Include install steps (e.g. `npm install`) as their own first check when node_mo
 }
 ```
 
+Write `summary`, `changes`, `tests` and `prBody` in {{LANGUAGE}}; keep `prTitle` a
+conventional-commit English title and leave code, identifiers and file paths
+unchanged.
+
 Screenshots — ONLY when this change is user-visible in the UI. These rules override any screenshot notes in the plan:
 - Backend-only, docs, tests, build, refactor, config changes: set `"uiChanged": false` and use an empty `screenshots` array. Do NOT capture full-page screenshots "just in case".
 - For a user-visible UI change, capture ONLY the changed component/region, tightly cropped. Use Playwright's `locator.screenshot()` on the affected element, never a full-page `page.screenshot()`.

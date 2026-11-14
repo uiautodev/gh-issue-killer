@@ -31,13 +31,14 @@ func supportedCodingAgentList() string {
 }
 
 type RepoConfig struct {
-	FullName     string
-	Owner        string
-	Name         string
-	CodingAgent  string
-	Model        string
-	Approvers    []string
-	WorktreeRoot string
+	FullName      string
+	Owner         string
+	Name          string
+	CodingAgent   string
+	Model         string
+	Approvers     []string
+	WorktreeRoot  string
+	ReplyLanguage string
 }
 
 type Config struct {
@@ -58,14 +59,16 @@ type Config struct {
 	Model                 string
 	Approvers             []string
 	DeprecatedAgent       string
+	ReplyLanguage         string
 }
 
 type repoOptions struct {
-	Repo         string   `json:"repo"`
-	CodingAgent  string   `json:"codingAgent"`
-	Model        string   `json:"model"`
-	Approvers    []string `json:"approvers"`
-	WorktreeRoot string   `json:"worktreeRoot"`
+	Repo          string   `json:"repo"`
+	CodingAgent   string   `json:"codingAgent"`
+	Model         string   `json:"model"`
+	Approvers     []string `json:"approvers"`
+	WorktreeRoot  string   `json:"worktreeRoot"`
+	ReplyLanguage string   `json:"replyLanguage"`
 }
 
 type rawConfig struct {
@@ -89,6 +92,9 @@ type rawConfig struct {
 	// Agent is the old opencode sub-agent field. It is kept only so the daemon
 	// can warn about it once; the value is otherwise ignored.
 	Agent string `json:"agent"`
+	// ReplyLanguage is the language the coding agent writes in. Empty or "auto"
+	// follows the language of the issue or pull request.
+	ReplyLanguage string `json:"replyLanguage"`
 }
 
 func defaultConfigPath() string {
@@ -161,13 +167,14 @@ func normalizeRepos(raw json.RawMessage, defaults repoOptions) ([]RepoConfig, er
 			approvers = []string{parts[0]}
 		}
 		repos = append(repos, RepoConfig{
-			FullName:     fullName,
-			Owner:        parts[0],
-			Name:         parts[1],
-			CodingAgent:  agent,
-			Model:        model,
-			Approvers:    approvers,
-			WorktreeRoot: firstNonEmpty(expandHome(entry.WorktreeRoot), defaults.WorktreeRoot),
+			FullName:      fullName,
+			Owner:         parts[0],
+			Name:          parts[1],
+			CodingAgent:   agent,
+			Model:         model,
+			Approvers:     approvers,
+			WorktreeRoot:  firstNonEmpty(expandHome(entry.WorktreeRoot), defaults.WorktreeRoot),
+			ReplyLanguage: firstNonEmpty(entry.ReplyLanguage, defaults.ReplyLanguage, "auto"),
 		})
 	}
 	return repos, nil
@@ -236,6 +243,7 @@ func loadConfig(file string) (*Config, error) {
 		Model:             strings.TrimSpace(raw.Model),
 		Approvers:         raw.Approvers,
 		DeprecatedAgent:   strings.TrimSpace(raw.Agent),
+		ReplyLanguage:     firstNonEmpty(raw.ReplyLanguage, "auto"),
 	}
 	if raw.Webhook != nil {
 		cfg.Webhook = *raw.Webhook
@@ -267,10 +275,11 @@ func loadConfig(file string) (*Config, error) {
 	}
 
 	repos, err := normalizeRepos(raw.Repos, repoOptions{
-		CodingAgent:  cfg.CodingAgent,
-		Model:        cfg.Model,
-		Approvers:    cfg.Approvers,
-		WorktreeRoot: expandHome(raw.WorktreeRoot),
+		CodingAgent:   cfg.CodingAgent,
+		Model:         cfg.Model,
+		Approvers:     cfg.Approvers,
+		WorktreeRoot:  expandHome(raw.WorktreeRoot),
+		ReplyLanguage: cfg.ReplyLanguage,
 	})
 	if err != nil {
 		return nil, err

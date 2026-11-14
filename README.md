@@ -183,7 +183,9 @@ replies on the PR instead of failing.
 
 `codingAgent` is `opencode`, `claude` or `codex`. `approvers` are human logins
 allowed to command the bot. `proxy` accepts `socks5h://`, `socks5://`,
-`http://` or `https://` and applies to both the API and git.
+`http://` or `https://` and applies to both the API and git. `replyLanguage`
+defaults to `auto` (write in the issue's or PR's language); set it to `en`,
+`zh-CN`, `ja`, … to force one.
 
 The full key reference, per-repo overrides and the coding-agent invocation
 details live in [DEPLOY.md](DEPLOY.md#41-configuration-reference).

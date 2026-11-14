@@ -29,5 +29,5 @@ Conflicted files:
 - Do not revert unrelated files and do not reformat code you did not need to
   touch; the goal is a mergeable, still-correct branch.
 - Do not drop the pull request's feature to make the conflict disappear.
-- When done, write `{{RUN_DIR}}/result.json` with a summary that lists the files
-  you resolved and which side won in each.
+- When done, write `{{RUN_DIR}}/result.json` with a summary in {{LANGUAGE}} that
+  lists the files you resolved and which side won in each.

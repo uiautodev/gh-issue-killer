@@ -143,6 +143,20 @@ func issueMeta(issue Issue) *IssueMeta {
 	}
 }
 
+// replyLanguage is the language the coding agent writes in. The default,
+// "auto", keeps the issue's or pull request's own language, which the agent can
+// read from the prompt.
+func replyLanguage(app *AppContext) string {
+	lang := strings.TrimSpace(app.Repo.ReplyLanguage)
+	if lang == "" && app.Cfg != nil {
+		lang = strings.TrimSpace(app.Cfg.ReplyLanguage)
+	}
+	if lang == "" || strings.EqualFold(lang, "auto") {
+		return "the same language as the issue or pull request"
+	}
+	return lang
+}
+
 func runDirFor(ctx *AppContext, issueNumber int) string {
 	dir := filepath.Join(runsDir(), fmt.Sprintf("%s-%s", ctx.Repo.Owner, ctx.Repo.Name), fmt.Sprintf("issue-%d", issueNumber))
 	_ = os.MkdirAll(dir, 0o755)
@@ -196,6 +210,7 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 		"TITLE":    issue.Title,
 		"BODY":     firstNonEmpty(issue.Body, "(no description)"),
 		"COMMENTS": commentsBlock(comments),
+		"LANGUAGE": replyLanguage(app),
 	})
 	if err != nil {
 		blockIssue(ctx, app, number, err)
@@ -389,6 +404,7 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		"PLAN":     firstNonEmpty(st.Plan, "(missing plan)"),
 		"PR":       fmt.Sprintf("#%d %s", st.PRNumber, st.PRURL),
 		"FEEDBACK": firstNonEmpty(strings.TrimSpace(trigger.CommentBody), "(no text)"),
+		"LANGUAGE": replyLanguage(app),
 	})
 	if err != nil {
 		blockIssue(ctx, app, number, err)
@@ -557,6 +573,7 @@ func doReviewPR(ctx context.Context, app *AppContext, trigger Trigger, pr PullRe
 		"BRANCH":   pr.Head.Ref,
 		"WORKTREE": worktree,
 		"RUN_DIR":  runDir,
+		"LANGUAGE": replyLanguage(app),
 	})
 	if err != nil {
 		postReviewFailure(ctx, app, number, err)
@@ -909,6 +926,7 @@ func doModifyPR(ctx context.Context, app *AppContext, trigger Trigger, pr PullRe
 		"RUN_DIR":      runDir,
 		"SENDER":       firstNonEmpty(trigger.Sender, "maintainer"),
 		"INSTRUCTIONS": instructions,
+		"LANGUAGE":     replyLanguage(app),
 	})
 	if err != nil {
 		postReviewFailure(ctx, app, number, err)
@@ -1016,6 +1034,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		"PLAN":             firstNonEmpty(st.Plan, "(missing plan, implement the issue directly)"),
 		"NOTES":            firstNonEmpty(strings.TrimSpace(st.ExtraNotes), "(none)"),
 		"BUG_INSTRUCTIONS": bugInstructions(issue),
+		"LANGUAGE":         replyLanguage(app),
 	})
 	if err != nil {
 		blockIssue(ctx, app, number, err)
@@ -1616,6 +1635,7 @@ func ciRepairRound(ctx context.Context, app *AppContext, issue Issue, st *IssueS
 		"BASE":     app.Local.Base,
 		"PR":       fmt.Sprintf("#%d %s", st.PRNumber, st.PRURL),
 		"FAILURES": ciFailureReport(ctx, app, verdict),
+		"LANGUAGE": replyLanguage(app),
 	})
 	if err != nil {
 		return "", false, err
@@ -1853,6 +1873,7 @@ func resolveConflicts(ctx context.Context, app *AppContext, issue Issue, st Issu
 			"WORKTREE": worktree,
 			"RUN_DIR":  runDir,
 			"FILES":    "- " + strings.Join(files, "\n- "),
+			"LANGUAGE": replyLanguage(app),
 		})
 		if promptErr != nil {
 			return promptErr

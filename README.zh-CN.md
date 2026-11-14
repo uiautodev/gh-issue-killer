@@ -157,7 +157,8 @@ PR 只有在作者勾选了 allow edits by maintainers 时才推，否则会在 
 
 `codingAgent` 可选 `opencode`、`claude`、`codex`。`approvers` 是允许给 bot
 下指令的人类账号，不要把 bot 自己写进去。`proxy` 支持 `socks5h://`、
-`socks5://`、`http://`、`https://`，同时作用于 API 和 git。
+`socks5://`、`http://`、`https://`，同时作用于 API 和 git。`replyLanguage`
+默认 `auto`（跟随 issue / PR 的语言），也可以设成 `en`、`zh-CN`、`ja` 等强制一种。
 
 完整配置项、按仓库覆盖以及各 agent 的调用方式见
 [DEPLOY.md](DEPLOY.md#41-configuration-reference)。
