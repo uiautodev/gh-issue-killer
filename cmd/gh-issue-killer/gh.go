@@ -509,7 +509,41 @@ func (g *GH) EnsureLabels(ctx context.Context, fullName string) {
 
 // SetAgentState puts exactly one lifecycle label on the issue, or none, and
 // leaves every other label untouched.
+// IssueLabels lists the labels currently on an issue.
+func (g *GH) IssueLabels(ctx context.Context, fullName string, number int) ([]Label, error) {
+	var labels []Label
+	err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/issues/%d/labels", fullName, number), nil, &labels)
+	return labels, err
+}
+
+// SetAgentState enforces exactly one lifecycle label. It reads the current
+// labels first: re-applying a state that is already set must not delete and
+// re-add the label, which GitHub shows as visible churn in the issue timeline.
 func (g *GH) SetAgentState(ctx context.Context, fullName string, number int, label string) {
+	labels, err := g.IssueLabels(ctx, fullName, number)
+	if err != nil {
+		// A read failure must not leave a stale label behind.
+		g.setAgentStateUnconditional(ctx, fullName, number, label)
+		return
+	}
+	present := make(map[string]bool, len(labels))
+	for _, item := range labels {
+		present[item.Name] = true
+	}
+	for _, name := range []string{awaitingLabel, workingLabel} {
+		if name == label || !present[name] {
+			continue
+		}
+		_ = g.do(ctx, http.MethodDelete, fmt.Sprintf("/repos/%s/issues/%d/labels/%s", fullName, number, url.PathEscape(name)), nil, nil)
+	}
+	if label != "" && !present[label] {
+		_ = g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/labels", fullName, number), map[string][]string{"labels": {label}}, nil)
+	}
+}
+
+// setAgentStateUnconditional is the pre-idempotent behaviour, used only when
+// the current labels cannot be read.
+func (g *GH) setAgentStateUnconditional(ctx context.Context, fullName string, number int, label string) {
 	for _, name := range []string{awaitingLabel, workingLabel} {
 		_ = g.do(ctx, http.MethodDelete, fmt.Sprintf("/repos/%s/issues/%d/labels/%s", fullName, number, url.PathEscape(name)), nil, nil)
 	}

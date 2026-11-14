@@ -125,7 +125,11 @@ Markdown prompts; `web` embeds `index.html` and `logo.svg`.
 
 Lifecycle labels (`gh.go`) are exactly two and mutually exclusive:
 `agent:awaiting-approval` when the flow waits for the user, `agent:working`
-while an agent runs. There is no separate blocked label.
+while an agent runs. There is no separate blocked label. `SetAgentState` is
+idempotent: it reads the issue's labels and only deletes the stale lifecycle
+label and adds the wanted one, so re-applying the same state never shows up as
+add → remove → add in the issue timeline. A failed read falls back to the
+unconditional update so a stale label cannot survive a transient error.
 
 ## 6. Events, commands, feedback
 
