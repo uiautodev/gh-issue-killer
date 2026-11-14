@@ -472,7 +472,12 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 	if shotsMD := screenshotsMarkdown(shots); shotsMD != "" {
 		body = append(body, "", "## 截图", "", shotsMD)
 	}
-	body = append(body, "", fmt.Sprintf("确认无误回复 `@%s 合并`，或给这条评论加 👍，我会 squash merge 到主干并关闭本 issue。", app.AgentLogin))
+	ciEnabled := app.GH.HasWorkflows(ctx, app.Repo.FullName)
+	if ciEnabled {
+		body = append(body, "", "CI 正在运行；失败或卡住我会自动修复，通过后再提示合并。")
+	} else {
+		body = append(body, "", mergePrompt(app))
+	}
 	if posted, err := app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join(body, "\n")); err == nil {
 		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 			state.PRCommentID = posted.ID
@@ -481,6 +486,15 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		app.Log.Warn("post revision comment: %v", err)
 	}
 	app.Log.Info("revision pushed for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
+	if ciEnabled {
+		if pr, err := app.GH.GetPR(ctx, app.Repo.FullName, st.PRNumber); err == nil {
+			if ready, rounds := settleCIGate(ctx, app, issue, pr); ready {
+				postMergePrompt(ctx, app, number, rounds)
+			}
+		} else {
+			app.Log.Warn("get PR %d after revision: %v", st.PRNumber, err)
+		}
+	}
 }
 
 func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
@@ -681,13 +695,23 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 	if uiNote != "" {
 		commentParts = append(commentParts, "", "## UI 验证", "", uiNote)
 	}
-	commentParts = append(commentParts, "", fmt.Sprintf("确认无误回复 `@%s 合并`，或给这条评论加 👍，我会 squash merge 到主干并关闭本 issue。", app.AgentLogin))
+	ciEnabled := app.GH.HasWorkflows(ctx, app.Repo.FullName)
+	if ciEnabled {
+		commentParts = append(commentParts, "", "CI 正在运行；失败或卡住我会自动修复，通过后再提示合并。")
+	} else {
+		commentParts = append(commentParts, "", mergePrompt(app))
+	}
 	if posted, err := app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join(commentParts, "\n")); err == nil {
 		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 			state.PRCommentID = posted.ID
 		})
 	}
 	app.Log.Info("PR opened for %s#%d: %s", app.Repo.FullName, number, pr.HTMLURL)
+	if ciEnabled {
+		if ready, rounds := settleCIGate(ctx, app, issue, pr); ready {
+			postMergePrompt(ctx, app, number, rounds)
+		}
+	}
 }
 
 const (
@@ -901,6 +925,69 @@ func baseCheckProblems(ctx context.Context, app *AppContext, ref string) map[str
 		}
 	}
 	return broken
+}
+
+// settleCIGate repairs a red or stuck CI right after a push, so a pull request
+// never sits there waiting for a human merge command. It returns whether the PR
+// is ready to merge and how many repair rounds ran.
+func settleCIGate(ctx context.Context, app *AppContext, issue Issue, pr PullRequest) (bool, int) {
+	number := issue.Number
+	if !app.GH.HasWorkflows(ctx, app.Repo.FullName) {
+		app.Log.Debug("no workflows on %s; skipping CI settle for #%d", app.Repo.FullName, number)
+		return true, 0
+	}
+	app.Log.Info("post-push CI gate for %s#%d", app.Repo.FullName, number)
+	waitForFreshCheckRuns(ctx, app, pr.Head.SHA, time.Minute)
+	st := app.Store.Issue(app.Repo.FullName, number)
+	verdict, rounds, err := ciGateWithRepairs(ctx, app, issue, st, pr)
+	if err != nil {
+		blockIssue(ctx, app, number, err)
+		return false, rounds
+	}
+	if verdict.OK {
+		return true, rounds
+	}
+	reason := verdict.Note
+	if rounds > 0 {
+		reason = fmt.Sprintf("%s（已自动修复 %d 轮）", reason, rounds)
+	}
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Phase = "blocked"
+		state.BlockedReason = reason
+	})
+	app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
+	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
+		"### 🤖 CI 未通过",
+		"",
+		"- " + reason,
+		"",
+		fmt.Sprintf("回复 `@%s 合并` 会立刻重试（仍会自动修复），也可以先手动修好再合并。", app.AgentLogin),
+	}, "\n"))
+	return false, rounds
+}
+
+// mergePrompt is the sentence that invites the approver to merge.
+func mergePrompt(app *AppContext) string {
+	return fmt.Sprintf("确认无误回复 `@%s 合并`，或给这条评论加 👍，我会 squash merge 到主干并关闭本 issue。", app.AgentLogin)
+}
+
+// postMergePrompt publishes the merge invitation after the CI gate settled, so
+// the thumbs-up target is always the newest message.
+func postMergePrompt(ctx context.Context, app *AppContext, number, rounds int) {
+	heading := "### 🤖 可以合并了"
+	note := ""
+	if rounds > 0 {
+		heading = "### 🤖 CI 已自动修复"
+		note = fmt.Sprintf("\n\n自动修复 %d 轮后检查全部通过。", rounds)
+	}
+	body := heading + note + "\n\n" + mergePrompt(app)
+	if posted, err := app.GH.PostComment(ctx, app.Repo.FullName, number, body); err == nil {
+		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+			state.PRCommentID = posted.ID
+		})
+	} else {
+		app.Log.Warn("post merge prompt for %s#%d: %v", app.Repo.FullName, number, err)
+	}
 }
 
 // ciGateWithRepairs waits for the pull request checks and, instead of parking

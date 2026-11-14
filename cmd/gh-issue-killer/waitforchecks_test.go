@@ -174,6 +174,26 @@ func TestWaitForChecksWithoutCheckRunsSkipsGate(t *testing.T) {
 	}
 }
 
+func TestHasWorkflows(t *testing.T) {
+	withWorkflows, _ := newFakeAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/app/actions/workflows" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]int{"total_count": 2})
+	})
+	if !withWorkflows.HasWorkflows(context.Background(), "acme/app") {
+		t.Fatal("HasWorkflows = false, want true")
+	}
+
+	withoutWorkflows, _ := newFakeAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]int{"total_count": 0})
+	})
+	if withoutWorkflows.HasWorkflows(context.Background(), "acme/app") {
+		t.Fatal("HasWorkflows = true, want false")
+	}
+}
+
 func TestParseIDFromURL(t *testing.T) {
 	url := "https://github.com/acme/app/actions/runs/43556544848/job/132330566763"
 	if got := parseIDFromURL(url, "/runs/"); got != 43556544848 {

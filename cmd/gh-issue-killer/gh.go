@@ -582,6 +582,18 @@ func (g *GH) ListCheckRuns(ctx context.Context, fullName, sha string) (CheckRuns
 	return runs, err
 }
 
+// HasWorkflows reports whether the repository has any GitHub Actions workflow,
+// so a repository without CI does not wait for check runs that never appear.
+func (g *GH) HasWorkflows(ctx context.Context, fullName string) bool {
+	var payload struct {
+		TotalCount int `json:"total_count"`
+	}
+	if err := g.do(ctx, http.MethodGet, "/repos/"+fullName+"/actions/workflows", nil, &payload); err != nil {
+		return false
+	}
+	return payload.TotalCount > 0
+}
+
 // JobLogTail returns the last lines of an Actions job log. Queued jobs have no
 // log yet, so an empty string is normal rather than an error.
 func (g *GH) JobLogTail(ctx context.Context, fullName string, jobID int64, lines int) string {
