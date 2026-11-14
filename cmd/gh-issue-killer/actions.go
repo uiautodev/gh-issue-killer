@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -695,22 +696,35 @@ const (
 	// picking it up before it is treated as a job that will never run, such as
 	// one scheduled on a retired runner label.
 	checkStuckAfter = 5 * time.Minute
+	// ciLogProblems is how many failed jobs get their log tail quoted in the
+	// repair prompt.
+	ciLogProblems = 4
 )
 
-type checkProblem struct {
-	name   string
-	detail string
+type ciProblem struct {
+	Name        string
+	Detail      string
+	URL         string
+	JobID       int64
+	RunID       int64
+	Preexisting bool
 }
 
-func (p checkProblem) String() string { return p.name + ": " + p.detail }
+func (p ciProblem) String() string { return p.Name + ": " + p.Detail }
+
+type ciVerdict struct {
+	OK       bool
+	Note     string
+	Problems []ciProblem
+}
 
 // waitForChecks gates a merge on GitHub check runs. It fails as soon as a
 // completed check is red or a queued check has clearly lost its runner, so one
 // abandoned job cannot hide a real failure until the timeout. On a protected
 // branch only the required checks gate the merge. Problems that also occur on
-// the base branch are annotated, so broken repository CI is not mistaken for a
+// the base branch are flagged, so broken repository CI is not mistaken for a
 // regression.
-func waitForChecks(ctx context.Context, app *AppContext, sha, baseRef string, timeout time.Duration) (bool, string) {
+func waitForChecks(ctx context.Context, app *AppContext, sha, baseRef string, timeout time.Duration) ciVerdict {
 	started := time.Now()
 	var required map[string]bool
 	if names, err := app.GH.RequiredChecks(ctx, app.Repo.FullName, baseRef); err != nil {
@@ -724,12 +738,12 @@ func waitForChecks(ctx context.Context, app *AppContext, sha, baseRef string, ti
 	for {
 		runs, err := app.GH.ListCheckRuns(ctx, app.Repo.FullName, sha)
 		if err != nil {
-			return true, "no check-runs access, skipping CI gate"
+			return ciVerdict{OK: true, Note: "no check-runs access, skipping CI gate"}
 		}
 		if runs.TotalCount == 0 || len(runs.CheckRuns) == 0 {
-			return true, "no CI configured"
+			return ciVerdict{OK: true, Note: "no CI configured"}
 		}
-		problems := make([]checkProblem, 0)
+		problems := make([]ciProblem, 0)
 		pending := make([]string, 0)
 		counted := 0
 		for _, run := range runs.CheckRuns {
@@ -739,7 +753,7 @@ func waitForChecks(ctx context.Context, app *AppContext, sha, baseRef string, ti
 			counted++
 			if run.Status != "completed" {
 				if checkRunStuck(run, time.Now()) {
-					problems = append(problems, checkProblem{run.Name, "queued with no runner (check the workflow's runner label)"})
+					problems = append(problems, newCIProblem(run, "queued with no runner (check the workflow's runner label)"))
 					continue
 				}
 				pending = append(pending, run.Name)
@@ -752,25 +766,58 @@ func waitForChecks(ctx context.Context, app *AppContext, sha, baseRef string, ti
 			switch conclusion {
 			case "success", "neutral", "skipped":
 			default:
-				problems = append(problems, checkProblem{run.Name, conclusion})
+				problems = append(problems, newCIProblem(run, conclusion))
 			}
 		}
 		if len(problems) > 0 {
-			return false, describeCheckProblems(ctx, app, baseRef, problems)
+			broken := baseCheckProblems(ctx, app, baseRef)
+			for i := range problems {
+				problems[i].Preexisting = broken[problems[i].Name]
+			}
+			return ciVerdict{OK: false, Note: describeCIProblems(problems, baseRef), Problems: problems}
 		}
 		if len(pending) == 0 {
-			return true, fmt.Sprintf("%d checks passed", counted)
+			return ciVerdict{OK: true, Note: fmt.Sprintf("%d checks passed", counted)}
 		}
 		if time.Since(started) > timeout {
-			return false, fmt.Sprintf("still running after %d min: %s", int(timeout.Minutes()), strings.Join(pending, ", "))
+			return ciVerdict{OK: false, Note: fmt.Sprintf("still running after %d min: %s", int(timeout.Minutes()), strings.Join(pending, ", "))}
 		}
 		app.Log.Info("waiting for %d checks...", len(pending))
 		select {
 		case <-ctx.Done():
-			return false, "cancelled"
+			return ciVerdict{OK: false, Note: "cancelled"}
 		case <-time.After(checkPollInterval):
 		}
 	}
+}
+
+func newCIProblem(run CheckRun, detail string) ciProblem {
+	return ciProblem{
+		Name:   run.Name,
+		Detail: detail,
+		URL:    run.DetailsURL,
+		JobID:  parseIDFromURL(run.DetailsURL, "/job/"),
+		RunID:  parseIDFromURL(run.DetailsURL, "/runs/"),
+	}
+}
+
+// parseIDFromURL pulls the trailing number after marker out of a check-run
+// details URL, e.g. /actions/runs/43556544848/job/132330566763.
+func parseIDFromURL(raw, marker string) int64 {
+	index := strings.Index(raw, marker)
+	if index < 0 {
+		return 0
+	}
+	rest := raw[index+len(marker):]
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	value, err := strconv.ParseInt(rest[:end], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return value
 }
 
 // checkRunGates reports whether a check run should block the merge. An empty
@@ -789,19 +836,44 @@ func checkRunStuck(run CheckRun, now time.Time) bool {
 	return now.Sub(run.CreatedAt) > checkStuckAfter
 }
 
-// describeCheckProblems renders failures and points out the ones the base
-// branch already has, so a red repository-wide CI is visible at a glance.
-func describeCheckProblems(ctx context.Context, app *AppContext, baseRef string, problems []checkProblem) string {
-	broken := baseCheckProblems(ctx, app, baseRef)
+// describeCIProblems renders failures and points out the ones the base branch
+// already has, so a red repository-wide CI is visible at a glance.
+func describeCIProblems(problems []ciProblem, baseRef string) string {
 	parts := make([]string, 0, len(problems))
 	for _, problem := range problems {
 		text := problem.String()
-		if broken[problem.name] {
+		if problem.Preexisting && baseRef != "" {
 			text += fmt.Sprintf(" (also failing on %s)", baseRef)
 		}
 		parts = append(parts, text)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// ciFailureReport is the repair prompt's view of the blocking checks: names,
+// links and the tail of each failed job log, so the agent can tell a code
+// failure from a broken workflow.
+func ciFailureReport(ctx context.Context, app *AppContext, verdict ciVerdict) string {
+	if len(verdict.Problems) == 0 {
+		return verdict.Note
+	}
+	parts := make([]string, 0, len(verdict.Problems))
+	for index, problem := range verdict.Problems {
+		line := fmt.Sprintf("### %s: %s", problem.Name, problem.Detail)
+		if problem.Preexisting {
+			line += fmt.Sprintf(" (also failing on %s)", app.Local.Base)
+		}
+		if problem.URL != "" {
+			line += "\n" + problem.URL
+		}
+		if index < ciLogProblems && problem.JobID != 0 {
+			if tail := app.GH.JobLogTail(ctx, app.Repo.FullName, problem.JobID, 40); strings.TrimSpace(tail) != "" {
+				line += "\n```\n" + tailString(tail, 40) + "\n```"
+			}
+		}
+		parts = append(parts, line)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func baseCheckProblems(ctx context.Context, app *AppContext, ref string) map[string]bool {
@@ -831,6 +903,173 @@ func baseCheckProblems(ctx context.Context, app *AppContext, ref string) map[str
 	return broken
 }
 
+// ciGateWithRepairs waits for the pull request checks and, instead of parking
+// the task, hands a red or stuck CI back to the coding agent: a broken workflow
+// is fixed in the same PR, a real failure gets the code fixed. Workflow runs
+// that wait for maintainer approval are approved automatically. It returns the
+// last verdict and how many agent repair rounds ran.
+func ciGateWithRepairs(ctx context.Context, app *AppContext, issue Issue, st IssueState, pr PullRequest) (ciVerdict, int, error) {
+	number := issue.Number
+	verdict := waitForChecks(ctx, app, pr.Head.SHA, pr.Base.Ref, 10*time.Minute)
+	rounds := 0
+	approved := false
+	for !verdict.OK {
+		if !approved && approveWaitingRuns(ctx, app, issue, verdict) {
+			approved = true
+			verdict = waitForChecks(ctx, app, pr.Head.SHA, pr.Base.Ref, 10*time.Minute)
+			continue
+		}
+		if len(verdict.Problems) == 0 || rounds >= app.Cfg.MaxFixRounds || st.Worktree == "" {
+			// Nothing actionable: the checks are merely slow, the round budget
+			// is spent, or there is no worktree left to edit.
+			break
+		}
+		rounds++
+		app.Log.Warn("ci gate round %d/%d for %s#%d: %s", rounds, app.Cfg.MaxFixRounds, app.Repo.FullName, number, verdict.Note)
+		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
+			fmt.Sprintf("### 🤖 CI 没过，自动修复（第 %d/%d 轮）", rounds, app.Cfg.MaxFixRounds),
+			"",
+			"- " + verdict.Note,
+			"",
+			"不需要你操作：修完会重新检查，通过后继续合并。",
+		}, "\n"))
+		before := pr.Head.SHA
+		sha, err := ciRepairRound(ctx, app, issue, &st, rounds, verdict)
+		if err != nil {
+			return verdict, rounds, err
+		}
+		if sha == "" {
+			app.Log.Warn("ci gate: repair round %d produced no commit", rounds)
+			break
+		}
+		refreshed, err := app.GH.GetPR(ctx, app.Repo.FullName, st.PRNumber)
+		if err != nil {
+			return verdict, rounds, fmt.Errorf("get PR after CI repair: %w", err)
+		}
+		pr = refreshed
+		if pr.Head.SHA == before {
+			app.Log.Warn("ci gate: repair round %d did not move the PR head", rounds)
+			break
+		}
+		waitForFreshCheckRuns(ctx, app, pr.Head.SHA, 3*time.Minute)
+		verdict = waitForChecks(ctx, app, pr.Head.SHA, pr.Base.Ref, 10*time.Minute)
+	}
+	return verdict, rounds, nil
+}
+
+// ciRepairRound runs the coding agent once in the PR's worktree with the
+// blocking checks as input, then commits and pushes the result. It returns the
+// new head SHA, or "" when the agent left the tree untouched.
+func ciRepairRound(ctx context.Context, app *AppContext, issue Issue, st *IssueState, round int, verdict ciVerdict) (string, error) {
+	worktree := st.Worktree
+	if _, err := os.Stat(filepath.Join(worktree, ".git")); err != nil {
+		return "", fmt.Errorf("worktree %s is gone: %w", worktree, err)
+	}
+	runDir := runDirFor(app, issue.Number)
+	_ = os.MkdirAll(filepath.Join(runDir, "screenshots"), 0o755)
+	runner, err := newCodingRunner(app.Repo.CodingAgent)
+	if err != nil {
+		return "", err
+	}
+	prompt, err := renderPrompt("ci_fix", map[string]string{
+		"REPO":     app.Repo.FullName,
+		"WORKTREE": worktree,
+		"RUN_DIR":  runDir,
+		"NUMBER":   itoa(issue.Number),
+		"TITLE":    issue.Title,
+		"BODY":     firstNonEmpty(issue.Body, "(no description)"),
+		"PLAN":     firstNonEmpty(st.Plan, "(missing plan)"),
+		"BRANCH":   st.Branch,
+		"BASE":     app.Local.Base,
+		"PR":       fmt.Sprintf("#%d %s", st.PRNumber, st.PRURL),
+		"FAILURES": ciFailureReport(ctx, app, verdict),
+	})
+	if err != nil {
+		return "", err
+	}
+	app.Log.Info("ci repair start for %s#%d round %d", app.Repo.FullName, issue.Number, round)
+	result, err := runner.Run(ctx, RunnerOptions{
+		Cwd:       worktree,
+		Prompt:    prompt,
+		SessionID: st.SessionID,
+		Model:     app.Repo.Model,
+		RunDir:    runDir,
+		Env:       app.Env,
+		Timeout:   app.Cfg.ImplementTimeout,
+		LogFile:   filepath.Join(runDir, fmt.Sprintf("ci-fix-%d-%s.log", round, app.Repo.CodingAgent)),
+		Log:       app.Log,
+	})
+	if err != nil {
+		return "", fmt.Errorf("ci repair agent: %w", err)
+	}
+	sessionID := firstNonEmpty(result.SessionID, st.SessionID)
+	if sessionID != "" {
+		st.SessionID = sessionID
+		app.Store.UpdateIssue(app.Repo.FullName, issue.Number, func(state *IssueState) {
+			state.SessionID = sessionID
+		})
+	}
+	if issueCancelled(app, issue.Number) {
+		return "", nil
+	}
+	if gitStatus(ctx, worktree, app.Env) == "" {
+		return "", nil
+	}
+	checkResults, ok := runChecksWithFixes(ctx, app, runner, sessionID, worktree, runDir)
+	app.Store.UpdateIssue(app.Repo.FullName, issue.Number, func(state *IssueState) {
+		state.Checks = checkResults
+	})
+	if !ok {
+		return "", fmt.Errorf("local checks still fail after CI repair round %d", round)
+	}
+	if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("fix: make CI green for #%d", issue.Number)); err != nil {
+		return "", fmt.Errorf("commit CI repair: %w", err)
+	}
+	if err := pushBranch(ctx, worktree, app.Local, st.Branch); err != nil {
+		return "", fmt.Errorf("push CI repair: %w", err)
+	}
+	return headSHA(ctx, worktree, app.Env), nil
+}
+
+// approveWaitingRuns starts workflow runs that sit at action_required, which is
+// what a first-time contributor's pull request hits.
+func approveWaitingRuns(ctx context.Context, app *AppContext, issue Issue, verdict ciVerdict) bool {
+	approved := 0
+	for _, problem := range verdict.Problems {
+		if problem.RunID == 0 || problem.Detail != "action_required" {
+			continue
+		}
+		if err := app.GH.ApproveWorkflowRun(ctx, app.Repo.FullName, problem.RunID); err != nil {
+			app.Log.Warn("approve workflow run %d: %v", problem.RunID, err)
+			continue
+		}
+		approved++
+	}
+	if approved == 0 {
+		return false
+	}
+	app.Log.Info("approved %d workflow run(s) on %s#%d", approved, app.Repo.FullName, issue.Number)
+	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, issue.Number,
+		fmt.Sprintf("### 🤖 已自动批准 %d 个等待审批的 workflow run\n\n批准后重新检查 CI。", approved))
+	return true
+}
+
+// waitForFreshCheckRuns gives GitHub a moment to create check runs for a fresh
+// commit, so the gate does not read "not created yet" as "no CI configured".
+func waitForFreshCheckRuns(ctx context.Context, app *AppContext, sha string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if runs, err := app.GH.ListCheckRuns(ctx, app.Repo.FullName, sha); err == nil && len(runs.CheckRuns) > 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
 func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
 	number := issue.Number
 	app.Log.Info("merge start for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
@@ -852,18 +1091,30 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 	}
 
 	if pr.Head.SHA != "" {
-		ok, note := waitForChecks(ctx, app, pr.Head.SHA, pr.Base.Ref, 10*time.Minute)
-		if !ok {
+		verdict, rounds, repairErr := ciGateWithRepairs(ctx, app, issue, st, pr)
+		if repairErr != nil {
+			blockIssue(ctx, app, number, repairErr)
+			return
+		}
+		if !verdict.OK {
+			reason := verdict.Note
+			if rounds > 0 {
+				reason = fmt.Sprintf("%s（已自动修复 %d 轮）", reason, rounds)
+			}
 			app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 				state.Phase = "blocked"
-				state.BlockedReason = note
+				state.BlockedReason = reason
 			})
 			app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
 			_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
-				fmt.Sprintf("### 🤖 暂不合并\n\nCI 未通过或仍在等待：\n\n- %s\n\n修好 CI 后回复 **合并** 重试（会重新检查）。", note))
+				fmt.Sprintf("### 🤖 暂不合并\n\nCI 未通过或仍在等待：\n\n- %s\n\n回复 **合并** 重试（会重新检查）。", reason))
 			return
 		}
-		app.Log.Info("merge gate: %s", note)
+		app.Log.Info("merge gate: %s (repair rounds: %d)", verdict.Note, rounds)
+		if rounds > 0 {
+			_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
+				fmt.Sprintf("### 🤖 CI 已自动修复\n\n自动修复 %d 轮后检查全部通过，继续合并。", rounds))
+		}
 	}
 
 	merged, err := app.GH.MergePR(ctx, app.Repo.FullName, st.PRNumber)

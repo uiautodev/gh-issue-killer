@@ -18,8 +18,10 @@ flowchart LR
     E -- "通过" --> F["Squash merge"]
 ```
 
-检查失败会自动修 `maxFixRounds` 轮；CI 失败时 issue 停在 `blocked`，修好后用
-`@agent 合并` 重试。
+本地检查和 PR 上的 CI 检查都会自动修 `maxFixRounds` 轮。CI 变红或卡死（job 排
+在已下线的 runner 上、镜像里没有对应 Python 版本）不再停下来等人：agent 会在
+同一个 PR 里改 workflow 或改代码，需要维护者审批的 workflow run 会被自动批准；
+只有轮次用完才会把 issue 停在 `blocked`，之后用 `@agent 合并` 还能继续。
 
 任何时候关闭 issue 都会取消任务并关掉 PR；重新打开会接着做。已经合并的
 issue 被重新打开时，会重新规划。
@@ -43,8 +45,9 @@ flowchart LR
   执行，失败自动让 agent 修 `maxFixRounds` 轮，全过才推送。UI 改动会附前后
   对比截图，裁到改动区域，中间有分隔线。
 - **PR 与合并。** 自动开 PR，附上检查和截图，等 CI，收到命令后 squash merge，
-  然后关 issue、清理 worktree。检查一旦变红或卡死（比如 runner 标签下线导致
-  一直排队）就立即判定失败并按名字报告，主干上同样红的检查会被标注出来。
+  然后关 issue、清理 worktree。检查变红或卡死（比如 runner 标签下线导致一直排队）
+  不会停下来等人：agent 会在同一个 PR 里修 workflow 或修代码，等待维护者审批的
+  workflow run 会自动批准；只有修复轮次用完才会停在 `blocked`。
 - **反馈闭环。** 在已开的 PR 上 @ agent 提非命令类评论、留行内 review 评论或
   review 正文，都会被当作评审意见，在同一个分支继续改。关闭 issue 等于取消并
   关 PR；重新打开会恢复。

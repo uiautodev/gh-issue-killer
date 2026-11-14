@@ -4,7 +4,7 @@ package prompts
 
 import "embed"
 
-// FS holds plan.md, implement.md, fix.md and revise.md.
+// FS holds plan.md, implement.md, fix.md, revise.md and ci_fix.md.
 //
 //go:embed *.md
 var FS embed.FS

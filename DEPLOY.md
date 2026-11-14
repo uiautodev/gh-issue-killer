@@ -363,6 +363,11 @@ never a gitconfig; commits use the bot's noreply identity.
 `$STATE/runs/<repo>/issue-<n>/checks.json`; the daemon runs those commands
 itself and only pushes when they all pass. Failing checks are fed back for up
 to `maxFixRounds` rounds, then the worktree is kept and the issue is blocked.
+PR checks are held to the same bar: a red or stuck check (queued on a retired
+runner, missing Python on the image, `action_required`) is handed to the agent
+with the failing job logs, which fixes the workflow or the code in the same
+worktree and pushes again; runs waiting for approval are approved first. Only
+an exhausted budget parks the merge.
 For user-visible UI changes the agent captures the changed region (tight crop)
 before and after; the daemon composes them side by side with a divider and
 uploads the image through GitHub's user-attachments endpoint. Backend, docs and

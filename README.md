@@ -19,8 +19,12 @@ flowchart LR
     E -- "green" --> F["Squash merge"]
 ```
 
-Failing checks get `maxFixRounds` repair rounds. A failing CI parks the issue as
-`blocked`; fix it and retry with `@agent 合并`.
+Failing local checks and failing PR checks both get `maxFixRounds` repair rounds.
+A PR check that is red or stuck (a job queued on a retired runner, a Python
+version the image no longer has) is handed back to the agent, which fixes the
+workflow or the code in the same PR instead of parking the task; only when the
+rounds are exhausted is the issue parked as `blocked`, and retrying with
+`@agent 合并` picks it up again.
 
 Closing the issue at any stage cancels the task and closes the PR; reopening
 resumes it. A merged issue that is reopened starts a fresh plan.
@@ -49,8 +53,10 @@ flowchart LR
 - **PR and merge.** The daemon opens the PR, annotates it with checks and
   screenshots, waits for CI, and squash-merges on command — then closes the
   issue and cleans the worktree. A red or abandoned check (for example a job
-  queued on a retired runner) fails the gate immediately and is reported by
-  name, with checks that already fail on the base branch marked as such.
+  queued on a retired runner) is not a stopping point: it goes back to the
+  agent, which fixes the workflow or the code in the same PR, and workflow runs
+  waiting for maintainer approval are approved automatically. Only an exhausted
+  repair budget parks the issue.
 - **Feedback loop.** A non-command comment that mentions the agent, an inline
   review comment, or a review body on an open PR is treated as review feedback:
   the agent keeps working on the same branch. Closing an issue cancels the task

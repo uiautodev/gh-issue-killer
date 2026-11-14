@@ -582,6 +582,45 @@ func (g *GH) ListCheckRuns(ctx context.Context, fullName, sha string) (CheckRuns
 	return runs, err
 }
 
+// JobLogTail returns the last lines of an Actions job log. Queued jobs have no
+// log yet, so an empty string is normal rather than an error.
+func (g *GH) JobLogTail(ctx context.Context, fullName string, jobID int64, lines int) string {
+	if jobID == 0 {
+		return ""
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/actions/jobs/%d/logs", g.APIBase, fullName, jobID)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return ""
+	}
+	request.Header.Set("Authorization", "Bearer "+g.Token)
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	request.Header.Set("User-Agent", "gh-issue-killer-go/0.1")
+	response, err := g.Client.Do(request)
+	if err != nil {
+		return ""
+	}
+	data, readErr := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024))
+	response.Body.Close()
+	if readErr != nil || response.StatusCode >= 400 {
+		return ""
+	}
+	return tailString(string(data), lines)
+}
+
+// ApproveWorkflowRun starts a workflow run that is waiting for maintainer
+// approval, which is what a first-time contributor's pull request hits.
+func (g *GH) ApproveWorkflowRun(ctx context.Context, fullName string, runID int64) error {
+	return g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/actions/runs/%d/approve", fullName, runID), nil, nil)
+}
+
+// RerunFailedJobs asks GitHub to re-run the failed jobs of a workflow run, for
+// failures that were infrastructure rather than code.
+func (g *GH) RerunFailedJobs(ctx context.Context, fullName string, runID int64) error {
+	return g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/actions/runs/%d/rerun-failed-jobs", fullName, runID), nil, nil)
+}
+
 // RequiredChecks returns the status check names a protected branch requires
 // before merging. A nil slice means the branch has no required checks (or no
 // protection at all, which the API reports as 404), so every check run is
