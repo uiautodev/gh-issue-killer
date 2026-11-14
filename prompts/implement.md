@@ -25,6 +25,8 @@ part of the task:
 {{NOTES}}
 """
 
+{{BUG_INSTRUCTIONS}}
+
 Hard rules:
 - Work only inside the worktree. Never touch other clones, ~/.config, or user data.
 - Follow AGENTS.md in the repo root if present, especially its testing requirements.

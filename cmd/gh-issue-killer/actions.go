@@ -152,6 +152,19 @@ func react(ctx context.Context, app *AppContext, trigger Trigger, content string
 	}
 }
 
+func bugInstructions(issue Issue) string {
+	if !hasLabel(issue, bugLabel) {
+		return ""
+	}
+	return `This issue is labelled "bug" and has no approved plan. Work in this order:
+1. Reproduce the reported bug from the issue and comments. If it cannot be
+   reproduced, do NOT change code: write result.json with
+   {"abort": true, "summary": "<what you tried and what you saw>"} and stop.
+2. If it reproduces, implement the smallest fix and add a regression test that
+   fails before and passes after.
+3. Run the checks; the harness repeats failing checks up to maxFixRounds.`
+}
+
 func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) {
 	number := issue.Number
 	if issueCancelled(app, number) {
@@ -399,6 +412,24 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		state.SessionID = sessionID
 	})
 
+	if early := loadManifest(runDir); early.Abort {
+		summary := firstNonEmpty(strings.TrimSpace(early.Summary), "could not reproduce the reported bug")
+		app.Log.Info("implementation aborted for %s#%d: %s", app.Repo.FullName, number, summary)
+		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+			state.Phase = "blocked"
+			state.BlockedReason = "bug not reproduced: " + summary
+		})
+		app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
+		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
+			"### 🤖 没有复现这个 bug",
+			"",
+			summary,
+			"",
+			fmt.Sprintf("确认后可以回复 `@%s ok <补充信息>` 或 `@%s continue` 继续。", app.AgentLogin, app.AgentLogin),
+		}, "\n"))
+		return
+	}
+
 	checkResults, ok := runChecksWithFixes(ctx, app, runner, sessionID, worktree, runDir)
 	if !ok {
 		reportCheckFailures(ctx, app, number, worktree, checkResults)
@@ -488,16 +519,17 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		return
 	}
 	prompt, err := renderPrompt("implement", map[string]string{
-		"REPO":     app.Repo.FullName,
-		"WORKTREE": worktree,
-		"BASE":     app.Local.Base,
-		"RUN_DIR":  runDir,
-		"NUMBER":   itoa(number),
-		"TITLE":    issue.Title,
-		"BODY":     firstNonEmpty(issue.Body, "(no description)"),
-		"COMMENTS": commentsBlock(comments),
-		"PLAN":     firstNonEmpty(st.Plan, "(missing plan, implement the issue directly)"),
-		"NOTES":    firstNonEmpty(strings.TrimSpace(st.ExtraNotes), "(none)"),
+		"REPO":             app.Repo.FullName,
+		"WORKTREE":         worktree,
+		"BASE":             app.Local.Base,
+		"RUN_DIR":          runDir,
+		"NUMBER":           itoa(number),
+		"TITLE":            issue.Title,
+		"BODY":             firstNonEmpty(issue.Body, "(no description)"),
+		"COMMENTS":         commentsBlock(comments),
+		"PLAN":             firstNonEmpty(st.Plan, "(missing plan, implement the issue directly)"),
+		"NOTES":            firstNonEmpty(strings.TrimSpace(st.ExtraNotes), "(none)"),
+		"BUG_INSTRUCTIONS": bugInstructions(issue),
 	})
 	if err != nil {
 		blockIssue(ctx, app, number, err)
@@ -530,6 +562,24 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.SessionID = sessionID
 	})
+
+	if early := loadManifest(runDir); early.Abort {
+		summary := firstNonEmpty(strings.TrimSpace(early.Summary), "could not reproduce the reported bug")
+		app.Log.Info("implementation aborted for %s#%d: %s", app.Repo.FullName, number, summary)
+		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+			state.Phase = "blocked"
+			state.BlockedReason = "bug not reproduced: " + summary
+		})
+		app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
+		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
+			"### 🤖 没有复现这个 bug",
+			"",
+			summary,
+			"",
+			fmt.Sprintf("确认后可以回复 `@%s ok <补充信息>` 或 `@%s continue` 继续。", app.AgentLogin, app.AgentLogin),
+		}, "\n"))
+		return
+	}
 
 	checkResults, ok := runChecksWithFixes(ctx, app, runner, sessionID, worktree, runDir)
 	if !ok {

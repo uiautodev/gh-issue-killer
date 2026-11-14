@@ -37,6 +37,9 @@ flowchart LR
 - **Plan first.** A mention (or assignment) produces an implementation plan as
   a comment, with an isolated planning worktree; nothing is written until you
   approve.
+- **Bugs skip the plan.** An issue labelled `bug` goes straight to the coding
+  stage: the agent first tries to reproduce it, fixes it with a regression test
+  when it exists, and reports back without a PR when it cannot.
 - **Isolated implementation.** Each issue gets its own git worktree and branch;
   your working clone is never touched. Commits are authored as the bot.
 - **Checks and screenshots.** The coding agent writes the commands that prove

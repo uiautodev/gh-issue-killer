@@ -92,6 +92,17 @@ func isAgentComment(body string) bool {
 		strings.HasPrefix(strings.TrimSpace(body), "### 🤖")
 }
 
+const bugLabel = "bug"
+
+func hasLabel(issue Issue, name string) bool {
+	for _, label := range issue.Labels {
+		if strings.EqualFold(label.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
 func isRelevantIssue(issue Issue, agentLogin string) bool {
 	if issue.PullRequest != nil {
 		return false
@@ -423,6 +434,29 @@ func (r *Router) handlePRFeedback(ctx context.Context, fullName string, prNumber
 	})
 }
 
+// startBugFix hands a bug-labelled issue straight to the work pool: the plan
+// stage is skipped because the bug first has to be reproduced and then fixed.
+func (r *Router) startBugFix(app *AppContext, fullName string, number int, trigger Trigger) {
+	app.Log.Info("issue %s#%d is labelled bug; skipping the plan", fullName, number)
+	key := fmt.Sprintf("%s#%d", fullName, number)
+	r.enqueue(fullName, key+"#bug", stageWork, func(jobCtx context.Context) {
+		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
+		if err != nil {
+			blockIssue(jobCtx, app, number, err)
+			return
+		}
+		if issue.State != "open" {
+			return
+		}
+		current := r.store.Issue(fullName, number)
+		switch current.Phase {
+		case "implementing", "pr_open", "done", "cancelled":
+			return
+		}
+		doImplement(jobCtx, app, trigger, issue, current)
+	})
+}
+
 // requestCancel stops the issue's job (if any) and cleans up once it is gone.
 // Cancel cannot go through the queue: the running job holds the same key and
 // would make the enqueue a duplicate.
@@ -738,6 +772,10 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 					return
 				}
 				if isRelevantIssue(issue, r.agentLogin) || mentioned {
+					if hasLabel(issue, bugLabel) {
+						r.startBugFix(app, fullName, trigger.IssueNumber, trigger)
+						return
+					}
 					doPlan(jobCtx, app, trigger, issue)
 				}
 			})
@@ -849,6 +887,10 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 					state.ProcessedComments = ids
 					state.LastCommentID = last
 				})
+			}
+			if hasLabel(issue, bugLabel) {
+				r.startBugFix(app, fullName, trigger.IssueNumber, trigger)
+				return
 			}
 			doPlan(jobCtx, app, trigger, issue)
 		})
@@ -1101,6 +1143,16 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 			if closablePhase(st.Phase) {
 				r.HandleClosed(ctx, fullName, issue)
 			}
+			continue
+		}
+		// A bug label added to a waiting issue also skips the plan.
+		if st.Phase == "awaiting_approval" && hasLabel(issue, bugLabel) {
+			r.startBugFix(app, fullName, number, Trigger{
+				Type:        "label",
+				IssueNumber: number,
+				Sender:      issue.User.Login,
+				Key:         fmt.Sprintf("bug-%d", issue.UpdatedAt.UnixNano()),
+			})
 			continue
 		}
 		if st.Phase == "" && isRelevantIssue(issue, r.agentLogin) {

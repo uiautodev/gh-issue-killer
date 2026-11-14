@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -432,5 +433,38 @@ func TestApprovalWithNotes(t *testing.T) {
 		if ok != c.ok || notes != c.notes {
 			t.Fatalf("approvalWithNotes(%q) = %v, %q; want %v, %q", c.body, ok, notes, c.ok, c.notes)
 		}
+	}
+}
+
+func TestHasLabel(t *testing.T) {
+	issue := Issue{Labels: []Label{{Name: "Bug"}, {Name: "ui"}}}
+	if !hasLabel(issue, "bug") {
+		t.Fatal("bug label should match case-insensitively")
+	}
+	if hasLabel(issue, "feature") {
+		t.Fatal("unexpected label match")
+	}
+}
+
+func TestBugInstructions(t *testing.T) {
+	if got := bugInstructions(Issue{}); got != "" {
+		t.Fatalf("non-bug issue should have no instructions, got %q", got)
+	}
+	text := bugInstructions(Issue{Labels: []Label{{Name: "bug"}}})
+	for _, want := range []string{"Reproduce", "abort", "regression test"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("bug instructions missing %q", want)
+		}
+	}
+}
+
+func TestLoadManifestAbort(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "result.json"), []byte(`{"abort":true,"summary":"not reproducible"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := loadManifest(dir)
+	if !manifest.Abort || manifest.Summary != "not reproducible" {
+		t.Fatalf("manifest = %+v", manifest)
 	}
 }

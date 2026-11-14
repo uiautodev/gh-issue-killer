@@ -23,6 +23,9 @@ type ResultManifest struct {
 	Screenshots []json.RawMessage `json:"screenshots"`
 	PRTitle     string            `json:"prTitle"`
 	PRBody      string            `json:"prBody"`
+	// Abort tells the harness the issue could not be reproduced; no code was
+	// changed and no PR should be opened.
+	Abort bool `json:"abort,omitempty"`
 }
 
 type ShotEntry struct {
