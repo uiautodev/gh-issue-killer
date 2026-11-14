@@ -468,6 +468,20 @@ func (g *GH) GetReview(ctx context.Context, fullName string, prNumber int, revie
 	return review, err
 }
 
+type PRFile struct {
+	Filename string `json:"filename"`
+	Status   string `json:"status"`
+	Patch    string `json:"patch"`
+}
+
+// ListPRFiles returns the changed files of a pull request, including the diff
+// hunks, which decide where an inline review comment may be attached.
+func (g *GH) ListPRFiles(ctx context.Context, fullName string, number int) ([]PRFile, error) {
+	var files []PRFile
+	err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/files?per_page=100", fullName, number), nil, &files)
+	return files, err
+}
+
 type PRReviewComment struct {
 	Path string `json:"path"`
 	Line int    `json:"line"`

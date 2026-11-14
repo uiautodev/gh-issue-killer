@@ -209,9 +209,10 @@ same CI settle.
 fetches `refs/pull/<n>/head` (works for fork PRs), checks it out in a detached
 worktree, runs the agent with `review.md` and reads `review.json`
 (`verdict`, `summary`, `comments[]`), then posts a GitHub review
-(`POST /pulls/{n}/reviews`) with up to 10 inline comments. If GitHub rejects a
-line that is not in the diff, it retries with the findings listed in the body.
-Nothing is ever pushed and the worktree is removed afterwards.
+(`POST /pulls/{n}/reviews`) with up to 10 inline comments. Findings that point
+at a file or line outside the diff cannot be attached inline (GitHub answers
+422 “Path could not be resolved”), so they are listed in the review body
+instead. Nothing is ever pushed and the worktree is removed afterwards.
 
 **CI settle** (`settleCIGate`, runs on the CI queue) — if the repo has no
 workflows it returns immediately; otherwise it waits briefly for the new check

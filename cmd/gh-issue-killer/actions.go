@@ -579,8 +579,16 @@ func doReviewPR(ctx context.Context, app *AppContext, trigger Trigger, pr PullRe
 
 	review := loadReviewResult(runDir, result.Text)
 	body := renderReviewBody(app, review)
-	if inline := inlineReviewComments(review.Findings); len(inline) > 0 {
-		if _, err := app.GH.CreatePRReview(ctx, app.Repo.FullName, number, pr.Head.SHA, body, "COMMENT", inline); err == nil {
+
+	allowed := map[string]map[int]bool(nil)
+	if files, filesErr := app.GH.ListPRFiles(ctx, app.Repo.FullName, number); filesErr != nil {
+		app.Log.Warn("review %s#%d: list changed files: %v", app.Repo.FullName, number, filesErr)
+	} else {
+		allowed = diffRightLines(files)
+	}
+	inline, rest := inlineReviewComments(review.Findings, allowed)
+	if len(inline) > 0 {
+		if _, err := app.GH.CreatePRReview(ctx, app.Repo.FullName, number, pr.Head.SHA, body+findingsFallback(rest), "COMMENT", inline); err == nil {
 			app.Log.Info("review posted for %s#%d with %d inline comments", app.Repo.FullName, number, len(inline))
 			return
 		} else {
@@ -625,21 +633,68 @@ func renderReviewBody(app *AppContext, review reviewResult) string {
 	}, "\n")
 }
 
-// inlineReviewComments keeps only findings GitHub can attach to a diff line.
-func inlineReviewComments(findings []reviewFinding) []PRReviewComment {
-	out := make([]PRReviewComment, 0, len(findings))
+// diffRightLines maps each changed file to the RIGHT-side line numbers a
+// review comment may target. GitHub rejects a review whose comment points at a
+// file or line that is not part of the diff ("Path could not be resolved"), so
+// callers keep those findings in the review body instead.
+func diffRightLines(files []PRFile) map[string]map[int]bool {
+	allowed := make(map[string]map[int]bool, len(files))
+	for _, file := range files {
+		lines := make(map[int]bool)
+		for _, line := range strings.Split(file.Patch, "\n") {
+			if !strings.HasPrefix(line, "@@") {
+				continue
+			}
+			plus := strings.Index(line, "+")
+			if plus < 0 {
+				continue
+			}
+			rest := line[plus+1:]
+			end := strings.IndexAny(rest, " @")
+			if end < 0 {
+				continue
+			}
+			spec := strings.SplitN(rest[:end], ",", 2)
+			start, err := strconv.Atoi(spec[0])
+			if err != nil {
+				continue
+			}
+			count := 1
+			if len(spec) == 2 {
+				if parsed, parseErr := strconv.Atoi(spec[1]); parseErr == nil {
+					count = parsed
+				}
+			}
+			for i := 0; i < count; i++ {
+				lines[start+i] = true
+			}
+		}
+		allowed[file.Filename] = lines
+	}
+	return allowed
+}
+
+// inlineReviewComments splits findings into those GitHub can attach inline and
+// the rest, which belong in the review body.
+func inlineReviewComments(findings []reviewFinding, allowed map[string]map[int]bool) ([]PRReviewComment, []reviewFinding) {
+	inline := make([]PRReviewComment, 0, len(findings))
+	rest := make([]reviewFinding, 0, len(findings))
 	for _, finding := range findings {
 		path := strings.TrimSpace(finding.Path)
 		body := strings.TrimSpace(finding.Body)
-		if path == "" || body == "" || finding.Line <= 0 {
-			continue
-		}
-		out = append(out, PRReviewComment{Path: path, Line: finding.Line, Side: "RIGHT", Body: body})
-		if len(out) == 10 {
-			break
+		lines, inDiff := allowed[path]
+		switch {
+		case path == "" || body == "":
+			rest = append(rest, finding)
+		case !inDiff || !lines[finding.Line]:
+			rest = append(rest, finding)
+		case len(inline) >= 10:
+			rest = append(rest, finding)
+		default:
+			inline = append(inline, PRReviewComment{Path: path, Line: finding.Line, Side: "RIGHT", Body: body})
 		}
 	}
-	return out
+	return inline, rest
 }
 
 // findingsFallback renders findings in the review body when inline comments

@@ -38,24 +38,54 @@ func TestLoadReviewResult(t *testing.T) {
 	}
 }
 
+func TestDiffRightLines(t *testing.T) {
+	files := []PRFile{{
+		Filename: "adbutils/_adb.py",
+		Patch: "@@ -100,6 +100,14 @@ def close(self):\n context\n+added\n" +
+			"@@ -137,7 +149,11 @@ def read(self):\n context\n" +
+			"@@ -200,2 +210,0 @@ def gone(self):\n-removed\n",
+	}}
+	lines := diffRightLines(files)["adbutils/_adb.py"]
+	for _, want := range []int{100, 113, 149, 159} {
+		if !lines[want] {
+			t.Fatalf("line %d not allowed", want)
+		}
+	}
+	for _, unwanted := range []int{99, 114, 148, 160, 210} {
+		if lines[unwanted] {
+			t.Fatalf("line %d allowed but outside the diff", unwanted)
+		}
+	}
+	if _, ok := diffRightLines(files)["other.py"]; ok {
+		t.Fatal("unchanged file should have no allowed lines")
+	}
+}
+
 func TestInlineReviewComments(t *testing.T) {
 	findings := []reviewFinding{
 		{Path: "a.py", Line: 3, Body: "one"},
 		{Path: "", Line: 4, Body: "no path"},
-		{Path: "b.py", Line: 0, Body: "no line"},
+		{Path: "b.py", Line: 0, Body: "not in the diff"},
 		{Path: "c.py", Line: 9, Body: ""},
 	}
-	got := inlineReviewComments(findings)
-	if len(got) != 1 || got[0].Path != "a.py" || got[0].Side != "RIGHT" {
-		t.Fatalf("comments = %+v", got)
+	allowed := map[string]map[int]bool{"a.py": {3: true}}
+	inline, rest := inlineReviewComments(findings, allowed)
+	if len(inline) != 1 || inline[0].Path != "a.py" || inline[0].Side != "RIGHT" {
+		t.Fatalf("inline = %+v", inline)
+	}
+	if len(rest) != 3 {
+		t.Fatalf("rest = %+v, want the three unusable findings", rest)
 	}
 
 	many := make([]reviewFinding, 0, 15)
+	all := map[string]map[int]bool{"a.py": {}}
 	for i := 0; i < 15; i++ {
 		many = append(many, reviewFinding{Path: "a.py", Line: i + 1, Body: "x"})
+		all["a.py"][i+1] = true
 	}
-	if got := inlineReviewComments(many); len(got) != 10 {
-		t.Fatalf("inline comments = %d, want the 10 cap", len(got))
+	inline, rest = inlineReviewComments(many, all)
+	if len(inline) != 10 || len(rest) != 5 {
+		t.Fatalf("inline = %d, rest = %d, want the 10 cap", len(inline), len(rest))
 	}
 }
 
