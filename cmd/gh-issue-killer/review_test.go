@@ -176,7 +176,7 @@ func TestCreatePRReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := (*calls)[0]
+	got := calls.snapshot()[0]
 	if got.method != http.MethodPost || got.path != "/repos/acme/app/pulls/5/reviews" {
 		t.Fatalf("call = %+v", got)
 	}
