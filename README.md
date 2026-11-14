@@ -62,8 +62,9 @@ flowchart LR
   or `gh` at runtime. It shells out to `git`, one coding-agent CLI, and `/bin/sh`.
 - **Live console.** Set `webPort` and open `http://127.0.0.1:<port>`: per-repo
   queues, active jobs, every task's stage rail, PR links, checks, screenshots
-  and the daemon log in one board. Plans render as markdown, and the board
-  follows the system theme or can be pinned to light/dark.
+  and the daemon log in one board. Plans render as markdown, the board follows
+  the system theme or can be pinned to light/dark, and the detail drawer can
+  approve or cancel the task.
 
 ## Install with a coding agent
 

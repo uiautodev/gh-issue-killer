@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>gh-issue-killer · 调度台</title>
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -82,7 +83,7 @@
   ::selection { background: var(--work); color: var(--ink); }
   a { color: var(--wait); text-decoration: none; }
   a:hover { text-decoration: underline; text-underline-offset: 3px; }
-  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
   :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
   /* ---------- header ---------- */
@@ -94,6 +95,8 @@
     padding: 18px 28px 14px;
   }
   .mast-row { display: flex; align-items: flex-end; gap: 28px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 38px; height: 38px; display: block; border: 1px solid var(--rule); flex: none; }
   .wordmark {
     font-family: var(--sans);
     font-weight: 700;
@@ -289,6 +292,18 @@
   }
   .drawer-head .ref { color: var(--dim); font-size: 10.5px; margin-top: 4px; overflow-wrap: anywhere; }
   .drawer-close { margin-left: auto; color: var(--muted); font-size: 18px; line-height: 1; padding: 2px 6px; }
+  .drawer-actions {
+    border-top: 1px solid var(--rule); padding: 12px 18px; display: flex; gap: 10px; align-items: center;
+    flex-wrap: wrap;
+  }
+  .drawer-actions button { border: 1px solid var(--rule); padding: 6px 14px; color: var(--text); }
+  .drawer-actions button:hover { background: var(--rule-soft); }
+  .drawer-actions button:disabled { opacity: .5; cursor: default; }
+  .drawer-actions button.primary { border-color: var(--work); color: var(--work); }
+  .drawer-actions button.danger { border-color: var(--blocked); color: var(--blocked); }
+  .drawer-actions .result { margin-left: auto; font-size: 10.5px; color: var(--muted); }
+  .drawer-actions .result.ok { color: var(--done); }
+  .drawer-actions .result.fail { color: var(--blocked); }
   .drawer-body { padding: 14px 18px 28px; overflow: auto; }
   .drawer-body h3 {
     font-family: var(--sans); font-weight: 600; font-size: 12px; letter-spacing: .14em;
@@ -366,9 +381,12 @@
 <body>
 <header class="masthead">
   <div class="mast-row">
-    <div>
-      <h1 class="wordmark">gh-issue-killer</h1>
-      <p class="tagline">用评论驱动编码 agent 的 issue 调度台</p>
+    <div class="brand">
+      <img class="logo" src="/logo.svg" alt="" width="38" height="38">
+      <div>
+        <h1 class="wordmark">gh-issue-killer</h1>
+        <p class="tagline">用评论驱动编码 agent 的 issue 调度台</p>
+      </div>
     </div>
     <div class="status-strip">
       <div class="stat"><b id="s-daemon"><span class="lamp live"></span>live</b><small>DAEMON</small></div>
@@ -431,7 +449,7 @@
   </table>
   <div class="empty" id="empty" hidden>
     <strong>还没有任务</strong>
-    在 issue 里 @agent，或者把 issue assign 给它。
+    <span id="empty-hint">在 issue 里 @agent，或者把 issue assign 给它。</span>
   </div>
 </main>
 
@@ -454,6 +472,7 @@
     <button class="drawer-close" id="d-close" aria-label="关闭详情">×</button>
   </div>
   <div class="drawer-body" id="d-body"></div>
+  <div class="drawer-actions" id="d-actions" hidden></div>
 </aside>
 
 <script>
@@ -472,6 +491,21 @@
     el.textContent = value;
     return el;
   };
+
+  const CHIP_LABELS = { all: "全部", active: "正在处理", wait: "等我", blocked: "阻塞" };
+
+  function updateChips(data) {
+    const counts = {
+      all: data.tasks.length,
+      active: data.tasks.filter((t) => t.active || t.queued).length,
+      wait: data.tasks.filter((t) => t.phase === "awaiting_approval").length,
+      blocked: data.tasks.filter((t) => t.phase === "blocked").length,
+    };
+    for (const chip of document.querySelectorAll(".chip")) {
+      const key = chip.dataset.filter;
+      chip.textContent = `${CHIP_LABELS[key] || key} ${counts[key] || 0}`;
+    }
+  }
 
   const PHASES = {
     "new": { label: "待处理", cls: "idle", step: 1 },
@@ -813,14 +847,15 @@
   function renderTasks(data) {
     const body = $("tasks");
     const rows = data.tasks.filter(matches);
-    $("empty").hidden = rows.length !== 0;
     if (rows.length === 0) {
       body.replaceChildren();
-      if (data.tasks.length === 0) {
-        $("empty").hidden = false;
-      }
+      $("empty").hidden = false;
+      const filtered = data.tasks.length !== 0;
+      $("empty").querySelector("strong").textContent = filtered ? "没有匹配的任务" : "还没有任务";
+      $("empty-hint").textContent = filtered ? "换个筛选或清空搜索。" : "在 issue 里 @agent，或者把 issue assign 给它。";
       return;
     }
+    $("empty").hidden = true;
     const frag = document.createDocumentFragment();
     for (const task of rows) {
       const tr = document.createElement("tr");
@@ -1006,8 +1041,66 @@
       body.appendChild(plan);
     }
 
+    renderActions(task, issue);
+
     drawer.classList.add("open");
     drawer.setAttribute("aria-hidden", "false");
+  }
+
+  function renderActions(task, issue) {
+    const holder = $("d-actions");
+    holder.replaceChildren();
+    const phase = issue.phase;
+    const canApprove = phase === "awaiting_approval" || phase === "blocked";
+    const canCancel = ["new", "planning", "awaiting_approval", "blocked", "implementing", "pr_open"].includes(phase);
+    if (!canApprove && !canCancel) {
+      holder.hidden = true;
+      return;
+    }
+    holder.hidden = false;
+    if (canApprove) {
+      const button = document.createElement("button");
+      button.className = "primary";
+      button.textContent = phase === "blocked" ? "继续重试" : "批准并开始";
+      button.addEventListener("click", () => runAction(task, "approve"));
+      holder.appendChild(button);
+    }
+    if (canCancel) {
+      const button = document.createElement("button");
+      button.className = "danger";
+      button.textContent = "取消任务";
+      button.addEventListener("click", () => runAction(task, "cancel"));
+      holder.appendChild(button);
+    }
+    const result = document.createElement("span");
+    result.className = "result";
+    holder.appendChild(result);
+  }
+
+  async function runAction(task, action) {
+    const question = action === "approve" ? "批准计划并开始实现？" : "取消这个任务？进行中的工作会被终止。";
+    if (!window.confirm(question)) return;
+    const holder = $("d-actions");
+    const result = holder.querySelector(".result");
+    for (const button of holder.querySelectorAll("button")) button.disabled = true;
+    result.className = "result";
+    result.textContent = "提交中…";
+    try {
+      const response = await fetch("/api/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: task.repo, number: task.number, action }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "HTTP " + response.status);
+      result.className = "result ok";
+      result.textContent = action === "approve" ? "已批准，开始实现" : "已取消";
+      setTimeout(refreshState, 800);
+    } catch (err) {
+      result.className = "result fail";
+      result.textContent = "失败：" + err.message;
+      for (const button of holder.querySelectorAll("button")) button.disabled = false;
+    }
   }
 
   function renderDrawerError(err) {
@@ -1044,6 +1137,7 @@
       state.data = data;
       renderHeader(data);
       renderLines(data);
+      updateChips(data);
       if (changed) renderTasks(data);
       if (state.selected) {
         const task = data.tasks.find((t) => t.repo === state.selected.repo && t.number === state.selected.number);

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -14,7 +15,7 @@ import (
 	"time"
 )
 
-//go:embed web/index.html
+//go:embed web/index.html web/logo.svg
 var webIndex embed.FS
 
 type webServer struct {
@@ -97,6 +98,8 @@ func startWeb(cfg *Config, router *Router, store *Store, log *Logger, identity, 
 	mux.HandleFunc("/api/state", web.handleState)
 	mux.HandleFunc("/api/issue", web.handleIssue)
 	mux.HandleFunc("/api/logs", web.handleLogs)
+	mux.HandleFunc("/api/action", web.handleAction)
+	mux.HandleFunc("/logo.svg", web.handleLogo)
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", cfg.WebPort))
 	if err != nil {
@@ -124,6 +127,85 @@ func (w *webServer) handleIndex(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 	rw.Header().Set("Cache-Control", "no-store")
 	_, _ = rw.Write(data)
+}
+
+func (w *webServer) handleLogo(rw http.ResponseWriter, req *http.Request) {
+	data, err := webIndex.ReadFile("web/logo.svg")
+	if err != nil {
+		http.NotFound(rw, req)
+		return
+	}
+	rw.Header().Set("Content-Type", "image/svg+xml")
+	rw.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = rw.Write(data)
+}
+
+// handleAction approves or cancels a task. The dashboard binds to loopback
+// only, but browsers can still be tricked into cross-origin POSTs, so require
+// a JSON content type and a loopback Origin.
+func (w *webServer) handleAction(rw http.ResponseWriter, req *http.Request) {
+	writeJSON := func(status int, ok bool, message string) {
+		rw.Header().Set("Content-Type", "application/json; charset=utf-8")
+		rw.Header().Set("Cache-Control", "no-store")
+		rw.WriteHeader(status)
+		payload := map[string]any{"ok": ok}
+		if message != "" {
+			payload["error"] = message
+		}
+		_ = json.NewEncoder(rw).Encode(payload)
+	}
+	if req.Method != http.MethodPost {
+		writeJSON(http.StatusMethodNotAllowed, false, "POST required")
+		return
+	}
+	if !strings.HasPrefix(req.Header.Get("Content-Type"), "application/json") {
+		writeJSON(http.StatusUnsupportedMediaType, false, "application/json required")
+		return
+	}
+	if !w.loopbackOrigin(req) {
+		writeJSON(http.StatusForbidden, false, "forbidden origin")
+		return
+	}
+	var body struct {
+		Repo   string `json:"repo"`
+		Number int    `json:"number"`
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(rw, req.Body, 4096)).Decode(&body); err != nil {
+		writeJSON(http.StatusBadRequest, false, "bad request")
+		return
+	}
+	var err error
+	switch body.Action {
+	case "approve":
+		err = w.router.WebApprove(body.Repo, body.Number)
+	case "cancel":
+		err = w.router.WebCancel(body.Repo, body.Number)
+	default:
+		writeJSON(http.StatusBadRequest, false, "unknown action")
+		return
+	}
+	if err != nil {
+		writeJSON(http.StatusConflict, false, err.Error())
+		return
+	}
+	w.log.Info("web action %s on %s#%d", body.Action, body.Repo, body.Number)
+	writeJSON(http.StatusOK, true, "")
+}
+
+func (w *webServer) loopbackOrigin(req *http.Request) bool {
+	origin := req.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost" {
+		return false
+	}
+	return parsed.Port() == strconv.Itoa(w.cfg.WebPort)
 }
 
 func (w *webServer) handleState(rw http.ResponseWriter, req *http.Request) {

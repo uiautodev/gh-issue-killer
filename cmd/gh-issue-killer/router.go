@@ -391,6 +391,81 @@ func (r *Router) handlePRFeedback(ctx context.Context, fullName string, prNumber
 	})
 }
 
+// requestCancel stops the issue's job (if any) and cleans up once it is gone.
+// Cancel cannot go through the queue: the running job holds the same key and
+// would make the enqueue a duplicate.
+func (r *Router) requestCancel(ctx context.Context, app *AppContext, fullName string, number int, trigger Trigger) {
+	key := fmt.Sprintf("%s#%d", fullName, number)
+	r.log.Info("cancel requested for %s#%d; stopping the active job", fullName, number)
+	app.Store.UpdateIssue(fullName, number, func(state *IssueState) {
+		state.Phase = "cancelled"
+		state.CancelledAt = nowISO()
+		state.IssueClosed = false
+	})
+	app.GH.SetAgentState(ctx, fullName, number, "")
+	r.cancelActive(fullName, number)
+	go func() {
+		jobCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		r.waitInactive(jobCtx, key, 60*time.Second)
+		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
+		if err != nil {
+			app.Log.Warn("cancel %s#%d: %v", fullName, number, err)
+			return
+		}
+		doCancel(jobCtx, app, trigger, issue, r.store.Issue(fullName, number))
+	}()
+}
+
+// WebApprove starts the work for an issue that waits for a human decision.
+func (r *Router) WebApprove(repo string, number int) error {
+	app := r.contexts[repo]
+	if app == nil {
+		return fmt.Errorf("unknown repository %s", repo)
+	}
+	st := r.store.Issue(repo, number)
+	switch st.Phase {
+	case "awaiting_approval":
+		r.enqueueApprove(context.Background(), app, repo, number, "web")
+		return nil
+	case "blocked":
+		key := fmt.Sprintf("%s#%d", repo, number)
+		trigger := Trigger{Type: "web", IssueNumber: number, Sender: "web"}
+		r.enqueue(repo, key, stageWork, func(jobCtx context.Context) {
+			issue, err := app.GH.GetIssue(jobCtx, repo, number)
+			if err != nil {
+				blockIssue(jobCtx, app, number, err)
+				return
+			}
+			if issue.State != "open" {
+				return
+			}
+			current := r.store.Issue(repo, number)
+			if current.Phase != "blocked" {
+				return
+			}
+			doImplement(jobCtx, app, trigger, issue, current)
+		})
+		return nil
+	}
+	return fmt.Errorf("issue #%d is %s, not waiting for an approval", number, firstNonEmpty(st.Phase, "new"))
+}
+
+// WebCancel aborts an issue from the dashboard.
+func (r *Router) WebCancel(repo string, number int) error {
+	app := r.contexts[repo]
+	if app == nil {
+		return fmt.Errorf("unknown repository %s", repo)
+	}
+	st := r.store.Issue(repo, number)
+	switch st.Phase {
+	case "new", "planning", "awaiting_approval", "blocked", "implementing", "pr_open":
+		r.requestCancel(context.Background(), app, repo, number, Trigger{Type: "web", IssueNumber: number, Sender: "web"})
+		return nil
+	}
+	return fmt.Errorf("issue #%d is %s, nothing to cancel", number, firstNonEmpty(st.Phase, "new"))
+}
+
 func (r *Router) enqueueApprove(ctx context.Context, app *AppContext, fullName string, number int, sender string) {
 	key := fmt.Sprintf("%s#%d", fullName, number)
 	// The owner already approved: clear the waiting label now, even if the
@@ -585,29 +660,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		key := fmt.Sprintf("%s#%d", fullName, trigger.IssueNumber)
 
 		if command == "cancel" && (st.Phase == "new" || st.Phase == "planning" || st.Phase == "awaiting_approval" || st.Phase == "blocked" || st.Phase == "implementing" || st.Phase == "pr_open") {
-			// Cancel must work while a job is running, so it cannot go through
-			// the queue (same key = duplicate). Mark the issue cancelled first
-			// so the dying job suppresses its error, then clean up once it is
-			// actually gone.
-			r.log.Info("cancel requested for %s#%d; stopping the active job", fullName, trigger.IssueNumber)
-			app.Store.UpdateIssue(fullName, trigger.IssueNumber, func(state *IssueState) {
-				state.Phase = "cancelled"
-				state.CancelledAt = nowISO()
-				state.IssueClosed = false
-			})
-			app.GH.SetAgentState(ctx, fullName, trigger.IssueNumber, "")
-			r.cancelActive(fullName, trigger.IssueNumber)
-			go func() {
-				jobCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-				defer cancel()
-				r.waitInactive(jobCtx, key, 60*time.Second)
-				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
-				if err != nil {
-					app.Log.Warn("cancel %s#%d: %v", fullName, trigger.IssueNumber, err)
-					return
-				}
-				doCancel(jobCtx, app, trigger, issue, r.store.Issue(fullName, trigger.IssueNumber))
-			}()
+			r.requestCancel(ctx, app, fullName, trigger.IssueNumber, trigger)
 			return
 		}
 

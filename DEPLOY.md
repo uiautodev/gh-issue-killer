@@ -275,7 +275,7 @@ macOS: start it once after login, or add it to login items. Nothing else.
 | task | command |
 | --- | --- |
 | status / paths | `gh-issue-killer -config "$CONFIG" -status` |
-| dashboard | set `webPort` and open `http://127.0.0.1:<port>` (loopback only, no auth) |
+| dashboard | set `webPort` and open `http://127.0.0.1:<port>` (loopback only, no auth; approve/cancel are POST-only with an Origin check) |
 | follow logs | `gh-issue-killer -config "$CONFIG" -logs` |
 | stop | `gh-issue-killer -config "$CONFIG" -stop` |
 | apply a config change | save the file; the daemon reloads in place when jobs finish (same PID) |
