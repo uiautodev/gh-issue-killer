@@ -140,6 +140,7 @@ Open an issue that mentions the bot (or assign it to the bot). Then:
 | `@agent cancel`, `@agent stop`, `@agent 停止` | abort the current task |
 | 👍 on the plan comment | same as `@agent lgtm` |
 | 👍 on the PR-announcement comment | same as `@agent 合并` |
+| 👍 on the bot's “Review 已提交” comment | apply that review's findings to the PR (edit + push) |
 
 Two labels track the flow: `agent:working` while the agent plans, implements or
 merges (nothing for you to do), and `agent:awaiting-approval` only while it is

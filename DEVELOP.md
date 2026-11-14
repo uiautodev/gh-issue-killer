@@ -164,6 +164,11 @@ Other rules:
 - Closing an issue cancels the task and closes the PR; reopening resumes. A
   reopened `done` issue starts from `new`.
 - 👍 on the stored `PRCommentID` merges, but only while phase is `pr_open`.
+- 👎 is ignored; 👍 on the review prompt comment (`ReviewCommentID`) means
+  “apply this review”: the daemon rebuilds the instructions from the review body
+  and its inline comments (`reviewInstructions`) and runs `doModifyPR` on the
+  PR. This exists because GitHub has no reactions API for review bodies, so the
+  daemon posts a small follow-up comment that carries the thumbs-up.
 
 ## 7. Job scheduler (`router.go`)
 
@@ -217,7 +222,10 @@ worktree, runs the agent with `review.md` and reads `review.json`
 (`POST /pulls/{n}/reviews`) with up to 10 inline comments. Findings that point
 at a file or line outside the diff cannot be attached inline (GitHub answers
 422 “Path could not be resolved”), so they are listed in the review body
-instead. Nothing is ever pushed and the worktree is removed afterwards.
+instead. It then posts a “Review 已提交” comment and stores its id plus the
+review id in the PR's `IssueState`, so a 👍 on that comment applies the
+findings through `doModifyPR`. Nothing is ever pushed by the review itself and
+the worktree is removed afterwards.
 
 **Modify PR** (`doModifyPR`) — applies an approver's instruction to a PR the
 daemon does not own. It fetches the PR head into a branch worktree, runs the
@@ -418,6 +426,7 @@ must stay clean; `gofmt -l .` must print nothing.
 | a command keyword, 👍 handling, lifecycle rules | §6 |
 | the PR review command, `review.md`, review posting | §6, §8 and §17 |
 | the PR modify flow, `modify_pr.md`, push-to-head rules | §6, §8 and §17 |
+| thumbs-up semantics (`ReviewCommentID`) | §6 and §8 |
 | queue stages, worker counts, job keys, cancel/wait rules | §7 |
 | a stage’s steps or post conditions | §8 |
 | the CI gate, stuck detection, repair loop, `ci_fix` prompt | §9 |

@@ -90,12 +90,13 @@ type Reaction struct {
 }
 
 type ReviewComment struct {
-	ID        int64     `json:"id"`
-	Body      string    `json:"body"`
-	User      User      `json:"user"`
-	Path      string    `json:"path"`
-	Line      int       `json:"line"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                  int64     `json:"id"`
+	Body                string    `json:"body"`
+	User                User      `json:"user"`
+	Path                string    `json:"path"`
+	Line                int       `json:"line"`
+	PullRequestReviewID int64     `json:"pull_request_review_id"`
+	CreatedAt           time.Time `json:"created_at"`
 }
 
 type Review struct {

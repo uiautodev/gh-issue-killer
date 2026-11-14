@@ -404,6 +404,20 @@ func (r *Router) HandleReaction(ctx context.Context, fullName string, number int
 		return
 	}
 	st := r.store.Issue(fullName, number)
+	if st.ReviewCommentID != 0 && st.ReviewCommentID == commentID {
+		if !isApproverLogin(reactor, app.Repo.Approvers) && !strings.EqualFold(reactor, r.agentLogin) {
+			r.log.Debug("ignore 👍 from non-approver @%s on %s#%d", reactor, fullName, number)
+			return
+		}
+		login, ok := r.commentThumbsUp(ctx, app, commentID)
+		if !ok {
+			r.log.Debug("👍 from @%s not on comment %d yet", reactor, commentID)
+			return
+		}
+		r.log.Info("review accepted by 👍 from @%s on %s#%d; applying the findings", login, fullName, number)
+		r.enqueueReviewFix(ctx, app, fullName, number, login)
+		return
+	}
 	if st.PlanCommentID != commentID && st.PRCommentID != commentID {
 		r.log.Debug("ignore 👍 on %s#%d comment %d (phase=%s)", fullName, number, commentID, firstNonEmpty(st.Phase, "none"))
 		return
@@ -427,6 +441,39 @@ func (r *Router) HandleReaction(ctx context.Context, fullName string, number int
 	default:
 		r.log.Debug("ignore 👍 on %s#%d comment %d (phase=%s)", fullName, number, commentID, firstNonEmpty(st.Phase, "none"))
 	}
+}
+
+// enqueueReviewFix applies the findings of the PR's latest bot review, which is
+// what 👍 on the review prompt means.
+func (r *Router) enqueueReviewFix(ctx context.Context, app *AppContext, fullName string, number int, login string) {
+	key := fmt.Sprintf("%s#%d#reviewfix", fullName, number)
+	r.enqueue(fullName, key, stageWork, func(jobCtx context.Context) {
+		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
+		if err != nil || issue.State != "open" || issue.PullRequest == nil {
+			return
+		}
+		pr, err := app.GH.GetPR(jobCtx, fullName, number)
+		if err != nil {
+			app.Log.Warn("apply review %s#%d: %v", fullName, number, err)
+			return
+		}
+		st := r.store.Issue(fullName, number)
+		instructions, err := reviewInstructions(jobCtx, app, pr, st.ReviewID)
+		if err != nil {
+			app.Log.Warn("apply review %s#%d: %v", fullName, number, err)
+			return
+		}
+		if strings.TrimSpace(instructions) == "" {
+			_, _ = app.GH.PostComment(jobCtx, fullName, number, "### 🤖 这条 review 没有需要修改的地方")
+			return
+		}
+		doModifyPR(jobCtx, app, Trigger{
+			Type:        "reaction",
+			IssueNumber: number,
+			Sender:      login,
+			Key:         fmt.Sprintf("review-%d", time.Now().UnixNano()),
+		}, pr, instructions)
+	})
 }
 
 // HandlePRReviewComment turns an inline review comment on a tracked PR into a

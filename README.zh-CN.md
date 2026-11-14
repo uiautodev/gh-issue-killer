@@ -121,6 +121,7 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 | `@agent cancel`、`@agent stop`、`@agent 停止` | 中止当前任务 |
 | plan 评论上的 👍 | 等同 `@agent lgtm` |
 | PR 公告评论上的 👍 | 等同 `@agent 合并` |
+| bot 那条「Review 已提交」评论上的 👍 | 按这条 review 的意见直接改 PR 并推送 |
 
 流程用两个标签表示状态：`agent:working` 表示 agent 正在规划、实现或合并（你
 不用管），`agent:awaiting-approval` 只在确实需要你操作时出现。批准（评论或 👍）

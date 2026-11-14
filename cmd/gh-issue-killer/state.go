@@ -50,6 +50,8 @@ type IssueState struct {
 	PRNumber          int           `json:"prNumber,omitempty"`
 	PRURL             string        `json:"prUrl,omitempty"`
 	PRCommentID       int64         `json:"prCommentId,omitempty"`
+	ReviewID          int64         `json:"reviewId,omitempty"`
+	ReviewCommentID   int64         `json:"reviewCommentId,omitempty"`
 	Checks            []CheckResult `json:"checks,omitempty"`
 	Screenshots       []Shot        `json:"screenshots,omitempty"`
 	BlockedReason     string        `json:"blockedReason,omitempty"`
