@@ -209,7 +209,9 @@ repairs (§9), and then either posts the merge prompt or parks the issue as
    (or an unmergeable PR), `resolveConflicts` fetches the base, runs
    `git merge origin/<base>` in the worktree and, if git left markers, runs the
    agent with `conflict_fix.md`, then the usual local checks, commit and push.
-   `resolveMergeConflicts` announces each round; at most `maxFixRounds`.
+   `resolveMergeConflicts` announces each round; at most `maxFixRounds`. After a
+   push it waits up to 45 s for the new head's check runs to appear (when the
+   repo has workflows) so the gate sees them instead of “no CI”.
 2. **CI** — `ciGateWithRepairs` (§9) on the (possibly new) head.
 3. **Merge** — `MergePR`; a 405/409 “merge conflicts” at this point means the
    base moved after the check, so the loop resolves once more and retries

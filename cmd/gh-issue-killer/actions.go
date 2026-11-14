@@ -1264,6 +1264,11 @@ func resolveMergeConflicts(ctx context.Context, app *AppContext, issue Issue, st
 	}
 	updated := pr
 	if head := headSHA(ctx, st.Worktree, app.Env); head != "" {
+		if app.GH.HasWorkflows(ctx, app.Repo.FullName) {
+			// Give GitHub a moment to create the new head's check runs, so the
+			// merge gate does not read "not created yet" as "no CI".
+			waitForFreshCheckRuns(ctx, app, head, 45*time.Second)
+		}
 		if fresh, err := waitForPRHead(ctx, app, st.PRNumber, head, 2*time.Minute); err == nil {
 			updated = fresh
 		}
@@ -1380,7 +1385,6 @@ func resolveConflicts(ctx context.Context, app *AppContext, issue Issue, st Issu
 	}
 	return nil
 }
-
 func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
 	number := issue.Number
 	app.Log.Info("merge start for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
