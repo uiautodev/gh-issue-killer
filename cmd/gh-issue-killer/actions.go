@@ -623,6 +623,9 @@ func recordReviewedPR(ctx context.Context, app *AppContext, number int, reviewID
 		app.Log.Warn("post review thumbs-up prompt for %s#%d: %v", app.Repo.FullName, number, err)
 	}
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		// UpdateIssue creates new entries in phase "new" for issues; a reviewed
+		// pull request is not a task, so keep it out of the phase machine.
+		state.Phase = ""
 		state.ReviewID = reviewID
 		state.ReviewCommentID = commentID
 	})
