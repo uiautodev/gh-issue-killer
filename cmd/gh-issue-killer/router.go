@@ -123,7 +123,12 @@ type jobStage int
 const (
 	stagePlan jobStage = iota
 	stageWork
+	stageCI
 )
+
+// ciWorkers is how many pull-request CI settles may run per repository. They
+// live on their own queue so a slow CI never occupies an implementation slot.
+const ciWorkers = 2
 
 type routerJob struct {
 	key string
@@ -134,6 +139,7 @@ type routerJob struct {
 type repoPool struct {
 	plan chan routerJob
 	work chan routerJob
+	ci   chan routerJob
 }
 
 type Router struct {
@@ -177,6 +183,7 @@ func NewRouter(cfg *Config, contexts map[string]*AppContext, agentLogin string, 
 		pool := &repoPool{
 			plan: make(chan routerJob, 32),
 			work: make(chan routerJob, 32),
+			ci:   make(chan routerJob, 32),
 		}
 		router.pools[fullName] = pool
 		for i := 0; i < planWorkers; i++ {
@@ -185,8 +192,43 @@ func NewRouter(cfg *Config, contexts map[string]*AppContext, agentLogin string, 
 		for i := 0; i < workWorkers; i++ {
 			go router.worker(pool.work)
 		}
+		for i := 0; i < ciWorkers; i++ {
+			go router.worker(pool.ci)
+		}
+	}
+	for fullName, app := range contexts {
+		app.EnqueueCI = router.ciSettler(fullName, app)
 	}
 	return router
+}
+
+// ciSettler returns the hook the coding stages call after a push: the CI wait
+// runs as its own job on the ci queue, so the implementation worker is free for
+// the next issue while checks are running or being repaired.
+func (r *Router) ciSettler(fullName string, app *AppContext) func(number int) {
+	return func(number int) {
+		if r.store == nil {
+			return
+		}
+		key := fmt.Sprintf("%s#%d#ci", fullName, number)
+		r.enqueue(fullName, key, stageCI, func(jobCtx context.Context) {
+			st := r.store.Issue(fullName, number)
+			if st.Phase != "pr_open" || st.PRNumber == 0 {
+				return
+			}
+			issue, err := app.GH.GetIssue(jobCtx, fullName, number)
+			if err != nil || issue.State != "open" {
+				return
+			}
+			pr, err := app.GH.GetPR(jobCtx, fullName, st.PRNumber)
+			if err != nil || pr.State != "open" {
+				return
+			}
+			if ready, rounds := settleCIGate(jobCtx, app, issue, pr); ready {
+				postMergePrompt(jobCtx, app, number, rounds)
+			}
+		})
+	}
 }
 
 func (r *Router) worker(jobs <-chan routerJob) {
@@ -238,8 +280,11 @@ func (r *Router) enqueue(fullName, key string, stage jobStage, fn func(context.C
 		return
 	}
 	queue := pool.work
-	if stage == stagePlan {
+	switch stage {
+	case stagePlan:
 		queue = pool.plan
+	case stageCI:
+		queue = pool.ci
 	}
 	queue <- routerJob{key: key, ctx: jobCtx, fn: fn}
 }
@@ -248,17 +293,36 @@ func (r *Router) cancelActive(fullName string, number int) {
 	key := fmt.Sprintf("%s#%d", fullName, number)
 	r.mu.Lock()
 	cancel := r.cancels[key]
+	ciCancel := r.cancels[key+"#ci"]
 	r.mu.Unlock()
 	if cancel != nil {
 		r.log.Debug("cancel active job %s", key)
 		cancel()
 	}
+	if ciCancel != nil {
+		r.log.Debug("cancel active job %s#ci", key)
+		ciCancel()
+	}
+}
+
+// waitCISettle makes a merge wait for the issue's background CI job, so two
+// agents never edit the same worktree at once.
+func (r *Router) waitCISettle(ctx context.Context, fullName string, number int) {
+	key := fmt.Sprintf("%s#%d#ci", fullName, number)
+	r.mu.Lock()
+	active := r.active[key] || r.queued[key]
+	r.mu.Unlock()
+	if active {
+		r.log.Info("merge for %s#%d waits for the running CI job", fullName, number)
+	}
+	r.waitInactive(ctx, key, 20*time.Minute)
 }
 
 // PoolDepth is the number of jobs waiting in one repository's queues.
 type PoolDepth struct {
 	Plan int
 	Work int
+	CI   int
 }
 
 type RouterSnapshot struct {
@@ -281,7 +345,7 @@ func (r *Router) Snapshot() RouterSnapshot {
 	r.mu.Unlock()
 	pools := make(map[string]PoolDepth, len(r.pools))
 	for name, pool := range r.pools {
-		pools[name] = PoolDepth{Plan: len(pool.plan), Work: len(pool.work)}
+		pools[name] = PoolDepth{Plan: len(pool.plan), Work: len(pool.work), CI: len(pool.ci)}
 	}
 	return RouterSnapshot{Active: active, Queued: queued, Pools: pools}
 }
@@ -475,6 +539,7 @@ func (r *Router) requestCancel(ctx context.Context, app *AppContext, fullName st
 		jobCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		r.waitInactive(jobCtx, key, 60*time.Second)
+		r.waitInactive(jobCtx, key+"#ci", 60*time.Second)
 		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
 		if err != nil {
 			app.Log.Warn("cancel %s#%d: %v", fullName, number, err)
@@ -583,6 +648,7 @@ func (r *Router) enqueueMerge(app *AppContext, fullName string, number int, send
 		if current.Phase != "pr_open" || current.PRNumber == 0 {
 			return
 		}
+		r.waitCISettle(jobCtx, fullName, number)
 		doMerge(jobCtx, app, trigger, issue, current)
 	})
 }
@@ -741,6 +807,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 				if issue.State != "open" {
 					return
 				}
+				r.waitCISettle(jobCtx, fullName, trigger.IssueNumber)
 				doMerge(jobCtx, app, trigger, issue, st)
 			})
 			return
@@ -931,6 +998,7 @@ func (r *Router) HandleClosed(ctx context.Context, fullName string, issue Issue)
 		jobCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		r.waitInactive(jobCtx, key, 60*time.Second)
+		r.waitInactive(jobCtx, key+"#ci", 60*time.Second)
 		current := r.store.Issue(fullName, issue.Number)
 		if current.Phase == "done" || current.Phase == "merging" {
 			return

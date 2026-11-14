@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,10 @@ type AppContext struct {
 	Log        *Logger
 	Env        []string
 	AgentLogin string
+	// EnqueueCI schedules the post-push CI wait on the router's CI queue so the
+	// implementation slot is released immediately. Nil when there is no router
+	// (tests).
+	EnqueueCI func(number int)
 }
 
 // projectURL is shown on plan comments so readers can find the project.
@@ -486,14 +491,9 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		app.Log.Warn("post revision comment: %v", err)
 	}
 	app.Log.Info("revision pushed for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
-	if ciEnabled {
-		if pr, err := app.GH.GetPR(ctx, app.Repo.FullName, st.PRNumber); err == nil {
-			if ready, rounds := settleCIGate(ctx, app, issue, pr); ready {
-				postMergePrompt(ctx, app, number, rounds)
-			}
-		} else {
-			app.Log.Warn("get PR %d after revision: %v", st.PRNumber, err)
-		}
+	if ciEnabled && app.EnqueueCI != nil {
+		app.Log.Info("queued CI settle for %s#%d", app.Repo.FullName, number)
+		app.EnqueueCI(number)
 	}
 }
 
@@ -707,10 +707,9 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		})
 	}
 	app.Log.Info("PR opened for %s#%d: %s", app.Repo.FullName, number, pr.HTMLURL)
-	if ciEnabled {
-		if ready, rounds := settleCIGate(ctx, app, issue, pr); ready {
-			postMergePrompt(ctx, app, number, rounds)
-		}
+	if ciEnabled && app.EnqueueCI != nil {
+		app.Log.Info("queued CI settle for %s#%d", app.Repo.FullName, number)
+		app.EnqueueCI(number)
 	}
 }
 
@@ -938,6 +937,9 @@ func settleCIGate(ctx context.Context, app *AppContext, issue Issue, pr PullRequ
 	}
 	app.Log.Info("post-push CI gate for %s#%d", app.Repo.FullName, number)
 	waitForFreshCheckRuns(ctx, app, pr.Head.SHA, time.Minute)
+	if runs, err := app.GH.ListCheckRuns(ctx, app.Repo.FullName, pr.Head.SHA); err == nil && hasPendingChecks(runs) {
+		postCIWaitMessage(ctx, app, number, pr, runs)
+	}
 	st := app.Store.Issue(app.Repo.FullName, number)
 	verdict, rounds, err := ciGateWithRepairs(ctx, app, issue, st, pr)
 	if err != nil {
@@ -964,6 +966,42 @@ func settleCIGate(ctx context.Context, app *AppContext, issue Issue, pr PullRequ
 		fmt.Sprintf("回复 `@%s 合并` 会立刻重试（仍会自动修复），也可以先手动修好再合并。", app.AgentLogin),
 	}, "\n"))
 	return false, rounds
+}
+
+// hasPendingChecks reports whether any check still has to finish.
+func hasPendingChecks(runs CheckRuns) bool {
+	for _, run := range runs.CheckRuns {
+		if run.Status != "completed" {
+			return true
+		}
+	}
+	return false
+}
+
+// postCIWaitMessage tells the issue that its checks are running, so nobody
+// wonders why the PR sits there, and that the daemon will handle failures.
+func postCIWaitMessage(ctx context.Context, app *AppContext, number int, pr PullRequest, runs CheckRuns) {
+	lines := make([]string, 0, len(runs.CheckRuns))
+	for _, run := range runs.CheckRuns {
+		state := run.Status
+		if run.Conclusion != nil && *run.Conclusion != "" {
+			state = *run.Conclusion
+		}
+		lines = append(lines, fmt.Sprintf("- `%s` — %s", run.Name, state))
+	}
+	sort.Strings(lines)
+	body := strings.Join([]string{
+		"### 🤖 正在等待 CI",
+		"",
+		fmt.Sprintf("PR #%d 的检查还在跑：", pr.Number),
+		"",
+		strings.Join(lines, "\n"),
+		"",
+		fmt.Sprintf("不需要你操作：失败或卡住会自动修复（最多 `maxFixRounds` = %d 轮），有结果我再发消息。", app.Cfg.MaxFixRounds),
+	}, "\n")
+	if _, err := app.GH.PostComment(ctx, app.Repo.FullName, number, body); err != nil {
+		app.Log.Warn("post CI wait message for %s#%d: %v", app.Repo.FullName, number, err)
+	}
 }
 
 // mergePrompt is the sentence that invites the approver to merge.
