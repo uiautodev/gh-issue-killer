@@ -385,7 +385,7 @@ merges the base into the PR branch, the agent resolves the markers with
 merged. A conflict that appears at merge time (the base moved after the gate) is
 caught from the 405/409 response and resolved the same way.
 For user-visible UI changes the agent captures the changed region (tight crop)
-before and after; the daemon composes them side by side with a divider and
+before and after; the daemon stacks them (before on top) with a divider and
 uploads the image through GitHub's user-attachments endpoint. Backend, docs and
 test-only PRs get no screenshots and say so.
 

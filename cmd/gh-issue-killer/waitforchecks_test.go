@@ -227,7 +227,7 @@ func TestApproveWaitingRuns(t *testing.T) {
 		t.Fatal("approveWaitingRuns = false, want true")
 	}
 	approved := false
-	for _, call := range *calls {
+	for _, call := range calls.snapshot() {
 		if call.method == http.MethodPost && call.path == "/repos/acme/app/actions/runs/111/approve" {
 			approved = true
 		}
@@ -236,7 +236,7 @@ func TestApproveWaitingRuns(t *testing.T) {
 		}
 	}
 	if !approved {
-		t.Fatalf("calls = %+v, want a POST to approve run 111", *calls)
+		t.Fatalf("calls = %+v, want a POST to approve run 111", calls.snapshot())
 	}
 }
 

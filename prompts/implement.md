@@ -75,7 +75,7 @@ Screenshots — ONLY when this change is user-visible in the UI. These rules ove
 - Backend-only, docs, tests, build, refactor, config changes: set `"uiChanged": false` and use an empty `screenshots` array. Do NOT capture full-page screenshots "just in case".
 - For a user-visible UI change, capture ONLY the changed component/region, tightly cropped. Use Playwright's `locator.screenshot()` on the affected element, never a full-page `page.screenshot()`.
 - Capture a BEFORE (base version) and AFTER (your version) of the same locator/region, with the same viewport and theme. To get BEFORE, temporarily restore the changed files from `origin/{{BASE}}` in this worktree, restart the app, capture, then restore your version and confirm `git status` is clean. Reuse `node_modules`; do not reinstall for the before pass.
-- Save as `{{RUN_DIR}}/screenshots/before-<name>.png` and `after-<name>.png`. Do NOT compose them yourself: the harness merges before/after side by side into one image for the PR.
+- Save as `{{RUN_DIR}}/screenshots/before-<name>.png` and `after-<name>.png`. Do NOT compose them yourself: the harness stacks before above after into one image for the PR.
 - If the change is near the theme toggle or affects colors, also capture the same region in the other theme (one pair per theme).
 - Start the app with a temporary data directory and NON-default ports, check the browser console, and stop the servers afterwards.
 

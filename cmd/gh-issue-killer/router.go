@@ -488,6 +488,73 @@ func (r *Router) enqueueReviewFix(ctx context.Context, app *AppContext, fullName
 	})
 }
 
+// retryBlockedCI resumes a task that was parked because its pull request checks
+// failed, once those checks are green. Other blocked reasons (local checks, an
+// unreproducible bug, exhausted conflict rounds) stay parked for the user.
+func (r *Router) retryBlockedCI(ctx context.Context, app *AppContext) {
+	issues, err := app.GH.ListIssues(ctx, app.Repo.FullName, "open", nil)
+	if err != nil {
+		return
+	}
+	for _, issue := range issues {
+		number := issue.Number
+		st := r.store.Issue(app.Repo.FullName, number)
+		if st.Phase != "blocked" || !st.BlockedByCI || st.PRNumber == 0 {
+			continue
+		}
+		pr, err := app.GH.GetPR(ctx, app.Repo.FullName, st.PRNumber)
+		if err != nil || pr.State != "open" || mergeBlockedByConflicts(pr) {
+			continue
+		}
+		runs, err := app.GH.ListCheckRuns(ctx, app.Repo.FullName, pr.Head.SHA)
+		if err != nil || !checksAllGreen(runs) {
+			continue
+		}
+		r.log.Info("blocked task %s#%d has green checks; retrying the merge", app.Repo.FullName, number)
+		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+			state.BlockedByCI = false
+		})
+		r.enqueue(app.Repo.FullName, fmt.Sprintf("%s#%d", app.Repo.FullName, number), stageWork, func(jobCtx context.Context) {
+			issue, err := app.GH.GetIssue(jobCtx, app.Repo.FullName, number)
+			if err != nil || issue.State != "open" {
+				return
+			}
+			current := r.store.Issue(app.Repo.FullName, number)
+			if current.Phase != "blocked" || current.PRNumber == 0 {
+				return
+			}
+			doMerge(jobCtx, app, Trigger{
+				Type:        "retry",
+				IssueNumber: number,
+				Sender:      r.agentLogin,
+				Key:         fmt.Sprintf("retry-%d", time.Now().UnixNano()),
+			}, issue, current)
+		})
+	}
+}
+
+// checksAllGreen reports whether every check run finished successfully.
+func checksAllGreen(runs CheckRuns) bool {
+	if len(runs.CheckRuns) == 0 {
+		return false
+	}
+	for _, run := range runs.CheckRuns {
+		if run.Status != "completed" {
+			return false
+		}
+		conclusion := ""
+		if run.Conclusion != nil {
+			conclusion = *run.Conclusion
+		}
+		switch conclusion {
+		case "success", "neutral", "skipped":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // HandlePRReviewComment turns an inline review comment on a tracked PR into a
 // revision round.
 func (r *Router) HandlePRReviewComment(ctx context.Context, fullName string, prNumber int, comment ReviewComment) {
@@ -1402,6 +1469,7 @@ func (r *Router) PollOnce(ctx context.Context, fullName string) {
 	}
 	r.checkReactions(ctx, app)
 	r.checkPRFeedback(ctx, app)
+	r.retryBlockedCI(ctx, app)
 	r.log.Debug("poll %s: handled %d new comments", fullName, freshComments)
 	app.Store.UpdateMeta(fullName, func(meta *RepoMeta) {
 		meta.LastPollAt = nowISO()

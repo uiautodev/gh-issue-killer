@@ -55,6 +55,7 @@ type IssueState struct {
 	Checks            []CheckResult `json:"checks,omitempty"`
 	Screenshots       []Shot        `json:"screenshots,omitempty"`
 	BlockedReason     string        `json:"blockedReason,omitempty"`
+	BlockedByCI       bool          `json:"blockedByCI,omitempty"`
 	Issue             *IssueMeta    `json:"issue,omitempty"`
 	CreatedAt         string        `json:"createdAt,omitempty"`
 	UpdatedAt         string        `json:"updatedAt,omitempty"`

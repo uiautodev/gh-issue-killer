@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 )
 
@@ -16,12 +17,32 @@ type apiCall struct {
 	body   string
 }
 
-func newFakeAPI(t *testing.T, handler http.HandlerFunc) (*GH, *[]apiCall) {
+// callLog records fake-API requests. A test can enqueue a background job that
+// keeps calling the API after checkReactions returns, so appends must be
+// synchronized or the race detector flags overlapping handler goroutines.
+type callLog struct {
+	mu    sync.Mutex
+	calls []apiCall
+}
+
+func (c *callLog) add(call apiCall) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls = append(c.calls, call)
+}
+
+func (c *callLog) snapshot() []apiCall {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]apiCall(nil), c.calls...)
+}
+
+func newFakeAPI(t *testing.T, handler http.HandlerFunc) (*GH, *callLog) {
 	t.Helper()
-	var calls []apiCall
+	calls := &callLog{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		calls = append(calls, apiCall{method: r.Method, path: r.URL.Path, body: string(body)})
+		calls.add(apiCall{method: r.Method, path: r.URL.Path, body: string(body)})
 		if handler != nil {
 			handler(w, r)
 			return
@@ -29,10 +50,10 @@ func newFakeAPI(t *testing.T, handler http.HandlerFunc) (*GH, *[]apiCall) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
-	return &GH{APIBase: srv.URL, Client: srv.Client()}, &calls
+	return &GH{APIBase: srv.URL, Client: srv.Client()}, calls
 }
 
-func issueLabelsAPI(t *testing.T, labels []string) (*GH, *[]apiCall) {
+func issueLabelsAPI(t *testing.T, labels []string) (*GH, *callLog) {
 	t.Helper()
 	return newFakeAPI(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/repos/acme/app/issues/7/labels" {
@@ -54,7 +75,7 @@ func TestSetAgentState(t *testing.T) {
 	t.Run("already in the requested state writes nothing", func(t *testing.T) {
 		gh, calls := issueLabelsAPI(t, []string{"bug", workingLabel})
 		gh.SetAgentState(context.Background(), "acme/app", 7, workingLabel)
-		got := *calls
+		got := calls.snapshot()
 		if len(got) != 1 || got[0].method != http.MethodGet {
 			t.Fatalf("calls = %+v, want a single GET", got)
 		}
@@ -63,7 +84,7 @@ func TestSetAgentState(t *testing.T) {
 	t.Run("switching states only touches the stale label", func(t *testing.T) {
 		gh, calls := issueLabelsAPI(t, []string{awaitingLabel})
 		gh.SetAgentState(context.Background(), "acme/app", 7, workingLabel)
-		got := (*calls)[1:]
+		got := calls.snapshot()[1:]
 		if len(got) != 2 {
 			t.Fatalf("writes = %+v, want DELETE awaiting then POST working", got)
 		}
@@ -87,7 +108,7 @@ func TestSetAgentState(t *testing.T) {
 	t.Run("clearing removes the current label", func(t *testing.T) {
 		gh, calls := issueLabelsAPI(t, []string{workingLabel})
 		gh.SetAgentState(context.Background(), "acme/app", 7, "")
-		got := (*calls)[1:]
+		got := calls.snapshot()[1:]
 		if len(got) != 1 || got[0].method != http.MethodDelete || got[0].path != workingPath {
 			t.Fatalf("writes = %+v, want only DELETE %s", got, workingPath)
 		}
@@ -96,7 +117,7 @@ func TestSetAgentState(t *testing.T) {
 	t.Run("no lifecycle label adds the requested one", func(t *testing.T) {
 		gh, calls := issueLabelsAPI(t, []string{"bug"})
 		gh.SetAgentState(context.Background(), "acme/app", 7, awaitingLabel)
-		got := (*calls)[1:]
+		got := calls.snapshot()[1:]
 		if len(got) != 1 || got[0].method != http.MethodPost {
 			t.Fatalf("writes = %+v, want only POST", got)
 		}
@@ -111,7 +132,7 @@ func TestSetAgentState(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 		gh.SetAgentState(context.Background(), "acme/app", 7, workingLabel)
-		got := (*calls)[1:]
+		got := calls.snapshot()[1:]
 		if len(got) != 3 {
 			t.Fatalf("writes = %+v, want DELETE awaiting, DELETE working, POST", got)
 		}
@@ -134,7 +155,7 @@ func TestEnsureLabelsCreatesLifecycleLabels(t *testing.T) {
 	})
 	gh.EnsureLabels(context.Background(), "acme/app")
 
-	got := *calls
+	got := calls.snapshot()
 	if len(got) != 4 {
 		t.Fatalf("calls = %+v, want GET+POST for two labels", got)
 	}

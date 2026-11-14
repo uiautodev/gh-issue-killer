@@ -66,10 +66,10 @@ func resolveRunFile(runDir, value string) string {
 	return file
 }
 
-// composeBeforeAfter draws before and after side by side on a white canvas,
-// separated by a light gutter with a dark vertical divider so it is obvious
-// which half is the old version. Both are padded to the taller height.
-// Pure stdlib image code.
+// composeBeforeAfter stacks before above after on a white canvas, separated
+// by a light gutter with a dark divider so it is obvious which half is the old
+// version. Stacking keeps each screenshot at full width, which matters on a
+// phone where a side-by-side pair is unreadably small. Pure stdlib image code.
 func composeBeforeAfter(beforeFile, afterFile, outFile string) error {
 	before, err := decodeImage(beforeFile)
 	if err != nil {
@@ -84,28 +84,29 @@ func composeBeforeAfter(beforeFile, afterFile, outFile string) error {
 	afterBounds := after.Bounds()
 	beforeWidth, beforeHeight := beforeBounds.Dx(), beforeBounds.Dy()
 	afterWidth, afterHeight := afterBounds.Dx(), afterBounds.Dy()
-	height := beforeHeight
-	if afterHeight > height {
-		height = afterHeight
+	width := beforeWidth
+	if afterWidth > width {
+		width = afterWidth
 	}
 	const (
 		gap     = 20
 		divider = 2
 	)
-	width := beforeWidth + gap + afterWidth
+	height := beforeHeight + gap + afterHeight
 
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
 
-	gutter := image.Rect(beforeWidth, 0, beforeWidth+gap, height)
+	gutter := image.Rect(0, beforeHeight, width, beforeHeight+gap)
 	draw.Draw(canvas, gutter, &image.Uniform{C: color.RGBA{R: 0xe2, G: 0xe8, B: 0xf0, A: 0xff}}, image.Point{}, draw.Src)
-	lineX := beforeWidth + (gap-divider)/2
-	draw.Draw(canvas, image.Rect(lineX, 0, lineX+divider, height), &image.Uniform{C: color.RGBA{R: 0x47, G: 0x55, B: 0x69, A: 0xff}}, image.Point{}, draw.Src)
+	lineY := beforeHeight + (gap-divider)/2
+	draw.Draw(canvas, image.Rect(0, lineY, width, lineY+divider), &image.Uniform{C: color.RGBA{R: 0x47, G: 0x55, B: 0x69, A: 0xff}}, image.Point{}, draw.Src)
 
-	beforeTop := (height - beforeHeight) / 2
-	afterTop := (height - afterHeight) / 2
-	draw.Draw(canvas, image.Rect(0, beforeTop, beforeWidth, beforeTop+beforeHeight), before, beforeBounds.Min, draw.Over)
-	draw.Draw(canvas, image.Rect(beforeWidth+gap, afterTop, beforeWidth+gap+afterWidth, afterTop+afterHeight), after, afterBounds.Min, draw.Over)
+	beforeLeft := (width - beforeWidth) / 2
+	afterLeft := (width - afterWidth) / 2
+	afterTop := beforeHeight + gap
+	draw.Draw(canvas, image.Rect(beforeLeft, 0, beforeLeft+beforeWidth, beforeHeight), before, beforeBounds.Min, draw.Over)
+	draw.Draw(canvas, image.Rect(afterLeft, afterTop, afterLeft+afterWidth, afterTop+afterHeight), after, afterBounds.Min, draw.Over)
 
 	if err := os.MkdirAll(filepath.Dir(outFile), 0o755); err != nil {
 		return err
@@ -203,7 +204,7 @@ func screenshotsMarkdown(shots []Shot) string {
 	}
 	parts := make([]string, 0, len(shots))
 	for _, shot := range shots {
-		parts = append(parts, fmt.Sprintf("**%s**（左：改动前 / 右：改动后）\n\n![%s](%s)", shot.Caption, shot.Caption, shot.URL))
+		parts = append(parts, fmt.Sprintf("**%s**（上：改动前 / 下：改动后）\n\n![%s](%s)", shot.Caption, shot.Caption, shot.URL))
 	}
 	return strings.Join(parts, "\n\n")
 }

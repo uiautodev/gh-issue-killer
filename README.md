@@ -19,71 +19,49 @@ flowchart LR
     E -- "green" --> F["Squash merge"]
 ```
 
-Failing local checks and failing PR checks both get `maxFixRounds` repair rounds.
-A PR check that is red or stuck (a job queued on a retired runner, a Python
-version the image no longer has) is handed back to the agent, which fixes the
-workflow or the code in the same PR instead of parking the task; only when the
-rounds are exhausted is the issue parked as `blocked`, and retrying with
-`@agent 合并` picks it up again.
+Failing checks are repaired automatically; only an exhausted budget parks the
+issue as `blocked`. Closing it cancels the task and closes the PR; reopening
+resumes it.
 
-Closing the issue at any stage cancels the task and closes the PR; reopening
-resumes it. A merged issue that is reopened starts a fresh plan.
+## What it solves
 
-```mermaid
-flowchart LR
-    W["planning · awaiting-approval<br/>implementing · pr-open"] -. "issue closed" .-> C["cancelled<br/>PR closed, worktree removed"]
-    C -. "reopened<br/>plan kept" .-> W
-    D["done<br/>PR merged"] -. "reopened" .-> N["new plan"]
-```
+- **Issues pile up untouched.** Reading each one, planning, implementing and
+  verifying takes whole afternoons, so PRs sit around.
+- **Someone has to babysit checks and conflicts.** A red CI, a job stuck on a
+  retired runner or a branch conflict means manual digging and manual fixes.
+- **An agent loose in your checkout is risky.** A failed or interrupted run
+  leaves your working tree dirty.
+- **One slow repo blocks the rest.** A slow CI occupies every slot, so you end
+  up running one daemon per repository.
 
 ## What it does
 
-- **Plan first.** A mention (or assignment) produces an implementation plan as
-  a comment, with an isolated planning worktree; nothing is written until you
-  approve.
-- **Bugs skip the plan.** An issue labelled `bug` goes straight to the coding
-  stage: the agent first tries to reproduce it, fixes it with a regression test
-  when it exists, and reports back without a PR when it cannot.
-- **Isolated implementation.** Each issue gets its own git worktree and branch;
-  your working clone is never touched. Commits are authored as the bot.
-- **Checks and screenshots.** The coding agent writes the commands that prove
-  its work (`checks.json`); the daemon runs them, gives the agent up to
-  `maxFixRounds` repair rounds, and only then pushes. UI changes come with
-  before/after screenshots, tightly cropped and split by a visible divider.
-- **PR and merge.** The daemon opens the PR, annotates it with checks and
-  screenshots, and starts watching CI immediately on its own queue — a slow or
-  stuck check never occupies an implementation slot, so other issues keep
-  moving. It posts a short "waiting for CI" comment with the check names, and a
-  red or abandoned check (a job queued on a retired runner, a Python version the
-  image no longer has) goes back to the agent, which fixes the workflow or the
-  code in the same PR. Workflow runs waiting for maintainer approval are
-  approved automatically. Once it is green the daemon invites the merge; a
-  conflicting branch is merged with the base, resolved by the agent, re-checked
-  and merged — without rebasing and without asking you to fix the conflict.
-  Only an exhausted repair budget parks the issue.
-- **Feedback loop.** A non-command comment that mentions the agent, an inline
-  review comment, or a review body on an open PR is treated as review feedback:
-  the agent keeps working on the same branch. Closing an issue cancels the task
-  and closes the PR; reopening resumes it.
-- **Real-time, with a fallback.** Webhooks arrive through a `smee.io` relay
-  (no inbound port); every event is re-read from the GitHub API before acting.
-  Without hook permissions the daemon simply polls every 30 s.
-- **Crash-safe.** A restart resumes interrupted implementations from their
-  worktree instead of parking the issue.
-- **Multi-repo, per-repo agent and queues.** Watch several repositories, each
-  with its own `codingAgent` / model / approvers and its own planning and
-  implementation queues, so one slow repo never blocks another.
-- **One static binary.** Outbound HTTPS only; no `curl`, `ffmpeg`, ImageMagick,
-  or `gh` at runtime. It shells out to `git`, one coding-agent CLI, and `/bin/sh`.
-- **Live console.** Set `webPort` and open `http://127.0.0.1:<port>`: per-repo
-  queues and parallel meters (the PLAN/WORK limits apply per project), active
-  jobs, every task's stage rail, PR links, checks, screenshots and the daemon
-  log in one board. Plans render as markdown, the board follows the system
-  theme or can be pinned to light/dark, and the header switches between Chinese
-  and English and links back to this repository. Tasks can be filtered by
-  project or free text, or hide finished/cancelled work, the console colours
-  the daemon log by level, the detail drawer can approve or cancel the task,
-  and the header counts the tasks waiting for you (approval, merge or unblock).
+- **Plan first.** A mention or assignment posts a plan comment; nothing is
+  written until you approve. Issues labelled `bug` skip the plan: reproduce,
+  fix, add a regression test.
+- **One worktree per issue.** Its own branch and bot-authored commits, so your
+  working clone is never touched; a restart resumes it.
+- **Verifies and repairs CI itself.** The coding agent writes the commands that
+  prove its work (`checks.json`), the daemon runs them and hands failures back;
+  a red or stuck PR check goes back to the agent too, and only an exhausted
+  budget parks the issue as `blocked`. A task parked by failed checks resumes by
+  itself once the PR's checks turn green.
+- **Driven by one comment.** Approve, change a PR, resolve conflicts, merge or
+  cancel with a comment or 👍 — on any PR in a watched repo, not only its own.
+- **Multi-repo, no cross-blocking.** Each repository has its own agent, model,
+  approvers and queues, and CI runs on a separate queue, so one slow repo never
+  blocks another.
+- **One static binary.** Outbound HTTPS only; at runtime it needs `git`, one
+  coding-agent CLI and `/bin/sh`.
+
+Set `webPort` for the live dashboard: per-repo queues and parallel meters (the
+PLAN/WORK limits apply per project), stage progress, PRs, checks, screenshots
+and the daemon log, with plans rendered as markdown. The board follows the
+system theme or can be pinned to light/dark, the interface switches between
+Chinese and English and links back to this repository, tasks can be filtered by
+project or free text or hide finished/cancelled work, the console colours the
+log by level, and the header counts the tasks waiting for you (approval, merge
+or unblock).
 
 ## Install with a coding agent
 
@@ -148,69 +126,30 @@ Open an issue that mentions the bot (or assign it to the bot). Then:
 | 👍 on the PR-announcement comment | same as `@agent 合并` |
 | 👍 on the bot's “Review 已提交” comment | apply that review's findings to the PR (edit + push) |
 
-Two labels track the flow: `agent:working` while the agent plans, implements or
-merges (nothing for you to do), and `agent:awaiting-approval` only while it is
-actually waiting for you. Approving clears the waiting label immediately, even
-while the implementation is still queued behind another issue.
-
-You can append instructions to an approval: `@agent ok use an Android emulator
-for the test` starts the implementation and forwards the rest of the sentence
-to the coding agent. Approval words are `ok`, `okay`, `lgtm`, `go`, `continue`,
-`yes` and `approve`.
-
 Commands must come from an approver, mention the agent, and be the **whole
-comment** — “把按钮合并到 input-group 里” never merges anything. Any other
-comment that mentions the agent is treated as feedback. A daemon restart
-resumes interrupted work automatically; the agent never triggers on its own
-comments or issues.
-
-`review` works on any pull request in a watched repository, not only the ones
-this daemon opened: it checks out the PR head read-only, reviews the diff, and
-posts a GitHub review with a summary and up to 10 inline comments. It never
-pushes to the PR branch.
-
-Mention the agent with an instruction on a pull request and it edits that PR
-instead: same-repository branches are pushed directly, and forked PRs only when
-the author allowed edits by maintainers. Without that permission the daemon
-replies on the PR instead of failing.
+comment**. Approval words, status labels and review rules live in
+[DEPLOY.md](DEPLOY.md) and [DEVELOP.md](DEVELOP.md).
 
 ## Configuration
 
-`-init` writes this for you; a hand-written config is the same shape:
-
-```json
-{
-  "repos": ["your-org/app", "your-org/api"],
-  "codingAgent": "opencode",
-  "approvers": ["your-login"],
-  "proxy": ""
-}
+```bash
+./bin/gh-issue-killer -init      # wizard: repos, agent, approvers, proxy
 ```
 
-`codingAgent` is `opencode`, `claude` or `codex`. `approvers` are human logins
-allowed to command the bot. `proxy` accepts `socks5h://`, `socks5://`,
-`http://` or `https://` and applies to both the API and git. `language`
-defaults to `auto` (write in the issue's or PR's language) and also controls the
-daemon's own headings and hints; set it to `en`, `zh-CN`, `ja`, … to force one.
-
-The full key reference, per-repo overrides and the coding-agent invocation
-details live in [DEPLOY.md](DEPLOY.md#41-configuration-reference).
-
-The daemon watches this file with the OS notification API (inotify / kqueue):
-saving a valid config reloads it in place (same PID) once running jobs finish.
-An invalid edit is logged and ignored.
+`-init` writes the config for you; a hand-written JSON uses the same `repos` /
+`codingAgent` / `approvers` / `proxy` keys. Full reference (`language`,
+`webPort`, per-repo overrides, live reload):
+[DEPLOY.md](DEPLOY.md#41-configuration-reference).
 
 ## Development
 
 ```bash
-pre-commit install    # gofmt, vet, test, build and a 1 MB file check
 go test ./...
+go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 ```
 
-Tag a release with `v*` (for example `git tag v0.1.0 && git push --tags`):
-GitHub Actions runs the tests, builds linux/darwin amd64+arm64 archives with
-the version injected, and publishes them with checksums to the GitHub release.
-The prompts are embedded in the binary, so the archives are self-contained.
+Internals and releases (a `v*` tag drives the workflow) are in
+[DEVELOP.md](DEVELOP.md); contributor rules are in [AGENTS.md](AGENTS.md).
 
 ## License
 [MIT](LICENSE)

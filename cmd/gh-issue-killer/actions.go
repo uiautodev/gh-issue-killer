@@ -377,6 +377,7 @@ func reportCheckFailures(ctx context.Context, app *AppContext, number int, workt
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "blocked"
 		state.BlockedReason = "checks failed"
+		state.BlockedByCI = false
 		state.Checks = checkResults
 	})
 	app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
@@ -456,6 +457,7 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 			state.Phase = "blocked"
 			state.BlockedReason = "bug not reproduced: " + summary
+			state.BlockedByCI = false
 		})
 		app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
 		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
@@ -1212,6 +1214,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 			state.Phase = "blocked"
 			state.BlockedReason = "bug not reproduced: " + summary
+			state.BlockedByCI = false
 		})
 		app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
 		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
@@ -1584,6 +1587,7 @@ func settleCIGate(ctx context.Context, app *AppContext, issue Issue, pr PullRequ
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "blocked"
 		state.BlockedReason = reason
+		state.BlockedByCI = true
 	})
 	app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
 	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
@@ -1591,7 +1595,7 @@ func settleCIGate(ctx context.Context, app *AppContext, issue Issue, pr PullRequ
 		"",
 		"- " + reason,
 		"",
-		fmt.Sprintf(app.text(number, "ci.blocked.hint"), app.AgentLogin),
+		app.text(number, "ci.blocked.hint"),
 	}, "\n"))
 	return false, rounds
 }
@@ -1709,7 +1713,9 @@ func ciGateWithRepairs(ctx context.Context, app *AppContext, issue Issue, st Iss
 			verdict.Note += app.text(number, "ci.no_change_suffix")
 			break
 		}
-		refreshed, err := app.GH.GetPR(ctx, app.Repo.FullName, st.PRNumber)
+		// GitHub needs a moment to report the new head; a single read is not
+		// enough and used to abort a repair round whose push had succeeded.
+		refreshed, err := waitForPRHead(ctx, app, st.PRNumber, sha, 2*time.Minute)
 		if err != nil {
 			return verdict, rounds, fmt.Errorf("get PR after CI repair: %w", err)
 		}
@@ -2167,6 +2173,7 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 				app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 					state.Phase = "blocked"
 					state.BlockedReason = reason
+					state.BlockedByCI = true
 				})
 				app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
 				_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
@@ -2289,6 +2296,7 @@ func blockIssue(ctx context.Context, app *AppContext, number int, err error) {
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "blocked"
 		state.BlockedReason = message
+		state.BlockedByCI = false
 	})
 	app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
 	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,

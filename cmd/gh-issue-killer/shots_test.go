@@ -47,17 +47,22 @@ func TestComposeBeforeAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 100 + 20px gap + 80, padded to the taller 70px height.
-	if img.Bounds().Dx() != 200 || img.Bounds().Dy() != 70 {
-		t.Fatalf("combined size = %dx%d", img.Bounds().Dx(), img.Bounds().Dy())
+	// Full width of the wider image, stacked: 50 + 20px gap + 70.
+	if img.Bounds().Dx() != 100 || img.Bounds().Dy() != 140 {
+		t.Fatalf("combined size = %dx%d, want 100x140", img.Bounds().Dx(), img.Bounds().Dy())
 	}
-	// The gutter is light grey and carries a dark divider down the middle.
-	r, _, _, _ := img.At(102, 35).RGBA()
-	if r>>8 < 0xd0 {
+	// Before on top, after below the gutter.
+	if r, _, _, _ := img.At(10, 10).RGBA(); r>>8 < 0xf0 {
+		t.Fatalf("before image should be at the top, got %#x", r>>8)
+	}
+	if _, _, b, _ := img.At(10, 80).RGBA(); b>>8 < 0xf0 {
+		t.Fatalf("after image should be below the gutter, got %#x", b>>8)
+	}
+	// The gutter is light grey and carries a dark divider across it.
+	if r, _, _, _ := img.At(50, 52).RGBA(); r>>8 < 0xd0 {
 		t.Fatalf("gutter should be light grey, got %#x", r>>8)
 	}
-	r, g, b, _ := img.At(109, 35).RGBA()
-	if r>>8 > 0x80 || g>>8 > 0x80 || b>>8 > 0x80 {
+	if r, g, b, _ := img.At(50, 59).RGBA(); r>>8 > 0x80 || g>>8 > 0x80 || b>>8 > 0x80 {
 		t.Fatalf("divider should be dark, got %#x %#x %#x", r>>8, g>>8, b>>8)
 	}
 }
@@ -67,7 +72,7 @@ func TestScreenshotsMarkdown(t *testing.T) {
 	if md == "" {
 		t.Fatal("expected markdown")
 	}
-	for _, want := range []string{"顶部工具栏", "左：改动前", "https://example.com/a.png"} {
+	for _, want := range []string{"顶部工具栏", "上：改动前", "https://example.com/a.png"} {
 		if !contains(md, want) {
 			t.Fatalf("markdown missing %q: %s", want, md)
 		}
