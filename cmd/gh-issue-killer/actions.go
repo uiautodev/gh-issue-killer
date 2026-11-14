@@ -952,7 +952,7 @@ func settleCIGate(ctx context.Context, app *AppContext, issue Issue, pr PullRequ
 	}
 	reason := verdict.Note
 	if rounds > 0 {
-		reason = fmt.Sprintf("%s（已自动修复 %d 轮）", reason, rounds)
+		reason = fmt.Sprintf("%s（已自动尝试修复 %d 轮）", reason, rounds)
 	}
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 		state.Phase = "blocked"
@@ -1036,6 +1036,19 @@ func postMergePrompt(ctx context.Context, app *AppContext, number, rounds int) {
 // last verdict and how many agent repair rounds ran.
 func ciGateWithRepairs(ctx context.Context, app *AppContext, issue Issue, st IssueState, pr PullRequest) (ciVerdict, int, error) {
 	number := issue.Number
+	// A previous round may have left a commit in the worktree without pushing
+	// it (for example an agent that commits on its own). Publish it before
+	// gating, or the gate keeps checking the old head forever.
+	if st.Worktree != "" && pr.Head.SHA != "" {
+		if ahead, head := worktreeAheadOfPR(ctx, st.Worktree, app.Local, st.Branch, pr.Head.SHA); ahead {
+			app.Log.Info("publishing stranded commit %s for %s#%d", shortSHA(head), app.Repo.FullName, number)
+			if err := pushBranch(ctx, st.Worktree, app.Local, st.Branch); err == nil {
+				if refreshed, refreshErr := waitForPRHead(ctx, app, st.PRNumber, head, 2*time.Minute); refreshErr == nil {
+					pr = refreshed
+				}
+			}
+		}
+	}
 	verdict := waitForChecks(ctx, app, pr.Head.SHA, pr.Base.Ref, 10*time.Minute)
 	rounds := 0
 	approved := false
@@ -1060,12 +1073,13 @@ func ciGateWithRepairs(ctx context.Context, app *AppContext, issue Issue, st Iss
 			"不需要你操作：修完会重新检查，通过后继续合并。",
 		}, "\n"))
 		before := pr.Head.SHA
-		sha, err := ciRepairRound(ctx, app, issue, &st, rounds, verdict)
+		sha, changed, err := ciRepairRound(ctx, app, issue, &st, rounds, verdict)
 		if err != nil {
 			return verdict, rounds, err
 		}
-		if sha == "" {
-			app.Log.Warn("ci gate: repair round %d produced no commit", rounds)
+		if !changed {
+			app.Log.Warn("ci gate: repair round %d produced no change", rounds)
+			verdict.Note = fmt.Sprintf("%s（自动修复未产生改动）", verdict.Note)
 			break
 		}
 		refreshed, err := app.GH.GetPR(ctx, app.Repo.FullName, st.PRNumber)
@@ -1077,25 +1091,48 @@ func ciGateWithRepairs(ctx context.Context, app *AppContext, issue Issue, st Iss
 			app.Log.Warn("ci gate: repair round %d did not move the PR head", rounds)
 			break
 		}
+		app.Log.Info("ci gate: repair round %d pushed %s", rounds, shortSHA(sha))
 		waitForFreshCheckRuns(ctx, app, pr.Head.SHA, 3*time.Minute)
 		verdict = waitForChecks(ctx, app, pr.Head.SHA, pr.Base.Ref, 10*time.Minute)
 	}
 	return verdict, rounds, nil
 }
 
+// worktreeAheadOfPR reports whether the worktree HEAD is a descendant of the
+// given PR commit, i.e. it holds commits that were never pushed.
+func worktreeAheadOfPR(ctx context.Context, worktree string, local *LocalRepo, branch, prSHA string) (bool, string) {
+	head := headSHA(ctx, worktree, local.Env)
+	if head == "" || head == prSHA {
+		return false, ""
+	}
+	if _, err := gitWorktree(ctx, worktree, local.Env, 2*time.Minute, true, "fetch", local.HTTPSURL, branch); err != nil {
+		return false, ""
+	}
+	ancestor, err := gitWorktree(ctx, worktree, local.Env, 30*time.Second, true, "merge-base", "--is-ancestor", prSHA, "HEAD")
+	if err != nil || ancestor.Code != 0 {
+		return false, ""
+	}
+	return true, head
+}
+
 // ciRepairRound runs the coding agent once in the PR's worktree with the
 // blocking checks as input, then commits and pushes the result. It returns the
 // new head SHA, or "" when the agent left the tree untouched.
-func ciRepairRound(ctx context.Context, app *AppContext, issue Issue, st *IssueState, round int, verdict ciVerdict) (string, error) {
+// ciRepairRound runs the coding agent once in the PR's worktree with the
+// blocking checks as input, then commits and pushes the result. It reports
+// whether the round actually produced a change; an agent that commits on its
+// own is handled too.
+func ciRepairRound(ctx context.Context, app *AppContext, issue Issue, st *IssueState, round int, verdict ciVerdict) (string, bool, error) {
 	worktree := st.Worktree
 	if _, err := os.Stat(filepath.Join(worktree, ".git")); err != nil {
-		return "", fmt.Errorf("worktree %s is gone: %w", worktree, err)
+		return "", false, fmt.Errorf("worktree %s is gone: %w", worktree, err)
 	}
+	beforeHead := headSHA(ctx, worktree, app.Env)
 	runDir := runDirFor(app, issue.Number)
 	_ = os.MkdirAll(filepath.Join(runDir, "screenshots"), 0o755)
 	runner, err := newCodingRunner(app.Repo.CodingAgent)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	prompt, err := renderPrompt("ci_fix", map[string]string{
 		"REPO":     app.Repo.FullName,
@@ -1111,7 +1148,7 @@ func ciRepairRound(ctx context.Context, app *AppContext, issue Issue, st *IssueS
 		"FAILURES": ciFailureReport(ctx, app, verdict),
 	})
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	app.Log.Info("ci repair start for %s#%d round %d", app.Repo.FullName, issue.Number, round)
 	result, err := runner.Run(ctx, RunnerOptions{
@@ -1126,7 +1163,7 @@ func ciRepairRound(ctx context.Context, app *AppContext, issue Issue, st *IssueS
 		Log:       app.Log,
 	})
 	if err != nil {
-		return "", fmt.Errorf("ci repair agent: %w", err)
+		return "", false, fmt.Errorf("ci repair agent: %w", err)
 	}
 	sessionID := firstNonEmpty(result.SessionID, st.SessionID)
 	if sessionID != "" {
@@ -1136,25 +1173,33 @@ func ciRepairRound(ctx context.Context, app *AppContext, issue Issue, st *IssueS
 		})
 	}
 	if issueCancelled(app, issue.Number) {
-		return "", nil
+		return "", false, nil
 	}
-	if gitStatus(ctx, worktree, app.Env) == "" {
-		return "", nil
+	dirty := gitStatus(ctx, worktree, app.Env) != ""
+	head := headSHA(ctx, worktree, app.Env)
+	if !dirty && head == beforeHead {
+		return "", false, nil
 	}
 	checkResults, ok := runChecksWithFixes(ctx, app, runner, sessionID, worktree, runDir)
 	app.Store.UpdateIssue(app.Repo.FullName, issue.Number, func(state *IssueState) {
 		state.Checks = checkResults
 	})
 	if !ok {
-		return "", fmt.Errorf("local checks still fail after CI repair round %d", round)
+		return "", false, fmt.Errorf("local checks still fail after CI repair round %d", round)
 	}
-	if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("fix: make CI green for #%d", issue.Number)); err != nil {
-		return "", fmt.Errorf("commit CI repair: %w", err)
+	if gitStatus(ctx, worktree, app.Env) != "" {
+		if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("fix: make CI green for #%d", issue.Number)); err != nil {
+			return "", false, fmt.Errorf("commit CI repair: %w", err)
+		}
+	}
+	finalHead := headSHA(ctx, worktree, app.Env)
+	if finalHead == beforeHead {
+		return "", false, nil
 	}
 	if err := pushBranch(ctx, worktree, app.Local, st.Branch); err != nil {
-		return "", fmt.Errorf("push CI repair: %w", err)
+		return "", false, fmt.Errorf("push CI repair: %w", err)
 	}
-	return headSHA(ctx, worktree, app.Env), nil
+	return finalHead, true, nil
 }
 
 // approveWaitingRuns starts workflow runs that sit at action_required, which is
@@ -1450,7 +1495,7 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 			if !verdict.OK {
 				reason := verdict.Note
 				if rounds > 0 {
-					reason = fmt.Sprintf("%s（已自动修复 %d 轮）", reason, rounds)
+					reason = fmt.Sprintf("%s（已自动尝试修复 %d 轮）", reason, rounds)
 				}
 				app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 					state.Phase = "blocked"

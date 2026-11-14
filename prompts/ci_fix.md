@@ -40,6 +40,8 @@ do not need to change anything; the harness approves it.
 
 - Work only in this worktree. Do not open another PR and do not switch branch.
 - Keep the change as small as possible; it is a CI repair, not a refactor.
+- Leave your edits uncommitted: do not run `git commit` or `git push`, the
+  harness runs the checks and publishes the commit for you.
 - Run the checks and update `{{RUN_DIR}}/checks.json` if the commands changed.
 - Do not commit logs, build artifacts or screenshots.
 - Finish by writing `{{RUN_DIR}}/result.json` with the same schema as before,

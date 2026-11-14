@@ -248,9 +248,15 @@ worktree and local branch, set `done`.
    the same check fails on the base branch (retired runner, missing Python
    version, deprecated actions) and the code otherwise.
 3. Local checks must pass, then the result is committed, pushed and re-gated.
+   A round counts as changed when the worktree is dirty **or** the agent
+   committed on its own (`HEAD` moved), so an agent that runs `git commit`
+   cannot be mistaken for “nothing happened”. Before gating, a worktree that is
+   ahead of the PR head (a stranded commit from an earlier round) is pushed
+   first, otherwise the gate would keep checking the old head.
 
-A round that produces no commit, or does not move the PR head, ends the loop.
-Exhausting the budget parks the issue as `blocked`.
+A round that truly produces no change annotates the verdict with
+`（自动修复未产生改动）` and ends the loop. Exhausting the budget parks the issue
+as `blocked` and the message says how many attempts ran.
 
 ## 10. Checks, manifest and screenshots
 
@@ -337,6 +343,7 @@ keeps tests quiet. Notable coverage:
 | --- | --- |
 | `waitforchecks_test.go` | verdict, fail-fast, stuck, required checks, base flags, approval, log report |
 | `conflict_test.go` | conflict detection, merge-API error classification, `conflictedFiles` on a real repo |
+| `cirepair_test.go` | worktree-ahead detection used to publish a stranded repair commit |
 | `router_ci_test.go` | the CI queue does not block work; cancel stops CI jobs |
 | `gh_test.go` | label transitions and GitHub helpers |
 | `main_test.go` | proxy/env parsing, repo normalization, mentions and commands, closable phases |
