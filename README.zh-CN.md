@@ -104,7 +104,8 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 ./bin/gh-issue-killer -status    # pid、配置、日志和状态路径
 ```
 
-完整的部署、运维、升级和排障见 [DEPLOY.md](DEPLOY.md)。
+完整的部署、运维、升级和排障见 [DEPLOY.md](DEPLOY.md)；内部实现、状态机、队列
+和 CI 门禁见 [DEVELOP.md](DEVELOP.md)，贡献/agent 规则见 [AGENTS.md](AGENTS.md)。
 
 ## 日常使用
 

@@ -122,7 +122,8 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 ```
 
 Full deployment, operations, upgrades and troubleshooting:
-[DEPLOY.md](DEPLOY.md).
+[DEPLOY.md](DEPLOY.md). Internals, the state machine, queues and the CI gate:
+[DEVELOP.md](DEVELOP.md); contributor/agent rules: [AGENTS.md](AGENTS.md).
 
 ## Daily use
 
