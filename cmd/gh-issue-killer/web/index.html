@@ -317,6 +317,10 @@
     border-left: 2px solid var(--blocked); padding: 6px 10px; background: rgba(224,96,78,.07);
     color: var(--text); font-size: 11px; white-space: pre-wrap; margin: 8px 0;
   }
+  .owner-note {
+    border-left: 2px solid var(--work); padding: 8px 10px; background: rgba(240,165,63,.08);
+    color: var(--text); font-size: 11.5px; white-space: pre-wrap; margin: 8px 0;
+  }
   .checks { width: 100%; border-collapse: collapse; font-size: 11px; }
   .checks th, .checks td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
   .checks th { color: var(--dim); font-weight: 500; }
@@ -1034,6 +1038,11 @@
       body.appendChild(shots);
     }
 
+    if (issue.extraNotes) {
+      body.appendChild(text("h3", "批准附注"));
+      body.appendChild(text("div", issue.extraNotes, "owner-note"));
+    }
+
     if (issue.plan) {
       body.appendChild(text("h3", "计划"));
       const plan = renderMarkdown(issue.plan);
@@ -1144,7 +1153,7 @@
         if (task) $("d-title").textContent = task.title;
         const issue = await fetch(`/api/issue?repo=${encodeURIComponent(state.selected.repo)}&number=${state.selected.number}`).then((r) => r.ok ? r.json() : null);
         if (issue) {
-          const sig = JSON.stringify([issue.phase, issue.blockedReason, (issue.checks || []).map((c) => [c.name, c.ok]), (issue.screenshots || []).length]);
+          const sig = JSON.stringify([issue.phase, issue.blockedReason, issue.extraNotes, (issue.checks || []).map((c) => [c.name, c.ok]), (issue.screenshots || []).length]);
           if (sig !== state.drawerSig) {
             state.drawerSig = sig;
             renderDrawer(issue, task || { repo: state.selected.repo, number: state.selected.number });

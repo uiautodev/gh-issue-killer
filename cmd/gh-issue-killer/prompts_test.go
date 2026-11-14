@@ -20,6 +20,16 @@ func TestEmbeddedPrompts(t *testing.T) {
 	}
 }
 
+func TestImplementPromptIncludesOwnerNotes(t *testing.T) {
+	text, err := renderPrompt("implement", map[string]string{"NOTES": "use an Android emulator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "use an Android emulator") {
+		t.Fatal("owner notes missing from the implement prompt")
+	}
+}
+
 func TestRenderPromptReplacesPlaceholders(t *testing.T) {
 	text, err := renderPrompt("fix", map[string]string{"WORKTREE": "/tmp/worktree"})
 	if err != nil {

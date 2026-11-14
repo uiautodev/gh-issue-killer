@@ -44,6 +44,38 @@ func resolveCommand(body string, isApprover bool, agentLogin string) string {
 	return ""
 }
 
+// approvalWords are the English words that approve a plan when they open a
+// comment. The rest of the comment becomes extra instructions for the coding
+// stage.
+var approvalWords = []string{"okay", "continue", "approve", "lgtm", "yes", "ok", "go"}
+
+// approvalWithNotes recognizes "<approval word> <extra instructions>" after
+// the mention. The word must be the first token and must not run into another
+// Latin word ("good" is not "go").
+func approvalWithNotes(body, agentLogin string) (bool, string) {
+	if !isMention(body, agentLogin) {
+		return false, ""
+	}
+	text := strings.TrimSpace(stripMention(body, agentLogin))
+	text = strings.TrimLeft(text, " \t\r\n!！。.,，~～…、:：;；-—")
+	lower := strings.ToLower(text)
+	for _, word := range approvalWords {
+		if !strings.HasPrefix(lower, word) {
+			continue
+		}
+		rest := text[len(word):]
+		if rest != "" {
+			next := []rune(rest)[0]
+			if next < 128 && (next == '_' || (next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z') || (next >= '0' && next <= '9')) {
+				continue
+			}
+		}
+		notes := strings.TrimLeft(rest, " \t\r\n!！。.,，~～…、:：;；-—")
+		return true, strings.TrimRight(notes, " \t\r\n")
+	}
+	return false, ""
+}
+
 func stripMention(text, login string) string {
 	if login == "" {
 		return text
@@ -710,6 +742,37 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 				}
 			})
 			return
+		}
+
+		// "<approval word> <instructions>" on a pending plan starts the work and
+		// forwards the rest of the comment to the coding stage.
+		if command == "" && mentioned && isApprover && (st.Phase == "awaiting_approval" || st.Phase == "blocked") {
+			if approved, notes := approvalWithNotes(trigger.CommentBody, r.agentLogin); approved {
+				app.GH.SetAgentState(ctx, fullName, trigger.IssueNumber, workingLabel)
+				r.enqueue(fullName, key, stageWork, func(jobCtx context.Context) {
+					issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
+					if err != nil {
+						blockIssue(jobCtx, app, trigger.IssueNumber, err)
+						return
+					}
+					if issue.State != "open" {
+						return
+					}
+					current := r.store.Issue(fullName, trigger.IssueNumber)
+					if current.Phase != "awaiting_approval" && current.Phase != "blocked" {
+						return
+					}
+					app.Store.UpdateIssue(fullName, trigger.IssueNumber, func(state *IssueState) {
+						state.ExtraNotes = notes
+					})
+					current = r.store.Issue(fullName, trigger.IssueNumber)
+					if notes != "" {
+						app.Log.Info("owner approved %s#%d with instructions: %s", fullName, trigger.IssueNumber, notes)
+					}
+					doImplement(jobCtx, app, trigger, issue, current)
+				})
+				return
+			}
 		}
 
 		// Feedback on a pending plan rewrites the plan instead of being dropped.

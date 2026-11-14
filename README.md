@@ -128,6 +128,11 @@ merges (nothing for you to do), and `agent:awaiting-approval` only while it is
 actually waiting for you. Approving clears the waiting label immediately, even
 while the implementation is still queued behind another issue.
 
+You can append instructions to an approval: `@agent ok use an Android emulator
+for the test` starts the implementation and forwards the rest of the sentence
+to the coding agent. Approval words are `ok`, `okay`, `lgtm`, `go`, `continue`,
+`yes` and `approve`.
+
 Commands must come from an approver, mention the agent, and be the **whole
 comment** — “把按钮合并到 input-group 里” never merges anything. Any other
 comment that mentions the agent is treated as feedback. A daemon restart

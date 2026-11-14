@@ -406,3 +406,31 @@ func TestRouterPoolsArePerRepo(t *testing.T) {
 		t.Fatal("repo b was blocked by repo a")
 	}
 }
+
+func TestApprovalWithNotes(t *testing.T) {
+	cases := []struct {
+		body  string
+		ok    bool
+		notes string
+	}{
+		{"@bot ok 不过你需要用Android 虚拟机测试一下。", true, "不过你需要用Android 虚拟机测试一下。"},
+		{"@bot ok", true, ""},
+		{"@bot okay!", true, ""},
+		{"@bot lgtm", true, ""},
+		{"@bot go 补个单测", true, "补个单测"},
+		{"@bot continue 继续改", true, "继续改"},
+		{"@bot approve", true, ""},
+		{"@bot goodex", false, ""},
+		{"@bot 可以。另外补个单测", false, ""},
+		{"@bot 这个方案有问题", false, ""},
+		{"@bot ok, but keep it small", true, "but keep it small"},
+		{"@bot OK 不过...", true, "不过..."},
+		{"lgtm 但没有提到我", false, ""},
+	}
+	for _, c := range cases {
+		ok, notes := approvalWithNotes(c.body, "bot")
+		if ok != c.ok || notes != c.notes {
+			t.Fatalf("approvalWithNotes(%q) = %v, %q; want %v, %q", c.body, ok, notes, c.ok, c.notes)
+		}
+	}
+}

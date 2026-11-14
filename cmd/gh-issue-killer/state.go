@@ -44,6 +44,7 @@ type IssueState struct {
 	LastCommentID     int64         `json:"lastCommentId,omitempty"`
 	ProcessedComments []int64       `json:"processedComments,omitempty"`
 	ProcessedFeedback []int64       `json:"processedFeedback,omitempty"`
+	ExtraNotes        string        `json:"extraNotes,omitempty"`
 	Branch            string        `json:"branch,omitempty"`
 	Worktree          string        `json:"worktree,omitempty"`
 	PRNumber          int           `json:"prNumber,omitempty"`

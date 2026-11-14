@@ -253,6 +253,7 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 	}
 	app.Store.UpdateIssue(app.Repo.FullName, number, func(st *IssueState) {
 		st.Phase = "awaiting_approval"
+		st.ExtraNotes = ""
 		st.Plan = plan
 		st.PlanCommentID = posted.ID
 		st.PRCommentID = 0
@@ -496,6 +497,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		"BODY":     firstNonEmpty(issue.Body, "(no description)"),
 		"COMMENTS": commentsBlock(comments),
 		"PLAN":     firstNonEmpty(st.Plan, "(missing plan, implement the issue directly)"),
+		"NOTES":    firstNonEmpty(strings.TrimSpace(st.ExtraNotes), "(none)"),
 	})
 	if err != nil {
 		blockIssue(ctx, app, number, err)

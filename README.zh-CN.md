@@ -114,6 +114,10 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 不用管），`agent:awaiting-approval` 只在确实需要你操作时出现。批准（评论或 👍）
 后会立刻摘掉待确认标签，即使实现任务还在排队等前一个 issue 跑完。
 
+批准时可以带指令：`@agent ok 用 Android 模拟器测试一下`，会直接进入实现，并把
+后半句作为附注交给编码 agent。批准词只有 `ok`、`okay`、`lgtm`、`go`、
+`continue`、`yes`、`approve`。
+
 命令必须来自 approver、@ 了 agent，并且**整条评论就是命令**——「把按钮合并到
 input-group 里」不会触发合并。其他 @ 了 agent 的评论会被当作反馈。daemon
 重启会自动续跑；agent 不会响应自己发的评论，也不会响应自己创建的 issue。

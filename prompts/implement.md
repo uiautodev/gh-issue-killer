@@ -19,6 +19,12 @@ Approved plan (already confirmed by the repo owner, implement exactly this):
 {{PLAN}}
 """
 
+The repo owner approved the plan with these additional instructions. They are
+part of the task:
+"""
+{{NOTES}}
+"""
+
 Hard rules:
 - Work only inside the worktree. Never touch other clones, ~/.config, or user data.
 - Follow AGENTS.md in the repo root if present, especially its testing requirements.
