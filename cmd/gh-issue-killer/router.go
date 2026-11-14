@@ -438,6 +438,7 @@ func (r *Router) handlePRFeedback(ctx context.Context, fullName string, prNumber
 // stage is skipped because the bug first has to be reproduced and then fixed.
 func (r *Router) startBugFix(app *AppContext, fullName string, number int, trigger Trigger) {
 	app.Log.Info("issue %s#%d is labelled bug; skipping the plan", fullName, number)
+	app.GH.SetAgentState(context.Background(), fullName, number, workingLabel)
 	key := fmt.Sprintf("%s#%d", fullName, number)
 	r.enqueue(fullName, key+"#bug", stageWork, func(jobCtx context.Context) {
 		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
