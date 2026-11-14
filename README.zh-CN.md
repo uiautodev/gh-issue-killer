@@ -18,55 +18,33 @@ flowchart LR
     E -- "通过" --> F["Squash merge"]
 ```
 
-本地检查和 PR 上的 CI 检查都会自动修 `maxFixRounds` 轮。CI 变红或卡死（job 排
-在已下线的 runner 上、镜像里没有对应 Python 版本）不再停下来等人：agent 会在
-同一个 PR 里改 workflow 或改代码，需要维护者审批的 workflow run 会被自动批准；
-只有轮次用完才会把 issue 停在 `blocked`，之后用 `@agent 合并` 还能继续。
+本地检查和 PR 上的 CI 检查失败会自动修，轮次用完才停在 `blocked`；关闭 issue 会
+取消任务并关掉 PR，重新打开会接着做。
 
-任何时候关闭 issue 都会取消任务并关掉 PR；重新打开会接着做。已经合并的
-issue 被重新打开时，会重新规划。
+## 解决什么问题
 
-```mermaid
-flowchart LR
-    W["planning · awaiting-approval<br/>implementing · pr-open"] -. "关闭 issue" .-> C["cancelled<br/>关 PR、删 worktree"]
-    C -. "重新打开<br/>计划保留" .-> W
-    D["done<br/>PR 已合并"] -. "重新打开" .-> N["重新规划"]
-```
+- **issue 堆着没人动。** 读需求、写计划、实现、验证占掉整块时间，PR 一直挂着。
+- **PR 的检查和冲突要人盯。** CI 变红、job 卡在已下线的 runner、分支冲突，都要你手动
+  查、手动修。
+- **agent 直接改工作区太危险。** 改到一半失败或跑到一半断开，工作区就脏了。
+- **仓库一多就互相堵。** 一个慢 CI 占住所有任务，只能给每个仓库再开一个 daemon。
 
 ## 它能做什么
 
-- **先出计划。** 被 @ 或被 assign 后，先在临时 worktree 里生成实现计划并发成
-  评论；你批准之前不写任何代码。
-- **bug 跳过计划。** 带 `bug` 标签的 issue 直接进入编码阶段：agent 先复现，
-  确认存在就修并补回归测试；复现不了就不改代码，直接回报原因、不开 PR。
-- **隔离实现。** 每个 issue 一个独立 worktree 和分支，不碰你的工作区；提交
-  作者是 bot 账号。
-- **自己验证。** 编码 agent 写下证明改动的命令（`checks.json`），daemon 负责
-  执行，失败自动让 agent 修 `maxFixRounds` 轮，全过才推送。UI 改动会附前后
-  对比截图，裁到改动区域，上下排列并带分隔线（手机上也看得清）。
-- **PR 与合并。** 自动开 PR，附上检查和截图，并立刻在**独立的 CI 队列**上开始盯
-  检查——再慢的 CI 也不占实现队列，其他 issue 照常往下做。等的时候会在 issue 里发
-  一条"正在等待 CI"的评论列出检查项；检查变红或卡死（runner 标签下线、镜像里没有
-  对应 Python 版本）就回到 agent 手里，在同一个 PR 里修 workflow 或修代码，等待
-  维护者审批的 workflow run 会自动批准；绿了之后才提示合并，只有修复轮次用完才会
-  停在 `blocked`。分支有冲突时会自动把主干合进来、交给 agent 解冲突、重跑检查，
-  通过后直接合并——不 rebase，也不需要你手动解冲突。
-- **反馈闭环。** 在已开的 PR 上 @ agent 提非命令类评论、留行内 review 评论或
-  review 正文，都会被当作评审意见，在同一个分支继续改。关闭 issue 等于取消并
-  关 PR；重新打开会恢复。
-- **实时 + 兜底。** webhook 通过 `smee.io` 中转（不需要公网入口），每个事件
-  都会先回 GitHub API 复核再执行；没有 hook 权限时自动退化为 30 秒轮询。
-- **重启安全。** daemon 重启会从中断的 worktree 自动续跑，不会把 issue 挂起。
-- **多仓库、每仓库独立 agent 和队列。** 一个 daemon 监控多个 repo，各自配置
-  `codingAgent` / model / approvers，规划和实现队列也相互独立，一个慢仓库不会
-  堵住别的仓库。
-- **单个静态二进制。** 只发起出站 HTTPS；运行时不需要 `curl`、`ffmpeg`、
-  ImageMagick 或 `gh`，只调用 `git`、一个编码 agent CLI 和 `/bin/sh`。
-- **实时看板。** 配置 `webPort` 后打开 `http://127.0.0.1:<port>`：每个仓库的
-  队列、正在跑的任务、每个 issue 的阶段进度、PR、检查、截图和 daemon 日志，
-  都在一块面板里。计划按 markdown 渲染，主题可跟随系统或固定日间/夜间，
-  任务列表可按项目过滤，详情里可以直接批准或取消任务；顶部显示“待我处理”的
-  任务数（待批准、待合并、被阻塞）。
+- **先计划，再动手。** 先发一条计划评论，批准前不写代码；带 `bug` 标签的 issue
+  直接复现、修复并补回归测试。
+- **每个 issue 一个 worktree。** 独立分支、bot 提交作者，永远不碰你的工作区，
+  重启后自动续跑。
+- **自己验证、自己修 CI。** 编码 agent 写下 `checks.json`，daemon 负责跑；失败、
+  CI 变红或卡住都回到 agent 手里，轮次用完才停在 `blocked`。
+- **一条评论驱动全程。** 批准、改 PR、解冲突、合并、取消都是评论或 👍；
+  任何被监听仓库的 PR 都能交给它。
+- **多仓库、互不阻塞。** 每个仓库有自己的 agent、model、approvers 和队列，
+  一个慢仓库堵不住别的。
+- **单个静态二进制。** 只发起出站 HTTPS，运行时只需要 `git`、一个编码 agent
+  CLI 和 `/bin/sh`。
+
+配置 `webPort` 后还能打开实时看板：每个仓库的队列、阶段进度、PR、检查和截图。
 
 ## 用编码 agent 安装
 
@@ -126,60 +104,28 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 | PR 公告评论上的 👍 | 等同 `@agent 合并` |
 | bot 那条「Review 已提交」评论上的 👍 | 按这条 review 的意见直接改 PR 并推送 |
 
-流程用两个标签表示状态：`agent:working` 表示 agent 正在规划、实现或合并（你
-不用管），`agent:awaiting-approval` 只在确实需要你操作时出现。批准（评论或 👍）
-后会立刻摘掉待确认标签，即使实现任务还在排队等前一个 issue 跑完。
-
-批准时可以带指令：`@agent ok 用 Android 模拟器测试一下`，会直接进入实现，并把
-后半句作为附注交给编码 agent。批准词只有 `ok`、`okay`、`lgtm`、`go`、
-`continue`、`yes`、`approve`。
-
-命令必须来自 approver、@ 了 agent，并且**整条评论就是命令**——「把按钮合并到
-input-group 里」不会触发合并。其他 @ 了 agent 的评论会被当作反馈。daemon
-重启会自动续跑；agent 不会响应自己发的评论，也不会响应自己创建的 issue。
-
-`review` 对**任何**被监听仓库的 PR 都可用，不只是 daemon 自己开的：它只读地
-checkout PR head，审 diff，然后以 GitHub review 的形式发一条总结 + 最多 10 条
-行内意见，不会向 PR 分支推送任何东西。
-
-在 PR 上 @ agent 并给一条指令，它就会直接改这个 PR：同仓库分支直接推；fork 来的
-PR 只有在作者勾选了 allow edits by maintainers 时才推，否则会在 PR 里说明原因。
+命令必须来自 approver、@ 了 agent，并且**整条评论就是命令**。批准词、状态标签
+和 review 的完整规则见 [DEPLOY.md](DEPLOY.md) 和 [DEVELOP.md](DEVELOP.md)。
 
 ## 配置
 
-`-init` 会生成下面的结构，手写也一样：
-
-```json
-{
-  "repos": ["your-org/app", "your-org/api"],
-  "codingAgent": "opencode",
-  "approvers": ["your-login"],
-  "proxy": ""
-}
+```bash
+./bin/gh-issue-killer -init      # 向导：仓库、agent、approvers、代理
 ```
 
-`codingAgent` 可选 `opencode`、`claude`、`codex`。`approvers` 是允许给 bot
-下指令的人类账号，不要把 bot 自己写进去。`proxy` 支持 `socks5h://`、
-`socks5://`、`http://`、`https://`，同时作用于 API 和 git。`language`
-默认 `auto`（跟随 issue / PR 的语言），同时作用于 daemon 自己的标题和提示文字；
-也可以设成 `en`、`zh-CN`、`ja` 等强制一种（中文/英文有内置文案，其它语言回退英文）。
-
-完整配置项、按仓库覆盖以及各 agent 的调用方式见
+`-init` 会写好配置；手写就是同样的 `repos` / `codingAgent` / `approvers` /
+`proxy` 字段。完整配置项（`language`、`webPort`、每仓库覆盖、保存即重载）见
 [DEPLOY.md](DEPLOY.md#41-configuration-reference)。
-
-daemon 用系统文件通知（inotify / kqueue）监听这个文件：保存一份合法配置后，会在
-当前任务结束后原地重载（PID 不变）；写错的配置只记录日志，不影响正在运行的实例。
 
 ## 开发
 
 ```bash
-pre-commit install    # 每次提交跑 gofmt、vet、test、build 和 1 MB 大文件检查
 go test ./...
+go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 ```
 
-发布：打一个 `v*` tag（例如 `git tag v0.1.0 && git push --tags`），GitHub
-Actions 会跑测试、交叉编译 linux/darwin 的 amd64+arm64 包、注入版本号，并把
-压缩包和校验和发布到 GitHub Release。prompts 已内嵌进二进制，压缩包可直接运行。
+内部实现和发版（打 `v*` tag）见 [DEVELOP.md](DEVELOP.md)，贡献规则见
+[AGENTS.md](AGENTS.md)。
 
 ## License
 [MIT](LICENSE)
