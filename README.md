@@ -135,6 +135,7 @@ Open an issue that mentions the bot (or assign it to the bot). Then:
 | --- | --- |
 | `@agent lgtm`, `@agent continue`, `@agent 继续` | approve the plan (or retry after blocked) |
 | `@agent 合并`, `@agent merge`, `@agent ship` | squash merge the PR, close issue + PR, clean the worktree |
+| `@agent review`, `@agent cr` (on a pull request) | review that PR's diff and post a summary plus inline findings |
 | `@agent cancel`, `@agent stop`, `@agent 停止` | abort the current task |
 | 👍 on the plan comment | same as `@agent lgtm` |
 | 👍 on the PR-announcement comment | same as `@agent 合并` |
@@ -154,6 +155,11 @@ comment** — “把按钮合并到 input-group 里” never merges anything. An
 comment that mentions the agent is treated as feedback. A daemon restart
 resumes interrupted work automatically; the agent never triggers on its own
 comments or issues.
+
+`review` works on any pull request in a watched repository, not only the ones
+this daemon opened: it checks out the PR head read-only, reviews the diff, and
+posts a GitHub review with a summary and up to 10 inline comments. It never
+pushes to the PR branch.
 
 ## Configuration
 

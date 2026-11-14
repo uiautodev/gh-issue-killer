@@ -143,13 +143,17 @@ is re-read from the API before acting, and deliveries are de-duplicated.
 | `lgtm`, `continue`, `继续`, 👍 reaction on the plan/PR comment | approve / merge |
 | `合并`, `merge`, `ship` | merge |
 | `cancel`, `stop`, `停止` | cancel |
+| `review`, `review pr`, `cr`, `审查` (the target is a pull request) | review the PR and post a GitHub review |
 | `<approval word> <free text>` (`ok`, `yes`, `go`, …) | approve **and** forward the rest as `ExtraNotes` to the implementation |
 
 Other rules:
 
 - A mention on an issue in phase `new`/empty starts planning; `bug`-labelled
   issues skip the plan and go straight to implementation with reproduction
-  instructions (`bugInstructions`).
+  instructions (`bugInstructions`). A mention on a pull request never plans.
+- `review` is the only command that targets a PR directly. It works for any PR
+  in a watched repo, not only the daemon's own, and runs on the plan queue with
+  its own job key (`<repo>#<pr>#review`).
 - A non-command comment that mentions the agent, an inline review comment or a
   review body on an open PR becomes `doRevise` (feedback on the same branch).
 - Closing an issue cancels the task and closes the PR; reopening resumes. A
@@ -200,6 +204,14 @@ posts the plan comment, stores `Plan`, `PlanCommentID`, `SessionID`, sets
 **Revise** (`doRevise`) — same worktree and agent session, prompt `revise.md`
 with the feedback text, local checks with fixes, commit/push, comment, then the
 same CI settle.
+
+**Review** (`doReviewPR`) — read-only and independent of the issue flow. It
+fetches `refs/pull/<n>/head` (works for fork PRs), checks it out in a detached
+worktree, runs the agent with `review.md` and reads `review.json`
+(`verdict`, `summary`, `comments[]`), then posts a GitHub review
+(`POST /pulls/{n}/reviews`) with up to 10 inline comments. If GitHub rejects a
+line that is not in the diff, it retries with the findings listed in the body.
+Nothing is ever pushed and the worktree is removed afterwards.
 
 **CI settle** (`settleCIGate`, runs on the CI queue) — if the repo has no
 workflows it returns immediately; otherwise it waits briefly for the new check
@@ -344,6 +356,7 @@ keeps tests quiet. Notable coverage:
 | `waitforchecks_test.go` | verdict, fail-fast, stuck, required checks, base flags, approval, log report |
 | `conflict_test.go` | conflict detection, merge-API error classification, `conflictedFiles` on a real repo |
 | `cirepair_test.go` | worktree-ahead detection used to publish a stranded repair commit |
+| `review_test.go` | review command parsing, `review.json` loading, inline filtering, fallback body, review API payload |
 | `router_ci_test.go` | the CI queue does not block work; cancel stops CI jobs |
 | `gh_test.go` | label transitions and GitHub helpers |
 | `main_test.go` | proxy/env parsing, repo normalization, mentions and commands, closable phases |
@@ -388,6 +401,7 @@ must stay clean; `gofmt -l .` must print nothing.
 | --- | --- |
 | a phase, its transitions, or `IssueState` fields | §5 |
 | a command keyword, 👍 handling, lifecycle rules | §6 |
+| the PR review command, `review.md`, review posting | §6, §8 and §17 |
 | queue stages, worker counts, job keys, cancel/wait rules | §7 |
 | a stage’s steps or post conditions | §8 |
 | the CI gate, stuck detection, repair loop, `ci_fix` prompt | §9 |

@@ -123,6 +123,7 @@ type PullRequest struct {
 	Body           string `json:"body"`
 	Mergeable      *bool  `json:"mergeable"`
 	MergeableState string `json:"mergeable_state"`
+	User           User   `json:"user"`
 	Head           struct {
 		Ref string `json:"ref"`
 		SHA string `json:"sha"`
@@ -464,6 +465,31 @@ func (g *GH) ListReviewComments(ctx context.Context, fullName string, prNumber i
 func (g *GH) GetReview(ctx context.Context, fullName string, prNumber int, reviewID int64) (Review, error) {
 	var review Review
 	err := g.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d", fullName, prNumber, reviewID), nil, &review)
+	return review, err
+}
+
+type PRReviewComment struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Side string `json:"side,omitempty"`
+	Body string `json:"body"`
+}
+
+// CreatePRReview submits a review. Inline comments are optional: a caller can
+// retry without them when GitHub rejects a line that is not in the diff.
+func (g *GH) CreatePRReview(ctx context.Context, fullName string, number int, commitID, body, event string, comments []PRReviewComment) (Review, error) {
+	var review Review
+	payload := map[string]any{
+		"body":  body,
+		"event": event,
+	}
+	if commitID != "" {
+		payload["commit_id"] = commitID
+	}
+	if len(comments) > 0 {
+		payload["comments"] = comments
+	}
+	err := g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/pulls/%d/reviews", fullName, number), payload, &review)
 	return review, err
 }
 

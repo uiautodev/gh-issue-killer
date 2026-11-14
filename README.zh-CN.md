@@ -116,6 +116,7 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 | --- | --- |
 | `@agent lgtm`、`@agent continue`、`@agent 继续` | 批准计划（或 blocked 后重试） |
 | `@agent 合并`、`@agent merge`、`@agent ship` | squash merge PR，关 issue + PR，清理 worktree |
+| `@agent review`、`@agent cr`（在 PR 上） | 审查这个 PR 的 diff，发表总结 + 行内意见 |
 | `@agent cancel`、`@agent stop`、`@agent 停止` | 中止当前任务 |
 | plan 评论上的 👍 | 等同 `@agent lgtm` |
 | PR 公告评论上的 👍 | 等同 `@agent 合并` |
@@ -131,6 +132,10 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 命令必须来自 approver、@ 了 agent，并且**整条评论就是命令**——「把按钮合并到
 input-group 里」不会触发合并。其他 @ 了 agent 的评论会被当作反馈。daemon
 重启会自动续跑；agent 不会响应自己发的评论，也不会响应自己创建的 issue。
+
+`review` 对**任何**被监听仓库的 PR 都可用，不只是 daemon 自己开的：它只读地
+checkout PR head，审 diff，然后以 GitHub review 的形式发一条总结 + 最多 10 条
+行内意见，不会向 PR 分支推送任何东西。
 
 ## 配置
 

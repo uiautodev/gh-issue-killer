@@ -149,6 +149,29 @@ func createDetachedWorktree(ctx context.Context, local *LocalRepo, suffix string
 	return dir, err
 }
 
+// fetchPullRequestHead fetches refs/pull/<n>/head into a local ref. GitHub
+// exposes that ref for fork pull requests too, which the branch name cannot.
+func fetchPullRequestHead(ctx context.Context, local *LocalRepo, number int) (string, error) {
+	ref := fmt.Sprintf("refs/remotes/pr/%d", number)
+	_, err := gitRun(ctx, local, 5*time.Minute, false,
+		"fetch", local.HTTPSURL, fmt.Sprintf("+refs/pull/%d/head:%s", number, ref))
+	if err != nil {
+		return "", err
+	}
+	return ref, nil
+}
+
+// createDetachedWorktreeAt checks out an arbitrary ref for a read-only task
+// such as a pull request review.
+func createDetachedWorktreeAt(ctx context.Context, local *LocalRepo, suffix, ref string) (string, error) {
+	dir := filepath.Join(tmpDir(), fmt.Sprintf("%s-%d", suffix, time.Now().UnixNano()))
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return "", err
+	}
+	_, err := gitRun(ctx, local, 2*time.Minute, false, "worktree", "add", "--detach", dir, ref)
+	return dir, err
+}
+
 func removeWorktree(ctx context.Context, local *LocalRepo, dir string, force bool) {
 	args := []string{"worktree", "remove"}
 	if force {

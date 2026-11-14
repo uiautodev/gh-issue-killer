@@ -40,6 +40,8 @@ func resolveCommand(body string, isApprover bool, agentLogin string) string {
 		return "merge"
 	case "cancel", "stop", "停止":
 		return "cancel"
+	case "review", "review pr", "cr", "审查":
+		return "review"
 	}
 	return ""
 }
@@ -829,6 +831,32 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 			return
 		}
 
+		if command == "review" && isApprover {
+			reviewKey := fmt.Sprintf("%s#%d#review", fullName, trigger.IssueNumber)
+			r.enqueue(fullName, reviewKey, stagePlan, func(jobCtx context.Context) {
+				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
+				if err != nil {
+					app.Log.Warn("review %s#%d: %v", fullName, trigger.IssueNumber, err)
+					return
+				}
+				if issue.State != "open" {
+					return
+				}
+				if issue.PullRequest == nil {
+					_, _ = app.GH.PostComment(jobCtx, fullName, trigger.IssueNumber,
+						fmt.Sprintf("`review` 只用于 pull request；要让 agent 实现这个 issue，直接 @%s 描述需求即可。", r.agentLogin))
+					return
+				}
+				pr, err := app.GH.GetPR(jobCtx, fullName, trigger.IssueNumber)
+				if err != nil {
+					app.Log.Warn("review %s#%d: get PR: %v", fullName, trigger.IssueNumber, err)
+					return
+				}
+				doReviewPR(jobCtx, app, trigger, pr)
+			})
+			return
+		}
+
 		if mentioned && (st.Phase == "" || st.Phase == "new") {
 			r.enqueue(fullName, key, stagePlan, func(jobCtx context.Context) {
 				issue, err := app.GH.GetIssue(jobCtx, fullName, trigger.IssueNumber)
@@ -837,6 +865,10 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 					return
 				}
 				if issue.State != "open" {
+					return
+				}
+				if issue.PullRequest != nil {
+					app.Log.Info("ignoring issue-style comment on pull request %s#%d; use @%s review", fullName, trigger.IssueNumber, r.agentLogin)
 					return
 				}
 				if isRelevantIssue(issue, r.agentLogin) || mentioned {
