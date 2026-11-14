@@ -7,8 +7,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+  try { document.documentElement.dataset.theme = localStorage.getItem("ghik-theme") || "auto"; } catch (_) { document.documentElement.dataset.theme = "auto"; }
+</script>
 <style>
   :root {
+    color-scheme: dark;
     --ink: #0c161a;
     --ink-2: #102126;
     --panel: #13272d;
@@ -25,6 +29,42 @@
     --focus: #f4c877;
     --sans: "Barlow Condensed", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
     --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --ink: #eef2ee;
+    --ink-2: #e4ebe5;
+    --panel: #dde6df;
+    --rule: #b6c6bf;
+    --rule-soft: #cdd9d2;
+    --text: #14262b;
+    --muted: #445d63;
+    --dim: #566f74;
+    --work: #9a5b00;
+    --wait: #0d6f83;
+    --blocked: #b33527;
+    --done: #2f7a58;
+    --idle: #6f8a8e;
+    --focus: #9a5b00;
+  }
+  @media (prefers-color-scheme: light) {
+    :root[data-theme="auto"] {
+      color-scheme: light;
+      --ink: #eef2ee;
+      --ink-2: #e4ebe5;
+      --panel: #dde6df;
+      --rule: #b6c6bf;
+      --rule-soft: #cdd9d2;
+      --text: #14262b;
+      --muted: #445d63;
+      --dim: #566f74;
+      --work: #9a5b00;
+      --wait: #0d6f83;
+      --blocked: #b33527;
+      --done: #2f7a58;
+      --idle: #6f8a8e;
+      --focus: #9a5b00;
+    }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -72,6 +112,13 @@
     max-width: 40ch;
   }
   .status-strip { display: flex; gap: 18px; margin-left: auto; flex-wrap: wrap; }
+  .theme { display: flex; gap: 0; border: 1px solid var(--rule); align-self: flex-start; }
+  .theme button {
+    padding: 3px 9px; font-size: 10.5px; color: var(--muted); border-left: 1px solid var(--rule);
+  }
+  .theme button:first-child { border-left: 0; }
+  .theme button[aria-pressed="true"] { background: var(--rule-soft); color: var(--text); }
+  .theme button:hover { color: var(--text); }
   .stat { display: flex; flex-direction: column; gap: 2px; min-width: 74px; }
   .stat b {
     font-family: var(--sans);
@@ -263,9 +310,39 @@
   .checks details summary { cursor: pointer; color: var(--muted); }
   .checks pre { white-space: pre-wrap; word-break: break-word; font-size: 10px; color: var(--muted); margin: 6px 0 0; }
   .plan {
-    white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.7;
-    background: var(--ink); border: 1px solid var(--rule-soft); padding: 12px; max-height: 340px; overflow: auto;
+    background: var(--ink); border: 1px solid var(--rule-soft); padding: 12px 14px;
+    max-height: 420px; overflow: auto; font-size: 11.5px; line-height: 1.7;
   }
+  .md > :first-child { margin-top: 0; }
+  .md > :last-child { margin-bottom: 0; }
+  .md h2, .md h3, .md h4, .md h5, .md h6 {
+    font-family: var(--sans); font-weight: 600; color: var(--text);
+    letter-spacing: .04em; margin: 18px 0 6px; line-height: 1.25;
+  }
+  .md h2 { font-size: 17px; }
+  .md h3 { font-size: 15px; }
+  .md h4, .md h5, .md h6 { font-size: 13px; }
+  .md p { margin: 0 0 10px; }
+  .md ul, .md ol { margin: 0 0 10px; padding-left: 20px; }
+  .md li { margin: 2px 0; }
+  .md li > p { margin: 0; }
+  .md code {
+    font-family: var(--mono); font-size: 10.5px; background: var(--ink-2);
+    border: 1px solid var(--rule-soft); padding: 0 3px; overflow-wrap: anywhere;
+  }
+  .md pre {
+    background: var(--ink-2); border: 1px solid var(--rule-soft); padding: 9px 10px;
+    overflow: auto; margin: 0 0 10px;
+  }
+  .md pre code { background: none; border: 0; padding: 0; font-size: 10.5px; }
+  .md blockquote {
+    margin: 0 0 10px; padding: 4px 12px; border-left: 2px solid var(--rule); color: var(--muted);
+  }
+  .md hr { border: 0; border-top: 1px solid var(--rule); margin: 14px 0; }
+  .md a { color: var(--wait); }
+  .md table { border-collapse: collapse; width: 100%; margin: 0 0 10px; }
+  .md th, .md td { border: 1px solid var(--rule-soft); padding: 4px 6px; text-align: left; }
+  .md th { color: var(--muted); font-weight: 500; }
   .shots { display: grid; gap: 10px; }
   .shots figure { margin: 0; }
   .shots img { width: 100%; border: 1px solid var(--rule); display: block; }
@@ -299,6 +376,11 @@
       <div class="stat"><b id="s-queued">0</b><small>QUEUED</small></div>
       <div class="stat"><b id="s-repos">0</b><small>REPOS</small></div>
       <div class="stat"><b id="s-uptime">0m</b><small>UPTIME</small></div>
+    </div>
+    <div class="theme" role="group" aria-label="主题">
+      <button data-theme="auto">自动</button>
+      <button data-theme="light">日</button>
+      <button data-theme="dark">夜</button>
     </div>
     <div class="meters">
       <div class="meter">
@@ -403,6 +485,192 @@
     "done": { label: "已完成", cls: "done", step: 6 },
     "cancelled": { label: "已取消", cls: "idle", step: 0 },
   };
+
+  const THEME_KEY = "ghik-theme";
+
+  function applyTheme(mode) {
+    document.documentElement.dataset.theme = mode;
+    try { localStorage.setItem(THEME_KEY, mode); } catch (_) { /* private mode */ }
+    for (const button of document.querySelectorAll(".theme button")) {
+      button.setAttribute("aria-pressed", String(button.dataset.theme === mode));
+    }
+  }
+
+  function initTheme() {
+    const current = document.documentElement.dataset.theme || "auto";
+    for (const button of document.querySelectorAll(".theme button")) {
+      button.setAttribute("aria-pressed", String(button.dataset.theme === current));
+      button.addEventListener("click", () => applyTheme(button.dataset.theme));
+    }
+  }
+
+  function inlineNodes(source) {
+    const frag = document.createDocumentFragment();
+    const tokens = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g;
+    let last = 0;
+    let match;
+    while ((match = tokens.exec(source))) {
+      if (match.index > last) {
+        frag.appendChild(document.createTextNode(source.slice(last, match.index)));
+      }
+      const token = match[0];
+      if (token.startsWith("`")) {
+        const code = document.createElement("code");
+        code.textContent = token.slice(1, -1);
+        frag.appendChild(code);
+      } else if (token.startsWith("**")) {
+        const strong = document.createElement("strong");
+        strong.textContent = token.slice(2, -2);
+        frag.appendChild(strong);
+      } else if (token.startsWith("*")) {
+        const em = document.createElement("em");
+        em.textContent = token.slice(1, -1);
+        frag.appendChild(em);
+      } else {
+        const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        if (link && /^https?:\/\//i.test(link[2])) {
+          const a = document.createElement("a");
+          a.href = link[2];
+          a.target = "_blank";
+          a.rel = "noreferrer";
+          a.textContent = link[1];
+          frag.appendChild(a);
+        } else {
+          frag.appendChild(document.createTextNode(token));
+        }
+      }
+      last = tokens.lastIndex;
+    }
+    if (last < source.length) {
+      frag.appendChild(document.createTextNode(source.slice(last)));
+    }
+    return frag;
+  }
+
+  function splitRow(line) {
+    return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  }
+
+  function renderMarkdown(source) {
+    const root = document.createElement("div");
+    root.className = "md";
+    const lines = String(source || "").replace(/\r\n/g, "\n").split("\n");
+    let i = 0;
+    const startsBlock = (line) =>
+      /^\s*```/.test(line) || /^#{1,6}\s+/.test(line) || /^\s*([-*+]|\d+\.)\s+/.test(line) ||
+      /^\s*>/.test(line) || /^\s*(---|\*\*\*|___)\s*$/.test(line) || /^\s*\|/.test(line);
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) { i++; continue; }
+
+      const fence = line.match(/^\s*```(\S*)\s*$/);
+      if (fence) {
+        const body = [];
+        i++;
+        while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i++]);
+        i++;
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        if (fence[1]) code.dataset.lang = fence[1];
+        code.textContent = body.join("\n");
+        pre.appendChild(code);
+        root.appendChild(pre);
+        continue;
+      }
+
+      const heading = line.match(/^(#{1,6})\s+(.*)$/);
+      if (heading) {
+        const level = Math.min(heading[1].length + 1, 6);
+        const el = document.createElement("h" + level);
+        el.appendChild(inlineNodes(heading[2]));
+        root.appendChild(el);
+        i++;
+        continue;
+      }
+
+      if (/^\s*(---|\*\*\*|___)\s*$/.test(line)) {
+        root.appendChild(document.createElement("hr"));
+        i++;
+        continue;
+      }
+
+      if (/^\s*>/.test(line)) {
+        const body = [];
+        while (i < lines.length && (/^\s*>/.test(lines[i]) || !lines[i].trim())) {
+          body.push(lines[i].replace(/^\s*>\s?/, ""));
+          i++;
+        }
+        const quote = document.createElement("blockquote");
+        quote.appendChild(inlineNodes(body.join(" ").trim()));
+        root.appendChild(quote);
+        continue;
+      }
+
+      if (/^\s*([-*+])\s+/.test(line)) {
+        const list = document.createElement("ul");
+        while (i < lines.length && /^\s*([-*+])\s+/.test(lines[i])) {
+          const item = document.createElement("li");
+          item.appendChild(inlineNodes(lines[i].replace(/^\s*[-*+]\s+/, "")));
+          list.appendChild(item);
+          i++;
+        }
+        root.appendChild(list);
+        continue;
+      }
+
+      if (/^\s*\d+\.\s+/.test(line)) {
+        const list = document.createElement("ol");
+        while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+          const item = document.createElement("li");
+          item.appendChild(inlineNodes(lines[i].replace(/^\s*\d+\.\s+/, "")));
+          list.appendChild(item);
+          i++;
+        }
+        root.appendChild(list);
+        continue;
+      }
+
+      if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|/.test(lines[i + 1])) {
+        const header = splitRow(lines[i]);
+        i += 2;
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        for (const cell of header) {
+          const th = document.createElement("th");
+          th.appendChild(inlineNodes(cell));
+          headRow.appendChild(th);
+        }
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        while (i < lines.length && /^\s*\|/.test(lines[i])) {
+          const tr = document.createElement("tr");
+          for (const cell of splitRow(lines[i])) {
+            const td = document.createElement("td");
+            td.appendChild(inlineNodes(cell));
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+          i++;
+        }
+        table.appendChild(tbody);
+        root.appendChild(table);
+        continue;
+      }
+
+      const para = [];
+      while (i < lines.length && lines[i].trim() && !startsBlock(lines[i])) {
+        para.push(lines[i].trim());
+        i++;
+      }
+      const p = document.createElement("p");
+      p.appendChild(inlineNodes(para.join(" ")));
+      root.appendChild(p);
+    }
+    return root;
+  }
 
   function fmtTime(raw) {
     if (!raw) return "–";
@@ -733,7 +1001,9 @@
 
     if (issue.plan) {
       body.appendChild(text("h3", "计划"));
-      body.appendChild(text("pre", issue.plan, "plan"));
+      const plan = renderMarkdown(issue.plan);
+      plan.classList.add("plan");
+      body.appendChild(plan);
     }
 
     drawer.classList.add("open");
@@ -805,6 +1075,7 @@
   }
 
   function wire() {
+    initTheme();
     for (const chip of document.querySelectorAll(".chip")) {
       chip.addEventListener("click", () => {
         state.filter = chip.dataset.filter;
