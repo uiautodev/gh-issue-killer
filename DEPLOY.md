@@ -371,6 +371,12 @@ handed to the agent with the failing job logs, which fixes the workflow or the
 code in the same worktree and pushes again; runs waiting for approval are
 approved first. The merge invitation is only posted once the checks are green,
 and an exhausted budget parks the merge.
+
+A branch that conflicts with the base is not a dead end: `resolveConflicts`
+merges the base into the PR branch, the agent resolves the markers with
+`prompts/conflict_fix.md`, the local checks run, and the result is pushed and
+merged. A conflict that appears at merge time (the base moved after the gate) is
+caught from the 405/409 response and resolved the same way.
 For user-visible UI changes the agent captures the changed region (tight crop)
 before and after; the daemon composes them side by side with a divider and
 uploads the image through GitHub's user-attachments endpoint. Backend, docs and

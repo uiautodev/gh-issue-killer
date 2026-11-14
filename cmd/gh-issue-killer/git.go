@@ -167,6 +167,36 @@ func removeWorktree(ctx context.Context, local *LocalRepo, dir string, force boo
 	_, _ = gitRun(ctx, local, 1*time.Minute, true, "worktree", "prune")
 }
 
+// gitWorktree runs git inside a worktree rather than the managed clone.
+func gitWorktree(ctx context.Context, dir string, env []string, timeout time.Duration, allowFailure bool, args ...string) (CmdResult, error) {
+	git, err := gitBinary()
+	if err != nil {
+		return CmdResult{}, err
+	}
+	return runCmd(ctx, git, args, CmdOptions{
+		Cwd:          dir,
+		Env:          env,
+		Timeout:      timeout,
+		AllowFailure: allowFailure,
+	})
+}
+
+// conflictedFiles lists the files git left with merge conflicts.
+func conflictedFiles(ctx context.Context, dir string, env []string) []string {
+	output := gitOutput(ctx, dir, env, time.Minute, "diff", "--name-only", "--diff-filter=U")
+	if output == "" {
+		return nil
+	}
+	lines := strings.Split(output, "\n")
+	files := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			files = append(files, trimmed)
+		}
+	}
+	return files
+}
+
 func gitStatus(ctx context.Context, dir string, env []string) string {
 	git, err := gitBinary()
 	if err != nil {

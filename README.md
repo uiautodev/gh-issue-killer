@@ -57,8 +57,10 @@ flowchart LR
   red or abandoned check (a job queued on a retired runner, a Python version the
   image no longer has) goes back to the agent, which fixes the workflow or the
   code in the same PR. Workflow runs waiting for maintainer approval are
-  approved automatically. Once it is green the daemon invites the merge; only an
-  exhausted repair budget parks the issue.
+  approved automatically. Once it is green the daemon invites the merge; a
+  conflicting branch is merged with the base, resolved by the agent, re-checked
+  and merged — without rebasing and without asking you to fix the conflict.
+  Only an exhausted repair budget parks the issue.
 - **Feedback loop.** A non-command comment that mentions the agent, an inline
   review comment, or a review body on an open PR is treated as review feedback:
   the agent keeps working on the same branch. Closing an issue cancels the task

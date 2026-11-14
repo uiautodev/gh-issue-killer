@@ -203,9 +203,20 @@ runs, posts a “正在等待 CI” comment while they are pending, runs the gat
 repairs (§9), and then either posts the merge prompt or parks the issue as
 `blocked`.
 
-**Merge** (`doMerge`) — re-runs the gate with repairs, squash-merges, deletes
-the branch, closes the issue, removes the worktree and local branch, sets
-`done`.
+**Merge** (`doMerge`) — a loop that keeps the branch landable:
+
+1. **Conflicts** — when `mergeBlockedByConflicts` sees `mergeable_state: dirty`
+   (or an unmergeable PR), `resolveConflicts` fetches the base, runs
+   `git merge origin/<base>` in the worktree and, if git left markers, runs the
+   agent with `conflict_fix.md`, then the usual local checks, commit and push.
+   `resolveMergeConflicts` announces each round; at most `maxFixRounds`.
+2. **CI** — `ciGateWithRepairs` (§9) on the (possibly new) head.
+3. **Merge** — `MergePR`; a 405/409 “merge conflicts” at this point means the
+   base moved after the check, so the loop resolves once more and retries
+   (`isConflictError`). Other failures park the issue.
+
+On success: squash-merge, delete the branch, close the issue, remove the
+worktree and local branch, set `done`.
 
 ## 9. CI gate and repair (`actions.go`)
 
@@ -319,6 +330,7 @@ keeps tests quiet. Notable coverage:
 | file | covers |
 | --- | --- |
 | `waitforchecks_test.go` | verdict, fail-fast, stuck, required checks, base flags, approval, log report |
+| `conflict_test.go` | conflict detection, merge-API error classification, `conflictedFiles` on a real repo |
 | `router_ci_test.go` | the CI queue does not block work; cancel stops CI jobs |
 | `gh_test.go` | label transitions and GitHub helpers |
 | `main_test.go` | proxy/env parsing, repo normalization, mentions and commands, closable phases |
@@ -339,6 +351,8 @@ must stay clean; `gofmt -l .` must print nothing.
 ## 18. Invariants and pitfalls
 
 - One daemon per machine (lock file). Multiple daemons corrupt `state.json`.
+- Conflicts are resolved by merging the base into the PR branch, never by
+  rebasing or force-pushing; the merge commit is what keeps the branch honest.
 - `Store` is the only writer of state; stages mutate it through
   `UpdateIssue`.
 - Never run two agents in one worktree: the merge path waits for the CI job,
@@ -364,6 +378,7 @@ must stay clean; `gofmt -l .` must print nothing.
 | queue stages, worker counts, job keys, cancel/wait rules | §7 |
 | a stage’s steps or post conditions | §8 |
 | the CI gate, stuck detection, repair loop, `ci_fix` prompt | §9 |
+| conflict detection, `conflict_fix` prompt, merge retry rules | §8 and §9 |
 | `checks.json` / `result.json` / screenshot rules | §10 |
 | new GitHub endpoints, labels, hook events | §11 |
 | worktree layout, branch naming, commit/push | §12 |

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1195,6 +1196,191 @@ func waitForFreshCheckRuns(ctx context.Context, app *AppContext, sha string, tim
 	}
 }
 
+// mergeBlockedByConflicts reports whether GitHub says the branch cannot be
+// merged because it conflicts with the base branch. A draft, a missing review
+// or a behind branch are not conflicts.
+func mergeBlockedByConflicts(pr PullRequest) bool {
+	if pr.MergeableState == "dirty" {
+		return true
+	}
+	if pr.Mergeable == nil || *pr.Mergeable {
+		return false
+	}
+	switch pr.MergeableState {
+	case "blocked", "draft", "behind":
+		return false
+	}
+	return true
+}
+
+// isConflictError recognizes the merge API rejecting a conflicting PR.
+func isConflictError(err error) bool {
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		return false
+	}
+	if apiErr.Status == http.StatusConflict {
+		return true
+	}
+	return apiErr.Status == http.StatusMethodNotAllowed &&
+		strings.Contains(strings.ToLower(apiErr.Message), "conflict")
+}
+
+// waitForMergeable polls until GitHub has recomputed mergeability, so a branch
+// that was just rebased is not judged by a stale "dirty".
+func waitForMergeable(ctx context.Context, app *AppContext, number int, timeout time.Duration) (PullRequest, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		pr, err := app.GH.GetPR(ctx, app.Repo.FullName, number)
+		if err != nil {
+			return pr, err
+		}
+		if pr.MergeableState != "" && pr.MergeableState != "unknown" {
+			return pr, nil
+		}
+		if time.Now().After(deadline) {
+			return pr, nil
+		}
+		select {
+		case <-ctx.Done():
+			return pr, ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
+}
+
+// resolveMergeConflicts announces and resolves one round of conflicts, then
+// returns the refreshed PR. The caller decides whether to keep looping.
+func resolveMergeConflicts(ctx context.Context, app *AppContext, issue Issue, st IssueState, pr PullRequest, round int) (PullRequest, error) {
+	number := issue.Number
+	app.Log.Warn("merge conflict for %s#%d (round %d/%d)", app.Repo.FullName, number, round, app.Cfg.MaxFixRounds)
+	_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, strings.Join([]string{
+		fmt.Sprintf("### 🤖 PR 有冲突，正在自动解决（第 %d/%d 轮）", round, app.Cfg.MaxFixRounds),
+		"",
+		fmt.Sprintf("把 `%s` 合进 `%s`、解决冲突并跑完检查，通过后直接合并，不需要你操作。", app.Local.Base, st.Branch),
+	}, "\n"))
+	if err := resolveConflicts(ctx, app, issue, st, round); err != nil {
+		return pr, err
+	}
+	updated := pr
+	if head := headSHA(ctx, st.Worktree, app.Env); head != "" {
+		if fresh, err := waitForPRHead(ctx, app, st.PRNumber, head, 2*time.Minute); err == nil {
+			updated = fresh
+		}
+	}
+	if settled, err := waitForMergeable(ctx, app, st.PRNumber, time.Minute); err == nil {
+		updated = settled
+	}
+	return updated, nil
+}
+
+// waitForPRHead polls until the pull request reports the commit we just pushed,
+// so the CI gate does not run against the pre-resolution head.
+func waitForPRHead(ctx context.Context, app *AppContext, number int, sha string, timeout time.Duration) (PullRequest, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		pr, err := app.GH.GetPR(ctx, app.Repo.FullName, number)
+		if err != nil {
+			return pr, err
+		}
+		if pr.Head.SHA == sha {
+			return pr, nil
+		}
+		if time.Now().After(deadline) {
+			return pr, nil
+		}
+		select {
+		case <-ctx.Done():
+			return pr, ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
+}
+
+// resolveConflicts merges the base branch into the PR worktree, lets the agent
+// resolve the markers, runs the checks and pushes the result.
+func resolveConflicts(ctx context.Context, app *AppContext, issue Issue, st IssueState, round int) error {
+	number := issue.Number
+	worktree := st.Worktree
+	if _, err := os.Stat(filepath.Join(worktree, ".git")); err != nil {
+		return fmt.Errorf("worktree %s is gone: %w", worktree, err)
+	}
+	if err := fetchBase(ctx, app.Local); err != nil {
+		return fmt.Errorf("fetch %s: %w", app.Local.Base, err)
+	}
+	merge, err := gitWorktree(ctx, worktree, app.Env, 5*time.Minute, true, "merge", "--no-edit", "origin/"+app.Local.Base)
+	if err != nil {
+		return fmt.Errorf("git merge %s: %w", app.Local.Base, err)
+	}
+	files := conflictedFiles(ctx, worktree, app.Env)
+	if merge.Code != 0 && len(files) == 0 {
+		return fmt.Errorf("git merge %s: %s", app.Local.Base, tailString(merge.Stderr, 10))
+	}
+
+	runDir := runDirFor(app, number)
+	runner, err := newCodingRunner(app.Repo.CodingAgent)
+	if err != nil {
+		return err
+	}
+	sessionID := st.SessionID
+	if len(files) > 0 {
+		app.Log.Info("resolving %d conflicted file(s) for %s#%d", len(files), app.Repo.FullName, number)
+		prompt, promptErr := renderPrompt("conflict_fix", map[string]string{
+			"REPO":     app.Repo.FullName,
+			"BASE":     app.Local.Base,
+			"NUMBER":   itoa(number),
+			"PR":       fmt.Sprintf("#%d %s", st.PRNumber, st.PRURL),
+			"WORKTREE": worktree,
+			"RUN_DIR":  runDir,
+			"FILES":    "- " + strings.Join(files, "\n- "),
+		})
+		if promptErr != nil {
+			return promptErr
+		}
+		result, runErr := runner.Run(ctx, RunnerOptions{
+			Cwd:       worktree,
+			Prompt:    prompt,
+			SessionID: sessionID,
+			Model:     app.Repo.Model,
+			RunDir:    runDir,
+			Env:       app.Env,
+			Timeout:   app.Cfg.ImplementTimeout,
+			LogFile:   filepath.Join(runDir, fmt.Sprintf("conflict-%d-%s.log", round, app.Repo.CodingAgent)),
+			Log:       app.Log,
+		})
+		if runErr != nil {
+			return fmt.Errorf("conflict agent: %w", runErr)
+		}
+		sessionID = firstNonEmpty(result.SessionID, sessionID)
+		if sessionID != "" {
+			app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+				state.SessionID = sessionID
+			})
+		}
+		if remaining := conflictedFiles(ctx, worktree, app.Env); len(remaining) > 0 {
+			return fmt.Errorf("conflicts remain after the agent: %s", strings.Join(remaining, ", "))
+		}
+		if issueCancelled(app, number) {
+			return nil
+		}
+	}
+
+	checkResults, ok := runChecksWithFixes(ctx, app, runner, sessionID, worktree, runDir)
+	app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+		state.Checks = checkResults
+	})
+	if !ok {
+		return fmt.Errorf("checks failed after resolving conflicts with %s", app.Local.Base)
+	}
+	if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("chore: resolve conflicts with %s for #%d", app.Local.Base, number)); err != nil {
+		return fmt.Errorf("commit conflict resolution: %w", err)
+	}
+	if err := pushBranch(ctx, worktree, app.Local, st.Branch); err != nil {
+		return fmt.Errorf("push conflict resolution: %w", err)
+	}
+	return nil
+}
+
 func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue, st IssueState) {
 	number := issue.Number
 	app.Log.Info("merge start for %s#%d (PR %d)", app.Repo.FullName, number, st.PRNumber)
@@ -1215,38 +1401,86 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 		return
 	}
 
-	if pr.Head.SHA != "" {
-		verdict, rounds, repairErr := ciGateWithRepairs(ctx, app, issue, st, pr)
-		if repairErr != nil {
-			blockIssue(ctx, app, number, repairErr)
-			return
-		}
-		if !verdict.OK {
-			reason := verdict.Note
-			if rounds > 0 {
-				reason = fmt.Sprintf("%s（已自动修复 %d 轮）", reason, rounds)
+	conflictRounds := 0
+	retryAfterConflict := false
+	// skipConflictCheck avoids a second resolution when GitHub still reports the
+	// pre-push "dirty" state for the head we just fixed.
+	skipConflictCheck := false
+	for {
+		if !skipConflictCheck && (retryAfterConflict || mergeBlockedByConflicts(pr)) {
+			retryAfterConflict = false
+			if conflictRounds >= app.Cfg.MaxFixRounds || st.Worktree == "" {
+				reason := fmt.Sprintf("PR 与 `%s` 有冲突，自动解决 %d 轮后仍未通过", app.Local.Base, conflictRounds)
+				app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+					state.Phase = "blocked"
+					state.BlockedReason = reason
+				})
+				app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
+				_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
+					fmt.Sprintf("### 🤖 合并失败\n\n%s\n\n回复 **合并** 重试（仍会自动解决冲突）。", reason))
+				return
 			}
-			app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
-				state.Phase = "blocked"
-				state.BlockedReason = reason
-			})
-			app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
-			_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
-				fmt.Sprintf("### 🤖 暂不合并\n\nCI 未通过或仍在等待：\n\n- %s\n\n回复 **合并** 重试（会重新检查）。", reason))
-			return
+			conflictRounds++
+			updated, resolveErr := resolveMergeConflicts(ctx, app, issue, st, pr, conflictRounds)
+			if resolveErr != nil {
+				blockIssue(ctx, app, number, resolveErr)
+				return
+			}
+			pr = updated
+			if pr.State != "open" {
+				app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) { state.Phase = "done" })
+				app.GH.SetAgentState(ctx, app.Repo.FullName, number, "")
+				return
+			}
+			skipConflictCheck = true
+			continue
 		}
-		app.Log.Info("merge gate: %s (repair rounds: %d)", verdict.Note, rounds)
-		if rounds > 0 {
-			_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
-				fmt.Sprintf("### 🤖 CI 已自动修复\n\n自动修复 %d 轮后检查全部通过，继续合并。", rounds))
-		}
-	}
+		skipConflictCheck = false
 
-	merged, err := app.GH.MergePR(ctx, app.Repo.FullName, st.PRNumber)
-	if err != nil || !merged.Merged {
+		if pr.Head.SHA != "" {
+			verdict, rounds, repairErr := ciGateWithRepairs(ctx, app, issue, st, pr)
+			if repairErr != nil {
+				blockIssue(ctx, app, number, repairErr)
+				return
+			}
+			if !verdict.OK {
+				reason := verdict.Note
+				if rounds > 0 {
+					reason = fmt.Sprintf("%s（已自动修复 %d 轮）", reason, rounds)
+				}
+				app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
+					state.Phase = "blocked"
+					state.BlockedReason = reason
+				})
+				app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
+				_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
+					fmt.Sprintf("### 🤖 暂不合并\n\nCI 未通过或仍在等待：\n\n- %s\n\n回复 **合并** 重试（会重新检查）。", reason))
+				return
+			}
+			app.Log.Info("merge gate: %s (repair rounds: %d)", verdict.Note, rounds)
+			if rounds > 0 {
+				_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
+					fmt.Sprintf("### 🤖 CI 已自动修复\n\n自动修复 %d 轮后检查全部通过，继续合并。", rounds))
+			}
+			if refreshed, refreshErr := app.GH.GetPR(ctx, app.Repo.FullName, st.PRNumber); refreshErr == nil {
+				pr = refreshed
+			}
+		}
+
+		merged, mergeErr := app.GH.MergePR(ctx, app.Repo.FullName, st.PRNumber)
+		if mergeErr == nil && merged.Merged {
+			break
+		}
+		if isConflictError(mergeErr) && st.Worktree != "" && conflictRounds < app.Cfg.MaxFixRounds {
+			// The base branch moved between the mergeability check and the
+			// merge: resolve and try again instead of parking the issue.
+			app.Log.Warn("merge of %s#%d hit conflicts at merge time; resolving", app.Repo.FullName, number)
+			retryAfterConflict = true
+			continue
+		}
 		detail := merged.Message
-		if err != nil {
-			detail = err.Error()
+		if mergeErr != nil {
+			detail = mergeErr.Error()
 		}
 		app.Store.UpdateIssue(app.Repo.FullName, number, func(state *IssueState) {
 			state.Phase = "blocked"
@@ -1254,7 +1488,7 @@ func doMerge(ctx context.Context, app *AppContext, trigger Trigger, issue Issue,
 		})
 		app.GH.SetAgentState(ctx, app.Repo.FullName, number, awaitingLabel)
 		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number,
-			fmt.Sprintf("### 🤖 合并失败\n\n```\n%s\n```\n\n处理冲突后回复 **合并** 重试。", sanitize(detail)))
+			fmt.Sprintf("### 🤖 合并失败\n\n```\n%s\n```\n\n回复 **合并** 重试。", sanitize(detail)))
 		return
 	}
 
