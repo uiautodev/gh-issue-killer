@@ -76,11 +76,14 @@ flowchart LR
 - **One static binary.** Outbound HTTPS only; no `curl`, `ffmpeg`, ImageMagick,
   or `gh` at runtime. It shells out to `git`, one coding-agent CLI, and `/bin/sh`.
 - **Live console.** Set `webPort` and open `http://127.0.0.1:<port>`: per-repo
-  queues, active jobs, every task's stage rail, PR links, checks, screenshots
-  and the daemon log in one board. Plans render as markdown, the board follows
-  the system theme or can be pinned to light/dark, tasks can be filtered by
-  project, and the detail drawer can approve or cancel the task. The header
-  counts the tasks waiting for you (approval, merge or unblock).
+  queues and parallel meters (the PLAN/WORK limits apply per project), active
+  jobs, every task's stage rail, PR links, checks, screenshots and the daemon
+  log in one board. Plans render as markdown, the board follows the system
+  theme or can be pinned to light/dark, and the header switches between Chinese
+  and English and links back to this repository. Tasks can be filtered by
+  project or free text, or hide finished/cancelled work, the console colours
+  the daemon log by level, the detail drawer can approve or cancel the task,
+  and the header counts the tasks waiting for you (approval, merge or unblock).
 
 ## Install with a coding agent
 

@@ -28,6 +28,10 @@
     --done: #6fb08d;
     --idle: #5d7377;
     --focus: #f4c877;
+    --log-info: #7fd6e8;
+    --log-warn: #f0a53f;
+    --log-error: #ef8274;
+    --log-debug: #93a6a9;
     --sans: "Barlow Condensed", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
     --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   }
@@ -47,6 +51,10 @@
     --done: #2f7a58;
     --idle: #6f8a8e;
     --focus: #9a5b00;
+    --log-info: #0d6f83;
+    --log-warn: #8a5200;
+    --log-error: #b33527;
+    --log-debug: #5c7276;
   }
   @media (prefers-color-scheme: light) {
     :root[data-theme="auto"] {
@@ -65,6 +73,10 @@
       --done: #2f7a58;
       --idle: #6f8a8e;
       --focus: #9a5b00;
+      --log-info: #0d6f83;
+      --log-warn: #8a5200;
+      --log-error: #b33527;
+      --log-debug: #5c7276;
     }
   }
   * { box-sizing: border-box; }
@@ -112,16 +124,23 @@
     letter-spacing: .06em;
     color: var(--muted);
     margin: 0;
-    max-width: 40ch;
+    max-width: 48ch;
   }
   .status-strip { display: flex; gap: 18px; margin-left: auto; flex-wrap: wrap; }
-  .theme { display: flex; gap: 0; border: 1px solid var(--rule); align-self: flex-start; }
-  .theme button {
+  .toolbar { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+  .seg { display: flex; border: 1px solid var(--rule); align-self: flex-start; }
+  .seg button {
     padding: 3px 9px; font-size: 10.5px; color: var(--muted); border-left: 1px solid var(--rule);
   }
-  .theme button:first-child { border-left: 0; }
-  .theme button[aria-pressed="true"] { background: var(--rule-soft); color: var(--text); }
-  .theme button:hover { color: var(--text); }
+  .seg button:first-child { border-left: 0; }
+  .seg button[aria-pressed="true"] { background: var(--rule-soft); color: var(--text); }
+  .seg button:hover { color: var(--text); }
+  .gh-link {
+    display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rule);
+    padding: 3px 10px; color: var(--muted); font-size: 10.5px; white-space: nowrap;
+  }
+  .gh-link:hover { color: var(--text); background: var(--rule-soft); text-decoration: none; }
+  .gh-link svg { width: 13px; height: 13px; fill: currentColor; flex: none; }
   .stat { display: flex; flex-direction: column; gap: 2px; min-width: 74px; }
   .stat b {
     font-family: var(--sans);
@@ -141,13 +160,8 @@
   @keyframes breathe { 50% { box-shadow: 0 0 0 6px rgba(111,176,141,0); } }
   @media (prefers-reduced-motion: reduce) { .lamp.live { animation: none; } }
 
-  .meters { display: flex; gap: 22px; align-items: flex-end; }
-  .meter { display: flex; flex-direction: column; gap: 5px; }
-  .meter-label { font-family: var(--sans); font-size: 12px; letter-spacing: .1em; color: var(--muted); }
-  .cells { display: flex; gap: 3px; }
   .cell { width: 13px; height: 8px; background: var(--rule-soft); }
   .cell.on { background: var(--work); }
-  .cell.wait { background: var(--wait); }
   .meta-line { color: var(--dim); font-size: 10.5px; display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
   .meta-line b { color: var(--muted); font-weight: 500; }
 
@@ -169,6 +183,13 @@
   }
   .line-agent { color: var(--dim); font-size: 10px; margin-left: auto; white-space: nowrap; }
   .line-foot { display: flex; gap: 12px; color: var(--dim); font-size: 10px; flex-wrap: wrap; }
+  .line-pools { display: flex; gap: 16px; flex-wrap: wrap; margin: 1px 0 2px; }
+  .mini-meter { display: flex; flex-direction: column; gap: 3px; }
+  .mini-head { display: flex; gap: 6px; align-items: baseline; }
+  .mini-label { font-family: var(--sans); font-size: 10px; letter-spacing: .1em; color: var(--muted); }
+  .mini-num { font-size: 9.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .mini-cells { display: flex; gap: 2px; }
+  .mini-cells .cell { width: 8px; height: 5px; }
   .counts { display: flex; gap: 10px; flex-wrap: wrap; }
   .count { color: var(--muted); font-size: 10px; display: inline-flex; align-items: center; gap: 4px; }
   .count b { color: var(--text); font-weight: 500; }
@@ -187,6 +208,7 @@
     background: transparent;
   }
   .chip[aria-pressed="true"] { border-color: var(--work); color: var(--work); }
+  .chip.hide-chip[aria-pressed="true"] { border-color: var(--wait); color: var(--wait); }
   .repo-filter {
     background: var(--ink-2); border: 1px solid var(--rule); color: var(--text);
     padding: 4px 7px; font: inherit; font-size: 11px; max-width: 240px;
@@ -269,12 +291,15 @@
   .toggle:hover { color: var(--text); }
   pre.log {
     margin: 0; max-height: 210px; overflow: auto; font-size: 10.5px; line-height: 1.65;
-    color: var(--dim); white-space: pre-wrap; word-break: break-word;
+    color: var(--muted); white-space: pre-wrap; word-break: break-word;
   }
-  pre.log .lv-INFO { color: var(--muted); }
-  pre.log .lv-WARN { color: var(--wait); }
-  pre.log .lv-ERROR { color: var(--blocked); }
-  pre.log .lv-DEBUG { color: #476469; }
+  pre.log .log-line { color: var(--muted); }
+  pre.log .log-level { font-weight: 600; }
+  pre.log .log-line.lv-INFO { color: var(--log-info); }
+  pre.log .log-line.lv-WARN { color: var(--log-warn); }
+  pre.log .log-line.lv-ERROR { color: var(--log-error); }
+  pre.log .log-line.lv-DEBUG { color: var(--log-debug); }
+  pre.log .log-time { color: var(--dim); }
   .console.collapsed pre.log { display: none; }
 
   /* ---------- drawer ---------- */
@@ -376,6 +401,7 @@
   @media (max-width: 900px) {
     .masthead, .band, .board-wrap, .console { padding-left: 16px; padding-right: 16px; }
     .status-strip { margin-left: 0; width: 100%; }
+    .toolbar { width: 100%; }
     .board thead { display: none; }
     .board tbody tr { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 8px 0; }
     .board td { padding: 2px 0; }
@@ -394,29 +420,29 @@
       <img class="logo" src="/logo.svg" alt="" width="38" height="38">
       <div>
         <h1 class="wordmark">gh-issue-killer</h1>
-        <p class="tagline">用评论驱动编码 agent 的 issue 调度台</p>
+        <p class="tagline" data-i18n="tagline">用评论驱动编码 agent 的 issue 调度台</p>
       </div>
     </div>
     <div class="status-strip">
-      <div class="stat"><b id="s-daemon"><span class="lamp live"></span>live</b><small>DAEMON</small></div>
-      <div class="stat"><b id="s-active">0</b><small>ACTIVE</small></div>
-      <div class="stat"><b id="s-queued">0</b><small>QUEUED</small></div>
-      <div class="stat"><b id="s-waiting">0</b><small>待我处理</small></div>
-      <div class="stat"><b id="s-uptime">0m</b><small>UPTIME</small></div>
+      <div class="stat"><b id="s-daemon"><span class="lamp live"></span>live</b><small data-i18n="stat.daemon">DAEMON</small></div>
+      <div class="stat"><b id="s-active">0</b><small data-i18n="stat.active">ACTIVE</small></div>
+      <div class="stat"><b id="s-queued">0</b><small data-i18n="stat.queued">QUEUED</small></div>
+      <div class="stat"><b id="s-waiting">0</b><small data-i18n="stat.waiting">待我处理</small></div>
+      <div class="stat"><b id="s-uptime">0m</b><small data-i18n="stat.uptime">UPTIME</small></div>
     </div>
-    <div class="theme" role="group" aria-label="主题">
-      <button data-theme="auto">自动</button>
-      <button data-theme="light">日</button>
-      <button data-theme="dark">夜</button>
-    </div>
-    <div class="meters">
-      <div class="meter">
-        <span class="meter-label">PLAN <span id="s-plan-text">0/0</span></span>
-        <div class="cells" id="s-plan-cells"></div>
+    <div class="toolbar">
+      <a class="gh-link" id="gh-link" href="https://github.com/uiautodev/gh-issue-killer" target="_blank" rel="noreferrer" data-i18n-aria="github.aria">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span data-i18n="github.label">项目主页</span>
+      </a>
+      <div class="seg lang" role="group" data-i18n-aria="lang.aria">
+        <button data-lang="zh" aria-pressed="true">中文</button>
+        <button data-lang="en" aria-pressed="false">EN</button>
       </div>
-      <div class="meter">
-        <span class="meter-label">WORK <span id="s-work-text">0/0</span></span>
-        <div class="cells" id="s-work-cells"></div>
+      <div class="seg theme" role="group" data-i18n-aria="theme.aria">
+        <button data-theme="auto" aria-pressed="true" data-i18n="theme.auto">自动</button>
+        <button data-theme="light" aria-pressed="false" data-i18n="theme.light">日</button>
+        <button data-theme="dark" aria-pressed="false" data-i18n="theme.dark">夜</button>
       </div>
     </div>
   </div>
@@ -430,58 +456,59 @@
 </header>
 
 <section class="band">
-  <h2 class="band-title">LINES</h2>
+  <h2 class="band-title" data-i18n="band.lines">LINES</h2>
   <div class="lines" id="lines"></div>
 </section>
 
 <main class="board-wrap">
   <div class="board-top">
-    <div class="filters" role="group" aria-label="筛选">
-      <button class="chip" data-filter="all" aria-pressed="true">全部</button>
-      <button class="chip" data-filter="active" aria-pressed="false">正在处理</button>
-      <button class="chip" data-filter="wait" aria-pressed="false">等我</button>
-      <button class="chip" data-filter="blocked" aria-pressed="false">阻塞</button>
+    <div class="filters" role="group" data-i18n-aria="filters.aria">
+      <button class="chip" data-filter="all" aria-pressed="true" data-i18n="filter.all">全部</button>
+      <button class="chip" data-filter="active" aria-pressed="false" data-i18n="filter.active">正在处理</button>
+      <button class="chip" data-filter="wait" aria-pressed="false" data-i18n="filter.wait">等我</button>
+      <button class="chip" data-filter="blocked" aria-pressed="false" data-i18n="filter.blocked">阻塞</button>
     </div>
-    <select class="repo-filter" id="repo-filter" aria-label="按项目过滤">
+    <button class="chip hide-chip" id="hide-finished" aria-pressed="false" data-i18n="filter.hideDone">隐藏已完成/已取消</button>
+    <select class="repo-filter" id="repo-filter" data-i18n-aria="repo.aria">
       <option value="">全部项目</option>
     </select>
-    <input class="search" id="search" type="search" placeholder="搜索 issue 或仓库" aria-label="搜索">
+    <input class="search" id="search" type="search" data-i18n-ph="search.placeholder" data-i18n-aria="search.aria" placeholder="搜索 issue 或仓库">
   </div>
   <table class="board">
     <thead>
       <tr>
-        <th scope="col">ISSUE</th>
-        <th scope="col">阶段</th>
-        <th scope="col">进度</th>
-        <th scope="col">停留</th>
-        <th scope="col">PR</th>
+        <th scope="col" data-i18n="th.issue">ISSUE</th>
+        <th scope="col" data-i18n="th.phase">阶段</th>
+        <th scope="col" data-i18n="th.progress">进度</th>
+        <th scope="col" data-i18n="th.age">停留</th>
+        <th scope="col" data-i18n="th.pr">PR</th>
       </tr>
     </thead>
     <tbody id="tasks"></tbody>
   </table>
   <div class="empty" id="empty" hidden>
-    <strong>还没有任务</strong>
-    <span id="empty-hint">在 issue 里 @agent，或者把 issue assign 给它。</span>
+    <strong data-i18n="empty.none.title">还没有任务</strong>
+    <span id="empty-hint" data-i18n="empty.none.hint">在 issue 里 @agent，或者把 issue assign 给它。</span>
   </div>
 </main>
 
 <section class="console" id="console">
   <div class="console-head">
-    <h2 class="band-title">CONSOLE</h2>
+    <h2 class="band-title" data-i18n="band.console">CONSOLE</h2>
     <span class="spacer"></span>
-    <button class="toggle" id="log-toggle" aria-expanded="true">收起</button>
-    <button class="toggle" id="log-pause" aria-pressed="false">暂停</button>
+    <button class="toggle" id="log-toggle" aria-expanded="true" data-i18n="log.collapse">收起</button>
+    <button class="toggle" id="log-pause" aria-pressed="false" data-i18n="log.pause">暂停</button>
   </div>
   <pre class="log" id="log" aria-live="off"></pre>
 </section>
 
-<aside class="drawer" id="drawer" aria-hidden="true" aria-label="任务详情">
+<aside class="drawer" id="drawer" aria-hidden="true" data-i18n-aria="drawer.aria">
   <div class="drawer-head">
     <div>
       <h2 id="d-title">–</h2>
       <div class="ref" id="d-ref"></div>
     </div>
-    <button class="drawer-close" id="d-close" aria-label="关闭详情">×</button>
+    <button class="drawer-close" id="d-close" data-i18n-aria="drawer.close">×</button>
   </div>
   <div class="drawer-body" id="d-body"></div>
   <div class="drawer-actions" id="d-actions" hidden></div>
@@ -490,7 +517,114 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const state = { data: null, filter: "all", repo: "", search: "", selected: null, logPaused: false, logOpen: true, failures: 0, down: false, live: false, drawerSig: "" };
+  const state = { data: null, filter: "all", hideFinished: false, repo: "", search: "", selected: null, logPaused: false, logOpen: true, failures: 0, down: false, live: false, drawerSig: "", lang: "zh" };
+
+  const LANG_KEY = "ghik-lang";
+  // Every user-visible string lives here. Chinese keeps the dashboard's
+  // existing mixed labels (LINES, DAEMON, ...) so switching to English only
+  // translates, it does not restyle the board.
+  const STRINGS = {
+    zh: {
+      "document.title": "gh-issue-killer · 调度台",
+      "tagline": "用评论驱动编码 agent 的 issue 调度台",
+      "stat.daemon": "DAEMON", "stat.active": "ACTIVE", "stat.queued": "QUEUED",
+      "stat.waiting": "待我处理", "stat.uptime": "UPTIME",
+      "github.label": "项目主页", "github.aria": "在 GitHub 上打开 gh-issue-killer",
+      "lang.aria": "语言", "theme.aria": "主题",
+      "theme.auto": "自动", "theme.light": "日", "theme.dark": "夜",
+      "band.lines": "LINES", "band.console": "CONSOLE",
+      "filter.all": "全部", "filter.active": "正在处理", "filter.wait": "等我", "filter.blocked": "阻塞",
+      "filter.hideDone": "隐藏已完成/已取消", "filter.allProjects": "全部项目",
+      "filters.aria": "筛选", "repo.aria": "按项目过滤", "search.aria": "搜索",
+      "search.placeholder": "搜索 issue 或仓库",
+      "th.issue": "ISSUE", "th.phase": "阶段", "th.progress": "进度", "th.age": "停留", "th.pr": "PR",
+      "empty.none.title": "还没有任务",
+      "empty.none.hint": "在 issue 里 @agent，或者把 issue assign 给它。",
+      "empty.filtered.title": "没有匹配的任务",
+      "empty.filtered.hint": "换个筛选或清空搜索。",
+      "log.collapse": "收起", "log.expand": "展开", "log.pause": "暂停", "log.resume": "继续",
+      "phase.new": "待处理", "phase.planning": "规划中", "phase.awaiting": "等待确认",
+      "phase.implementing": "实现中", "phase.blocked": "阻塞", "phase.prOpen": "PR 待合并",
+      "phase.merging": "合并中", "phase.done": "已完成", "phase.cancelled": "已取消",
+      "line.idle": "空闲", "line.issues": "{n} issues",
+      "line.poll": "poll {age} ago", "line.pollNever": "poll –",
+      "line.plan": "PLAN", "line.work": "WORK", "line.limitHint": "并行上限按项目各自计算",
+      "rail.plan": "规划", "rail.approve": "批准", "rail.implement": "实现",
+      "rail.checks": "检查", "rail.pr": "PR", "rail.merge": "合并",
+      "transport.smee": "smee + 轮询", "transport.poll": "轮询",
+      "drawer.aria": "任务详情", "drawer.close": "关闭详情",
+      "drawer.openIssue": "打开 issue", "drawer.openPR": "打开 PR #{n}",
+      "drawer.failed": "读取详情失败：{msg}",
+      "drawer.status": "状态", "drawer.started": "开始", "drawer.updated": "更新",
+      "drawer.branch": "分支", "drawer.worktree": "worktree", "drawer.session": "session",
+      "drawer.phase": "阶段", "drawer.checks": "检查", "drawer.name": "名称",
+      "drawer.result": "结果", "drawer.duration": "耗时", "drawer.pass": "通过", "drawer.fail": "失败",
+      "drawer.screenshots": "截图", "drawer.shotAlt": "截图",
+      "drawer.notes": "批准附注", "drawer.plan": "计划",
+      "action.continue": "继续重试", "action.approve": "批准并开始", "action.cancel": "取消任务",
+      "action.submitting": "提交中…", "action.approved": "已批准，开始实现",
+      "action.cancelled": "已取消", "action.failed": "失败：{msg}",
+      "action.confirmApprove": "批准计划并开始实现？",
+      "action.confirmCancel": "取消这个任务？进行中的工作会被终止。",
+    },
+    en: {
+      "document.title": "gh-issue-killer · Dashboard",
+      "tagline": "An issue dispatch board driven by comments",
+      "stat.daemon": "DAEMON", "stat.active": "ACTIVE", "stat.queued": "QUEUED",
+      "stat.waiting": "WAITING ON ME", "stat.uptime": "UPTIME",
+      "github.label": "Repository", "github.aria": "Open gh-issue-killer on GitHub",
+      "lang.aria": "Language", "theme.aria": "Theme",
+      "theme.auto": "Auto", "theme.light": "Light", "theme.dark": "Dark",
+      "band.lines": "LINES", "band.console": "CONSOLE",
+      "filter.all": "All", "filter.active": "Running", "filter.wait": "Needs me", "filter.blocked": "Blocked",
+      "filter.hideDone": "Hide done/cancelled", "filter.allProjects": "All projects",
+      "filters.aria": "Filters", "repo.aria": "Filter by project", "search.aria": "Search",
+      "search.placeholder": "Search issues or repos",
+      "th.issue": "ISSUE", "th.phase": "Phase", "th.progress": "Progress", "th.age": "Age", "th.pr": "PR",
+      "empty.none.title": "No tasks yet",
+      "empty.none.hint": "Mention @agent in an issue, or assign the issue to it.",
+      "empty.filtered.title": "No matching tasks",
+      "empty.filtered.hint": "Change the filters or clear the search.",
+      "log.collapse": "Collapse", "log.expand": "Expand", "log.pause": "Pause", "log.resume": "Resume",
+      "phase.new": "Pending", "phase.planning": "Planning", "phase.awaiting": "Awaiting approval",
+      "phase.implementing": "Implementing", "phase.blocked": "Blocked", "phase.prOpen": "PR waiting",
+      "phase.merging": "Merging", "phase.done": "Done", "phase.cancelled": "Cancelled",
+      "line.idle": "idle", "line.issues": "{n} issues",
+      "line.poll": "polled {age} ago", "line.pollNever": "poll –",
+      "line.plan": "PLAN", "line.work": "WORK", "line.limitHint": "Parallel limits apply per project",
+      "rail.plan": "Plan", "rail.approve": "Approve", "rail.implement": "Implement",
+      "rail.checks": "Checks", "rail.pr": "PR", "rail.merge": "Merge",
+      "transport.smee": "smee + polling", "transport.poll": "polling",
+      "drawer.aria": "Task details", "drawer.close": "Close details",
+      "drawer.openIssue": "Open issue", "drawer.openPR": "Open PR #{n}",
+      "drawer.failed": "Failed to load details: {msg}",
+      "drawer.status": "Status", "drawer.started": "Started", "drawer.updated": "Updated",
+      "drawer.branch": "Branch", "drawer.worktree": "worktree", "drawer.session": "session",
+      "drawer.phase": "Phase", "drawer.checks": "Checks", "drawer.name": "Name",
+      "drawer.result": "Result", "drawer.duration": "Time", "drawer.pass": "Pass", "drawer.fail": "Fail",
+      "drawer.screenshots": "Screenshots", "drawer.shotAlt": "Screenshot",
+      "drawer.notes": "Approval notes", "drawer.plan": "Plan",
+      "action.continue": "Retry", "action.approve": "Approve & start", "action.cancel": "Cancel task",
+      "action.submitting": "Submitting…", "action.approved": "Approved, implementation started",
+      "action.cancelled": "Cancelled", "action.failed": "Failed: {msg}",
+      "action.confirmApprove": "Approve the plan and start implementation?",
+      "action.confirmCancel": "Cancel this task? Work in progress will be terminated.",
+    },
+  };
+
+  function t(key, vars) {
+    const table = STRINGS[state.lang] || STRINGS.zh;
+    let out = table[key];
+    if (out === undefined) out = STRINGS.zh[key] !== undefined ? STRINGS.zh[key] : key;
+    if (vars) {
+      for (const [name, value] of Object.entries(vars)) out = out.split("{" + name + "}").join(String(value));
+    }
+    return out;
+  }
+
+  function storedLang() {
+    try { return localStorage.getItem(LANG_KEY) === "en" ? "en" : "zh"; } catch (_) { return "zh"; }
+  }
 
   const icon = (cls) => {
     const span = document.createElement("span");
@@ -504,36 +638,40 @@
     return el;
   };
 
-  const CHIP_LABELS = { all: "全部", active: "正在处理", wait: "等我", blocked: "阻塞" };
   // Phases where the ball is in the approver's court; mirrors phaseNeedsUser.
   const WAIT_PHASES = ["awaiting_approval", "pr_open", "blocked"];
   const needsMe = (task) => WAIT_PHASES.includes(task.phase);
 
   function updateChips(data) {
+    const finished = data.tasks.filter((task) => task.phase === "done" || task.phase === "cancelled").length;
     const counts = {
-      all: data.tasks.length,
+      all: state.hideFinished ? data.tasks.length - finished : data.tasks.length,
       active: data.tasks.filter((t) => t.active || t.queued).length,
       wait: data.tasks.filter(needsMe).length,
       blocked: data.tasks.filter((t) => t.phase === "blocked").length,
     };
-    for (const chip of document.querySelectorAll(".chip")) {
+    for (const chip of document.querySelectorAll(".chip[data-filter]")) {
       const key = chip.dataset.filter;
-      chip.textContent = `${CHIP_LABELS[key] || key} ${counts[key] || 0}`;
+      chip.textContent = `${t("filter." + key)} ${counts[key] || 0}`;
     }
   }
 
   const PHASES = {
-    "new": { label: "待处理", cls: "idle", step: 1 },
-    "": { label: "待处理", cls: "idle", step: 1 },
-    "planning": { label: "规划中", cls: "working", step: 1 },
-    "awaiting_approval": { label: "等待确认", cls: "waiting", step: 2 },
-    "implementing": { label: "实现中", cls: "working", step: 3 },
-    "blocked": { label: "阻塞", cls: "blocked", step: 3 },
-    "pr_open": { label: "PR 待合并", cls: "waiting", step: 5 },
-    "merging": { label: "合并中", cls: "working", step: 6 },
-    "done": { label: "已完成", cls: "done", step: 6 },
-    "cancelled": { label: "已取消", cls: "idle", step: 0 },
+    "new": { key: "phase.new", cls: "idle", step: 1 },
+    "": { key: "phase.new", cls: "idle", step: 1 },
+    "planning": { key: "phase.planning", cls: "working", step: 1 },
+    "awaiting_approval": { key: "phase.awaiting", cls: "waiting", step: 2 },
+    "implementing": { key: "phase.implementing", cls: "working", step: 3 },
+    "blocked": { key: "phase.blocked", cls: "blocked", step: 3 },
+    "pr_open": { key: "phase.prOpen", cls: "waiting", step: 5 },
+    "merging": { key: "phase.merging", cls: "working", step: 6 },
+    "done": { key: "phase.done", cls: "done", step: 6 },
+    "cancelled": { key: "phase.cancelled", cls: "idle", step: 0 },
   };
+
+  const phaseMeta = (phase) => PHASES[phase] || PHASES["new"];
+  const phaseLabel = (phase) => (phase && PHASES[phase] ? t(PHASES[phase].key) : phase || t("phase.new"));
+
 
   const THEME_KEY = "ghik-theme";
 
@@ -551,6 +689,42 @@
       button.setAttribute("aria-pressed", String(button.dataset.theme === current));
       button.addEventListener("click", () => applyTheme(button.dataset.theme));
     }
+  }
+
+  function applyLanguage(mode) {
+    state.lang = mode === "en" ? "en" : "zh";
+    try { localStorage.setItem(LANG_KEY, state.lang); } catch (_) { /* private mode */ }
+    document.documentElement.lang = state.lang === "zh" ? "zh-CN" : "en";
+    document.title = t("document.title");
+    for (const el of document.querySelectorAll("[data-i18n]")) el.textContent = t(el.dataset.i18n);
+    for (const el of document.querySelectorAll("[data-i18n-ph]")) el.placeholder = t(el.dataset.i18nPh);
+    for (const el of document.querySelectorAll("[data-i18n-aria]")) el.setAttribute("aria-label", t(el.dataset.i18nAria));
+    for (const button of document.querySelectorAll("[data-lang]")) {
+      button.setAttribute("aria-pressed", String(button.dataset.lang === state.lang));
+    }
+    for (const chip of document.querySelectorAll(".chip[data-filter]")) {
+      chip.textContent = t("filter." + chip.dataset.filter);
+    }
+    $("log-toggle").textContent = state.logOpen ? t("log.collapse") : t("log.expand");
+    $("log-pause").textContent = state.logPaused ? t("log.resume") : t("log.pause");
+    if (state.data) {
+      renderHeader(state.data);
+      renderLines(state.data);
+      updateChips(state.data);
+      updateRepoFilter(state.data);
+      renderTasks(state.data);
+      if (state.selected) {
+        state.drawerSig = "";
+        refreshState();
+      }
+    }
+  }
+
+  function initLanguage() {
+    for (const button of document.querySelectorAll("[data-lang]")) {
+      button.addEventListener("click", () => applyLanguage(button.dataset.lang));
+    }
+    applyLanguage(storedLang());
   }
 
   function inlineNodes(source) {
@@ -725,7 +899,7 @@
     if (!raw) return "–";
     const date = new Date(raw);
     if (Number.isNaN(date.getTime())) return raw;
-    return date.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    return date.toLocaleString(state.lang === "zh" ? "zh-CN" : "en-US", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
   }
 
   function humanAge(seconds) {
@@ -741,33 +915,38 @@
     if (el && el.textContent !== value) el.textContent = value;
   }
 
-  function renderMeters(active, limit, prefix) {
-    setText(`s-${prefix}-text`, active + "/" + limit);
-    const holder = $(`s-${prefix}-cells`);
-    if (!holder) return;
-    holder.replaceChildren();
-    const slots = Math.max(limit, active, 1);
+  // Each repository owns its own plan/work pool, so the limit is rendered on
+  // the repository line instead of once for the whole daemon.
+  function miniMeter(label, active, limit) {
+    const box = document.createElement("div");
+    box.className = "mini-meter";
+    box.title = t("line.limitHint");
+    const head = document.createElement("div");
+    head.className = "mini-head";
+    head.appendChild(text("span", label, "mini-label"));
+    head.appendChild(text("span", active + "/" + limit, "mini-num"));
+    const holder = document.createElement("div");
+    holder.className = "mini-cells";
+    const slots = Math.min(Math.max(limit, active, 1), 12);
     for (let i = 0; i < slots; i++) {
       const cell = document.createElement("span");
       cell.className = "cell" + (i < active ? " on" : "");
       holder.appendChild(cell);
     }
+    box.append(head, holder);
+    return box;
   }
 
   function renderHeader(data) {
     setText("s-version", data.version || "dev");
     setText("s-pid", String(data.pid));
     setText("s-identity", "@" + data.identity);
-    setText("s-transport", data.webhook ? "smee + 轮询" : "轮询");
+    setText("s-transport", data.webhook ? t("transport.smee") : t("transport.poll"));
     setText("s-config", data.configFile);
     setText("s-active", String(data.active));
     setText("s-queued", String(data.queued));
     setText("s-waiting", String(data.waiting ?? data.tasks.filter(needsMe).length));
     setText("s-uptime", humanAge(data.uptimeSec));
-    const planActive = data.tasks.filter((t) => t.active && t.phase === "planning").length;
-    const workActive = data.tasks.filter((t) => t.active && (t.phase === "implementing" || t.phase === "merging")).length;
-    renderMeters(planActive, data.planLimit, "plan");
-    renderMeters(workActive, data.workLimit, "work");
     if (!state.down && !state.live) {
       $("s-daemon").replaceChildren(icon("lamp live"), document.createTextNode("live"));
       state.live = true;
@@ -790,16 +969,16 @@
       counts.className = "counts";
       const entries = Object.entries(repo.counts || {});
       if (entries.length === 0) {
-        counts.appendChild(text("span", "空闲", "count"));
+        counts.appendChild(text("span", t("line.idle"), "count"));
       } else {
         for (const [phase, n] of entries) {
-          const meta = PHASES[phase] || PHASES["new"];
+          const meta = phaseMeta(phase);
           const item = document.createElement("span");
           item.className = "count";
           const swatch = document.createElement("i");
           swatch.className = "swatch " + meta.cls;
           item.appendChild(swatch);
-          item.appendChild(document.createTextNode((meta.label || phase) + " "));
+          item.appendChild(document.createTextNode(phaseLabel(phase) + " "));
           const strong = document.createElement("b");
           strong.textContent = String(n);
           item.appendChild(strong);
@@ -808,11 +987,20 @@
       }
       line.appendChild(counts);
 
+      const repoTasks = data.tasks.filter((task) => task.repo === repo.name);
+      const planActive = repoTasks.filter((task) => task.active && task.phase === "planning").length;
+      const workActive = repoTasks.filter((task) => task.active && (task.phase === "implementing" || task.phase === "merging")).length;
+      const pools = document.createElement("div");
+      pools.className = "line-pools";
+      pools.appendChild(miniMeter(t("line.plan"), planActive, data.planLimit));
+      pools.appendChild(miniMeter(t("line.work"), workActive, data.workLimit));
+      line.appendChild(pools);
+
       const foot = document.createElement("div");
       foot.className = "line-foot";
       foot.appendChild(text("span", `queue P${repo.queue.plan} W${repo.queue.work}`));
-      foot.appendChild(text("span", `${repo.issues} issues`));
-      foot.appendChild(text("span", repo.lastPoll ? "poll " + humanAge(Math.floor((Date.now() - Date.parse(repo.lastPoll)) / 1000)) + " ago" : "poll –"));
+      foot.appendChild(text("span", t("line.issues", { n: repo.issues })));
+      foot.appendChild(text("span", repo.lastPoll ? t("line.poll", { age: humanAge(Math.floor((Date.now() - Date.parse(repo.lastPoll)) / 1000)) }) : t("line.pollNever")));
       if (repo.base) foot.appendChild(text("span", repo.base));
       line.appendChild(foot);
       holder.appendChild(line);
@@ -820,7 +1008,7 @@
   }
 
   function stepState(task) {
-    const meta = PHASES[task.phase] || PHASES["new"];
+    const meta = phaseMeta(task.phase);
     const now = meta.step;
     const blocked = task.phase === "blocked";
     const cancelled = task.phase === "cancelled";
@@ -841,7 +1029,7 @@
       else if (step < effective) item.className = "done";
       else if (step === effective) item.className = "now";
       item.appendChild(document.createElement("i"));
-      item.title = ["规划", "批准", "实现", "检查", "PR", "合并"][step - 1];
+      item.title = t(["rail.plan", "rail.approve", "rail.implement", "rail.checks", "rail.pr", "rail.merge"][step - 1]);
       rail.appendChild(item);
     }
     return rail;
@@ -854,13 +1042,13 @@
     const names = data.repos.map((repo) => repo.name);
     for (const name of counts.keys()) if (!names.includes(name)) names.push(name);
     if (state.repo && !names.includes(state.repo)) state.repo = "";
-    const signature = names.map((n) => `${n}:${counts.get(n) || 0}`).join("|") + `#${state.repo}`;
+    const signature = names.map((n) => `${n}:${counts.get(n) || 0}`).join("|") + `#${state.repo}#${state.lang}`;
     if (select.dataset.sig === signature) return;
     select.dataset.sig = signature;
     const fragment = document.createDocumentFragment();
     const all = document.createElement("option");
     all.value = "";
-    all.textContent = `全部项目 (${data.tasks.length})`;
+    all.textContent = `${t("filter.allProjects")} (${data.tasks.length})`;
     fragment.appendChild(all);
     for (const name of names) {
       const option = document.createElement("option");
@@ -874,6 +1062,7 @@
 
   function matches(task) {
     if (state.repo && task.repo !== state.repo) return false;
+    if (state.hideFinished && (task.phase === "done" || task.phase === "cancelled")) return false;
     if (state.filter === "active" && !(task.active || task.queued)) return false;
     if (state.filter === "wait" && !needsMe(task)) return false;
     if (state.filter === "blocked" && task.phase !== "blocked") return false;
@@ -892,8 +1081,8 @@
       body.replaceChildren();
       $("empty").hidden = false;
       const filtered = data.tasks.length !== 0;
-      $("empty").querySelector("strong").textContent = filtered ? "没有匹配的任务" : "还没有任务";
-      $("empty-hint").textContent = filtered ? "换个筛选或清空搜索。" : "在 issue 里 @agent，或者把 issue assign 给它。";
+      $("empty").querySelector("strong").textContent = filtered ? t("empty.filtered.title") : t("empty.none.title");
+      $("empty-hint").textContent = filtered ? t("empty.filtered.hint") : t("empty.none.hint");
       return;
     }
     $("empty").hidden = true;
@@ -917,8 +1106,8 @@
       issueCell.appendChild(text("span", task.title || "issue #" + task.number, "issue-title"));
 
       const phaseCell = document.createElement("td");
-      const meta = PHASES[task.phase] || PHASES["new"];
-      phaseCell.appendChild(text("span", meta.label, "stamp " + meta.cls));
+      const meta = phaseMeta(task.phase);
+      phaseCell.appendChild(text("span", phaseLabel(task.phase), "stamp " + meta.cls));
 
       const railCell = document.createElement("td");
       railCell.className = "rail-cell";
@@ -999,12 +1188,12 @@
     links.className = "link-row";
     if (task.url) {
       const a = document.createElement("a");
-      a.href = task.url; a.target = "_blank"; a.rel = "noreferrer"; a.textContent = "打开 issue";
+      a.href = task.url; a.target = "_blank"; a.rel = "noreferrer"; a.textContent = t("drawer.openIssue");
       links.appendChild(a);
     }
     if (task.prUrl) {
       const a = document.createElement("a");
-      a.href = task.prUrl; a.target = "_blank"; a.rel = "noreferrer"; a.textContent = "打开 PR #" + task.prNumber;
+      a.href = task.prUrl; a.target = "_blank"; a.rel = "noreferrer"; a.textContent = t("drawer.openPR", { n: task.prNumber });
       links.appendChild(a);
     }
     if (links.childNodes.length) body.appendChild(links);
@@ -1013,28 +1202,28 @@
       body.appendChild(text("div", issue.blockedReason, "note"));
     }
 
-    body.appendChild(text("h3", "状态"));
+    body.appendChild(text("h3", t("drawer.status")));
     const kv = document.createElement("dl");
     kv.className = "kv";
     const addKV = (key, value) => {
       kv.appendChild(text("dt", key));
       kv.appendChild(text("dd", value || "–"));
     };
-    addKV("阶段", (PHASES[issue.phase] || {}).label || issue.phase || "–");
-    addKV("开始", fmtTime(issue.startedAt));
-    addKV("更新", fmtTime(issue.updatedAt));
-    addKV("分支", issue.branch || "–");
-    addKV("worktree", issue.worktree || "–");
-    addKV("session", issue.sessionId || "–");
+    addKV(t("drawer.phase"), phaseLabel(issue.phase));
+    addKV(t("drawer.started"), fmtTime(issue.startedAt));
+    addKV(t("drawer.updated"), fmtTime(issue.updatedAt));
+    addKV(t("drawer.branch"), issue.branch || "–");
+    addKV(t("drawer.worktree"), issue.worktree || "–");
+    addKV(t("drawer.session"), issue.sessionId || "–");
     body.appendChild(kv);
 
     if (issue.checks && issue.checks.length) {
-      body.appendChild(text("h3", "检查"));
+      body.appendChild(text("h3", t("drawer.checks")));
       const table = document.createElement("table");
       table.className = "checks";
       const thead = document.createElement("thead");
       const hr = document.createElement("tr");
-      hr.append(text("th", "名称"), text("th", "结果"), text("th", "耗时"));
+      hr.append(text("th", t("drawer.name")), text("th", t("drawer.result")), text("th", t("drawer.duration")));
       thead.appendChild(hr);
       table.appendChild(thead);
       const tbody = document.createElement("tbody");
@@ -1050,7 +1239,7 @@
           name.textContent = check.name || check.cmd;
         }
         tr.appendChild(name);
-        tr.appendChild(text("td", check.ok ? "通过" : "失败", check.ok ? "ok" : "fail"));
+        tr.appendChild(text("td", check.ok ? t("drawer.pass") : t("drawer.fail"), check.ok ? "ok" : "fail"));
         tr.appendChild(text("td", (check.durationSec || 0) + "s"));
         tbody.appendChild(tr);
       }
@@ -1059,14 +1248,14 @@
     }
 
     if (issue.screenshots && issue.screenshots.length) {
-      body.appendChild(text("h3", "截图"));
+      body.appendChild(text("h3", t("drawer.screenshots")));
       const shots = document.createElement("div");
       shots.className = "shots";
       for (const shot of issue.screenshots) {
         const figure = document.createElement("figure");
         const img = document.createElement("img");
         img.src = shot.url;
-        img.alt = shot.caption || "截图";
+        img.alt = shot.caption || t("drawer.shotAlt");
         img.loading = "lazy";
         figure.appendChild(img);
         figure.appendChild(text("figcaption", shot.caption || ""));
@@ -1076,12 +1265,12 @@
     }
 
     if (issue.extraNotes) {
-      body.appendChild(text("h3", "批准附注"));
+      body.appendChild(text("h3", t("drawer.notes")));
       body.appendChild(text("div", issue.extraNotes, "owner-note"));
     }
 
     if (issue.plan) {
-      body.appendChild(text("h3", "计划"));
+      body.appendChild(text("h3", t("drawer.plan")));
       const plan = renderMarkdown(issue.plan);
       plan.classList.add("plan");
       body.appendChild(plan);
@@ -1107,14 +1296,14 @@
     if (canApprove) {
       const button = document.createElement("button");
       button.className = "primary";
-      button.textContent = phase === "blocked" ? "继续重试" : "批准并开始";
+      button.textContent = phase === "blocked" ? t("action.continue") : t("action.approve");
       button.addEventListener("click", () => runAction(task, "approve"));
       holder.appendChild(button);
     }
     if (canCancel) {
       const button = document.createElement("button");
       button.className = "danger";
-      button.textContent = "取消任务";
+      button.textContent = t("action.cancel");
       button.addEventListener("click", () => runAction(task, "cancel"));
       holder.appendChild(button);
     }
@@ -1124,13 +1313,13 @@
   }
 
   async function runAction(task, action) {
-    const question = action === "approve" ? "批准计划并开始实现？" : "取消这个任务？进行中的工作会被终止。";
+    const question = action === "approve" ? t("action.confirmApprove") : t("action.confirmCancel");
     if (!window.confirm(question)) return;
     const holder = $("d-actions");
     const result = holder.querySelector(".result");
     for (const button of holder.querySelectorAll("button")) button.disabled = true;
     result.className = "result";
-    result.textContent = "提交中…";
+    result.textContent = t("action.submitting");
     try {
       const response = await fetch("/api/action", {
         method: "POST",
@@ -1140,18 +1329,18 @@
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "HTTP " + response.status);
       result.className = "result ok";
-      result.textContent = action === "approve" ? "已批准，开始实现" : "已取消";
+      result.textContent = action === "approve" ? t("action.approved") : t("action.cancelled");
       setTimeout(refreshState, 800);
     } catch (err) {
       result.className = "result fail";
-      result.textContent = "失败：" + err.message;
+      result.textContent = t("action.failed", { msg: err.message });
       for (const button of holder.querySelectorAll("button")) button.disabled = false;
     }
   }
 
   function renderDrawerError(err) {
     const body = $("d-body");
-    body.replaceChildren(text("div", "读取详情失败：" + err.message, "note"));
+    body.replaceChildren(text("div", t("drawer.failed", { msg: err.message }), "note"));
     $("drawer").classList.add("open");
     $("drawer").setAttribute("aria-hidden", "false");
   }
@@ -1160,10 +1349,18 @@
     const lines = raw.split("\n");
     const frag = document.createDocumentFragment();
     for (const line of lines) {
-      const match = line.match(/ (INFO|WARN|ERROR|DEBUG) /);
+      // daemon.log format: 2026-01-02T03:04:05Z INFO  message. Keep the API
+      // plain text and split it here only for colouring.
+      const match = line.match(/^(\S+)\s+(INFO|WARN|ERROR|DEBUG)\s+(.*)$/);
+      if (!match) {
+        frag.appendChild(document.createTextNode(line + "\n"));
+        continue;
+      }
       const span = document.createElement("span");
-      if (match) span.className = "lv-" + match[1];
-      span.appendChild(document.createTextNode(line + "\n"));
+      span.className = "log-line lv-" + match[2];
+      span.appendChild(text("span", match[1] + " ", "log-time"));
+      span.appendChild(text("span", match[2], "log-level"));
+      span.appendChild(document.createTextNode(" " + match[3] + "\n"));
       frag.appendChild(span);
     }
     const log = $("log");
@@ -1217,15 +1414,24 @@
 
   function wire() {
     initTheme();
-    for (const chip of document.querySelectorAll(".chip")) {
+    initLanguage();
+    for (const chip of document.querySelectorAll(".chip[data-filter]")) {
       chip.addEventListener("click", () => {
         state.filter = chip.dataset.filter;
-        for (const other of document.querySelectorAll(".chip")) {
+        for (const other of document.querySelectorAll(".chip[data-filter]")) {
           other.setAttribute("aria-pressed", other === chip ? "true" : "false");
         }
         if (state.data) renderTasks(state.data);
       });
     }
+    $("hide-finished").addEventListener("click", () => {
+      state.hideFinished = !state.hideFinished;
+      $("hide-finished").setAttribute("aria-pressed", String(state.hideFinished));
+      if (state.data) {
+        updateChips(state.data);
+        renderTasks(state.data);
+      }
+    });
     $("repo-filter").addEventListener("change", (event) => {
       state.repo = event.target.value;
       if (state.data) renderTasks(state.data);
@@ -1241,13 +1447,13 @@
     $("log-toggle").addEventListener("click", () => {
       state.logOpen = !state.logOpen;
       $("console").classList.toggle("collapsed", !state.logOpen);
-      $("log-toggle").textContent = state.logOpen ? "收起" : "展开";
+      $("log-toggle").textContent = state.logOpen ? t("log.collapse") : t("log.expand");
       $("log-toggle").setAttribute("aria-expanded", String(state.logOpen));
       if (state.logOpen) refreshLogs();
     });
     $("log-pause").addEventListener("click", () => {
       state.logPaused = !state.logPaused;
-      $("log-pause").textContent = state.logPaused ? "继续" : "暂停";
+      $("log-pause").textContent = state.logPaused ? t("log.resume") : t("log.pause");
       $("log-pause").setAttribute("aria-pressed", String(state.logPaused));
       if (!state.logPaused) refreshLogs();
     });

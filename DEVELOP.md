@@ -377,6 +377,16 @@ origin), `/logo.svg`. Queue depth in `/api/state` includes `plan`, `work` and
 (`awaiting_approval`, `pr_open`, `blocked`, see `phaseNeedsUser`); the board can
 be filtered by phase, by project (the repo dropdown) and by free text.
 
+`web/index.html` is self-contained: no build step, no dependencies. The masthead
+switches between Chinese (default) and English (`localStorage` key `ghik-lang`)
+and links to the project on GitHub. Every string, including phases, filters,
+the drawer and the empty states, comes from the `zh`/`en` tables in the script;
+`/api/logs` stays plain text and the console colours INFO/WARN/ERROR/DEBUG in
+the browser. `planParallel` and `implementParallel` size each repository's own
+pool, so the PLAN/WORK meters are rendered per repository line rather than
+globally. A board toggle hides `done` and `cancelled` tasks on top of the other
+filters; it is off by default.
+
 ## 16. Reload and self-update
 
 `watchConfig` watches the config file with fsnotify plus a 30 s digest safety
