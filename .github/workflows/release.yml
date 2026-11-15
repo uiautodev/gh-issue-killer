@@ -9,7 +9,9 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  # Terminal binaries for every platform. The daemon now builds on Windows too:
+  # process handling lives in process_unix.go / process_windows.go.
+  binaries:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,26 +28,141 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME}"
           mkdir -p dist
-          # The daemon is POSIX-only (process groups via syscall), so no Windows.
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             os="${target%/*}"
             arch="${target#*/}"
             name="gh-issue-killer_${version}_${os}_${arch}"
+            binary="gh-issue-killer"
             mkdir -p "dist/${name}"
+            if [ "$os" = "windows" ]; then
+              binary="gh-issue-killer.exe"
+            fi
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
               -ldflags "-s -w -X main.version=${version} -X main.commit=${GITHUB_SHA}" \
-              -o "dist/${name}/gh-issue-killer" ./cmd/gh-issue-killer
+              -o "dist/${name}/${binary}" ./cmd/gh-issue-killer
             cp README.md README.zh-CN.md LICENSE DEPLOY.md "dist/${name}/"
-            tar -C "dist/${name}" -czf "dist/${name}.tar.gz" .
+            if [ "$os" = "windows" ]; then
+              (cd "dist/${name}" && zip -qr "../${name}.zip" .)
+            else
+              tar -C "dist/${name}" -czf "dist/${name}.tar.gz" .
+            fi
           done
-          (cd dist && sha256sum *.tar.gz > checksums.txt)
           ls -lh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  # Desktop shell per platform. The shell is a thin Wails 3 window around the
+  # engine, so each bundle ships both binaries; see desktop/build/package.sh.
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14 # arm64
+            os: darwin
+          - runner: macos-15-intel # amd64
+            os: darwin
+          - runner: ubuntu-22.04
+            os: linux
+          - runner: windows-latest
+            os: windows
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: install webkitgtk
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: build bundle (macOS/Linux)
+        if: matrix.os != 'windows'
+        run: desktop/build/package.sh "${GITHUB_REF_NAME}"
+
+      - name: build bundle (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: ./desktop/build/package.ps1 -Version $env:GITHUB_REF_NAME
+
+      - name: build AppImage (Linux)
+        if: matrix.os == 'linux'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          name="gh-issue-killer-desktop_${version}_linux_amd64"
+          dist="desktop/build/dist"
+          appdir="${dist}/AppDir"
+          rm -rf "$appdir"
+          tar -C "$dist" -xzf "${dist}/${name}.tar.gz"
+          mkdir -p "$appdir/usr/bin" "$appdir/usr/share/icons/hicolor/256x256/apps"
+          cp "${dist}/${name}/gh-issue-killer" "${dist}/${name}/gh-issue-killer-desktop" "$appdir/usr/bin/"
+          cp desktop/build/appicon.png "$appdir/gh-issue-killer.png"
+          cp desktop/build/appicon.png "$appdir/usr/share/icons/hicolor/256x256/apps/gh-issue-killer.png"
+          cat >"$appdir/gh-issue-killer.desktop" <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=gh-issue-killer
+          Exec=gh-issue-killer-desktop
+          Icon=gh-issue-killer
+          Categories=Development;
+          EOF
+          cat >"$appdir/AppRun" <<'EOF'
+          #!/bin/sh
+          exec "$APPDIR/usr/bin/gh-issue-killer-desktop" "$@"
+          EOF
+          chmod +x "$appdir/AppRun"
+          curl -fsSL -o /tmp/appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+          ARCH=x86_64 /tmp/appimagetool --appimage-extract-and-run --no-appstream \
+            "$appdir" "${dist}/${name}.AppImage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.runner }}
+          path: |
+            desktop/build/dist/*.zip
+            desktop/build/dist/*.tar.gz
+            desktop/build/dist/*.AppImage
+          if-no-files-found: error
+
+  publish:
+    needs: [binaries, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          files=$(ls *.tar.gz *.zip 2>/dev/null || true)
+          if ls *.AppImage >/dev/null 2>&1; then
+            files="$files $(ls *.AppImage)"
+          fi
+          sha256sum $files > checksums.txt
+          cat checksums.txt
 
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            dist/*.tar.gz dist/checksums.txt \
+            dist/* \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes
