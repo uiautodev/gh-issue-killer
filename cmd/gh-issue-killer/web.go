@@ -9,23 +9,41 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 //go:embed web/index.html web/logo.svg
 var webIndex embed.FS
 
+type webOptions struct {
+	identity    string
+	version     string
+	embedded    bool
+	configError string
+	// reload restarts the engine: a config save, a dashboard restart or a
+	// finished self-update all apply through it. Nil disables those buttons.
+	reload func()
+}
+
 type webServer struct {
-	cfg      *Config
-	router   *Router
-	store    *Store
-	log      *Logger
-	identity string
-	version  string
-	started  time.Time
+	cfg         *Config
+	router      *Router
+	store       *Store
+	log         *Logger
+	identity    string
+	version     string
+	started     time.Time
+	embedded    bool
+	configError string
+	reload      func()
+	// latestRelease is replaced in tests so /api/update never hits GitHub.
+	latestRelease func(ctx context.Context) (*releaseInfo, error)
+	updateMu      sync.Mutex
 }
 
 type webPool struct {
@@ -68,31 +86,37 @@ type webTask struct {
 }
 
 type webSnapshot struct {
-	Time       string    `json:"time"`
-	Version    string    `json:"version"`
-	PID        int       `json:"pid"`
-	UptimeSec  int64     `json:"uptimeSec"`
-	ConfigFile string    `json:"configFile"`
-	LogPath    string    `json:"logPath"`
-	StatePath  string    `json:"statePath"`
-	Identity   string    `json:"identity"`
-	Webhook    bool      `json:"webhook"`
-	PlanLimit  int       `json:"planLimit"`
-	WorkLimit  int       `json:"workLimit"`
-	Active     int       `json:"active"`
-	Queued     int       `json:"queued"`
-	Waiting    int       `json:"waiting"`
-	Repos      []webRepo `json:"repos"`
-	Tasks      []webTask `json:"tasks"`
+	Time       string `json:"time"`
+	Version    string `json:"version"`
+	Platform   string `json:"platform"`
+	PID        int    `json:"pid"`
+	UptimeSec  int64  `json:"uptimeSec"`
+	ConfigFile string `json:"configFile"`
+	LogPath    string `json:"logPath"`
+	StatePath  string `json:"statePath"`
+	Identity   string `json:"identity"`
+	Webhook    bool   `json:"webhook"`
+	Embedded   bool   `json:"embedded"`
+	// ConfigError is set while the engine runs without a usable config (first
+	// run or a broken edit): the dashboard then opens the settings panel.
+	ConfigError string    `json:"configError"`
+	PlanLimit   int       `json:"planLimit"`
+	WorkLimit   int       `json:"workLimit"`
+	Active      int       `json:"active"`
+	Queued      int       `json:"queued"`
+	Waiting     int       `json:"waiting"`
+	Repos       []webRepo `json:"repos"`
+	Tasks       []webTask `json:"tasks"`
 }
 
-func startWeb(cfg *Config, router *Router, store *Store, log *Logger, identity, version string) (*http.Server, error) {
+func startWeb(cfg *Config, router *Router, store *Store, log *Logger, opts webOptions) (*http.Server, error) {
 	if cfg.WebPort <= 0 {
 		return nil, nil
 	}
 	web := &webServer{
 		cfg: cfg, router: router, store: store, log: log,
-		identity: identity, version: version, started: time.Now(),
+		identity: opts.identity, version: opts.version, started: time.Now(),
+		embedded: opts.embedded, configError: opts.configError, reload: opts.reload,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", web.handleIndex)
@@ -100,6 +124,10 @@ func startWeb(cfg *Config, router *Router, store *Store, log *Logger, identity, 
 	mux.HandleFunc("/api/issue", web.handleIssue)
 	mux.HandleFunc("/api/logs", web.handleLogs)
 	mux.HandleFunc("/api/action", web.handleAction)
+	mux.HandleFunc("/api/config", web.handleConfig)
+	mux.HandleFunc("/api/detect", web.handleDetect)
+	mux.HandleFunc("/api/restart", web.handleRestart)
+	mux.HandleFunc("/api/update", web.handleUpdate)
 	mux.HandleFunc("/logo.svg", web.handleLogo)
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", cfg.WebPort))
@@ -179,8 +207,16 @@ func (w *webServer) handleAction(rw http.ResponseWriter, req *http.Request) {
 	var err error
 	switch body.Action {
 	case "approve":
+		if w.router == nil {
+			writeJSON(http.StatusConflict, false, "setup mode: save a config first")
+			return
+		}
 		err = w.router.WebApprove(body.Repo, body.Number)
 	case "cancel":
+		if w.router == nil {
+			writeJSON(http.StatusConflict, false, "setup mode: save a config first")
+			return
+		}
 		err = w.router.WebCancel(body.Repo, body.Number)
 	default:
 		writeJSON(http.StatusBadRequest, false, "unknown action")
@@ -252,21 +288,29 @@ func (w *webServer) handleLogs(rw http.ResponseWriter, req *http.Request) {
 
 func (w *webServer) snapshot() webSnapshot {
 	now := time.Now()
-	routerState := w.router.Snapshot()
+	routerState := RouterSnapshot{Active: map[string]bool{}, Queued: map[string]bool{}, Pools: map[string]PoolDepth{}}
+	if w.router != nil {
+		routerState = w.router.Snapshot()
+	}
 	issued := w.store.Snapshot()
 
 	snapshot := webSnapshot{
-		Time:       now.UTC().Format(time.RFC3339),
-		Version:    w.version,
-		PID:        os.Getpid(),
-		UptimeSec:  int64(now.Sub(w.started).Seconds()),
-		ConfigFile: w.cfg.File,
-		LogPath:    daemonLogPath(),
-		StatePath:  stateFile(),
-		Identity:   w.identity,
-		Webhook:    w.cfg.Webhook,
-		PlanLimit:  w.cfg.PlanParallel,
-		WorkLimit:  w.cfg.ImplementParallel,
+		Time:        now.UTC().Format(time.RFC3339),
+		Version:     w.version,
+		Platform:    runtime.GOOS + "/" + runtime.GOARCH,
+		PID:         os.Getpid(),
+		UptimeSec:   int64(now.Sub(w.started).Seconds()),
+		ConfigFile:  w.cfg.File,
+		LogPath:     daemonLogPath(),
+		StatePath:   stateFile(),
+		Identity:    w.identity,
+		Webhook:     w.cfg.Webhook,
+		Embedded:    w.embedded,
+		ConfigError: w.configError,
+		PlanLimit:   w.cfg.PlanParallel,
+		WorkLimit:   w.cfg.ImplementParallel,
+		Repos:       []webRepo{},
+		Tasks:       []webTask{},
 	}
 
 	repoEntries := make(map[string]*webRepo, len(w.cfg.Repos))
@@ -275,10 +319,12 @@ func (w *webServer) snapshot() webSnapshot {
 		meta := w.store.Meta(repo.FullName)
 		base := ""
 		trees := repo.WorktreeRoot
-		if app := w.router.contexts[repo.FullName]; app != nil && app.Local != nil {
-			base = app.Local.Base
-			if trees == "" {
-				trees = app.Local.WorktreeRoot
+		if w.router != nil {
+			if app := w.router.contexts[repo.FullName]; app != nil && app.Local != nil {
+				base = app.Local.Base
+				if trees == "" {
+					trees = app.Local.WorktreeRoot
+				}
 			}
 		}
 		depth := routerState.Pools[repo.FullName]

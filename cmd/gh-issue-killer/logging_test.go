@@ -116,19 +116,20 @@ func TestRotatingFileConcurrent(t *testing.T) {
 }
 
 func TestShouldDaemonize(t *testing.T) {
-	if !shouldDaemonize(false, false, false, false, false, false) {
+	if !shouldDaemonize(false, false, false, false, false, false, false) {
 		t.Fatal("default should daemonize")
 	}
 	cases := []struct {
 		name string
 		call func() bool
 	}{
-		{"foreground", func() bool { return shouldDaemonize(true, false, false, false, false, false) }},
-		{"init", func() bool { return shouldDaemonize(false, true, false, false, false, false) }},
-		{"once", func() bool { return shouldDaemonize(false, false, true, false, false, false) }},
-		{"stop", func() bool { return shouldDaemonize(false, false, false, true, false, false) }},
-		{"status", func() bool { return shouldDaemonize(false, false, false, false, true, false) }},
-		{"child", func() bool { return shouldDaemonize(false, false, false, false, false, true) }},
+		{"foreground", func() bool { return shouldDaemonize(true, false, false, false, false, false, false) }},
+		{"init", func() bool { return shouldDaemonize(false, true, false, false, false, false, false) }},
+		{"once", func() bool { return shouldDaemonize(false, false, true, false, false, false, false) }},
+		{"stop", func() bool { return shouldDaemonize(false, false, false, true, false, false, false) }},
+		{"status", func() bool { return shouldDaemonize(false, false, false, false, true, false, false) }},
+		{"child", func() bool { return shouldDaemonize(false, false, false, false, false, true, false) }},
+		{"embedded", func() bool { return shouldDaemonize(false, false, false, false, false, false, true) }},
 	}
 	for _, testCase := range cases {
 		if testCase.call() {

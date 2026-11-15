@@ -26,7 +26,7 @@ func acquireLock(log *Logger) (func(), error) {
 		// A lock holding our own pid is ours: it survives a config reload
 		// that re-executes the process in place.
 		if parseErr == nil && pid > 0 && pid != os.Getpid() {
-			if killErr := syscall.Kill(pid, 0); killErr == nil {
+			if processAlive(pid) {
 				return nil, fmt.Errorf("another daemon is already running (pid %d)", pid)
 			}
 			log.Warn("removing stale lock file")
@@ -36,7 +36,13 @@ func acquireLock(log *Logger) (func(), error) {
 	if err := os.WriteFile(lockFile(), []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		return nil, err
 	}
-	return func() { _ = os.Remove(lockFile()) }, nil
+	// Only remove a lock that still holds our pid: a Windows reexec starts the
+	// replacement before this process's deferred cleanup runs.
+	return func() {
+		if lockIsOurs() {
+			_ = os.Remove(lockFile())
+		}
+	}, nil
 }
 
 func stopDaemon(log *Logger) {
@@ -51,13 +57,13 @@ func stopDaemon(log *Logger) {
 		_ = os.Remove(lockFile())
 		return
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+	if err := terminateProcess(pid); err != nil {
 		log.Info("daemon pid %d is not running, removing stale lock", pid)
 		_ = os.Remove(lockFile())
 		return
 	}
 	for i := 0; i < 50; i++ {
-		if err := syscall.Kill(pid, 0); err != nil {
+		if !processAlive(pid) {
 			log.Info("daemon pid %d stopped", pid)
 			_ = os.Remove(lockFile())
 			return
@@ -76,14 +82,14 @@ func readLockPID() (int, bool) {
 	if parseErr != nil || pid <= 0 {
 		return 0, false
 	}
-	if err := syscall.Kill(pid, 0); err == nil || errors.Is(err, syscall.EPERM) {
+	if processAlive(pid) {
 		return pid, true
 	}
 	return pid, false
 }
 
-func shouldDaemonize(foreground, initConfig, once, stop, status, child bool) bool {
-	if foreground || initConfig || once || stop || status || child {
+func shouldDaemonize(foreground, initConfig, once, stop, status, child, embedded bool) bool {
+	if foreground || initConfig || once || stop || status || child || embedded {
 		return false
 	}
 	return true
@@ -147,7 +153,7 @@ func startBackground(configPath string) error {
 	command.Stdin = nil
 	command.Stdout = nil
 	command.Stderr = nil
-	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	command.SysProcAttr = detachSysProcAttr()
 
 	if err := command.Start(); err != nil {
 		return err
@@ -159,13 +165,13 @@ func startBackground(configPath string) error {
 			alive = true
 			break
 		}
-		if err := syscall.Kill(pid, 0); err != nil && !errors.Is(err, syscall.EPERM) {
+		if !processAlive(pid) {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	if !alive {
-		alive = syscall.Kill(pid, 0) == nil || errors.Is(syscall.Kill(pid, 0), syscall.EPERM)
+		alive = processAlive(pid)
 	}
 	_ = command.Process.Release()
 	if !alive {
@@ -191,6 +197,8 @@ func main() {
 	stop := flag.Bool("stop", false, "stop the running daemon and exit")
 	status := flag.Bool("status", false, "show daemon status and paths")
 	logs := flag.Bool("logs", false, "follow the daemon log in real time")
+	embedded := flag.Bool("embedded", false, "run the engine attached to the desktop shell (foreground, no detach, supervised restart)")
+	webPort := flag.Int("web-port", 0, "override config.webPort for this run (0 = use the config)")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "gh-issue-killer - GitHub issue watcher\n\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  gh-issue-killer [flags]\n\n")
@@ -238,6 +246,12 @@ func main() {
 	child := isDaemonChild()
 
 	if _, err := os.Stat(configFile); errors.Is(err, fs.ErrNotExist) {
+		if *embedded {
+			// The desktop shell has no terminal: the dashboard is the setup UI,
+			// so serve it with a placeholder config instead of exiting.
+			serveSetup(configFile, *webPort, "config file not found")
+			return
+		}
 		if isTerminal(os.Stdin) && !child {
 			if wizardErr := runSetupWizard(configFile, os.Stdin, os.Stdout); wizardErr != nil {
 				fmt.Fprintln(os.Stderr, wizardErr)
@@ -249,7 +263,7 @@ func main() {
 		}
 	}
 
-	if shouldDaemonize(*foreground, *initConfig, *once, *stop, *status, child) {
+	if shouldDaemonize(*foreground, *initConfig, *once, *stop, *status, child, *embedded) {
 		if err := startBackground(*configPath); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -266,17 +280,29 @@ func main() {
 	if *foreground {
 		log.Info("foreground mode: attached to this terminal, Ctrl+C to stop")
 	}
+	if *embedded {
+		log.Info("embedded mode: supervised by the desktop shell, no daemon detach")
+	}
 	if child {
 		log.Info("daemon child mode: detached")
 	}
 	cfg, err := loadConfig(configFile)
 	if err != nil {
+		if *embedded {
+			// A broken edit must not leave the desktop window blank: serve the
+			// dashboard so the settings panel can fix the config.
+			serveSetup(configFile, *webPort, err.Error())
+			return
+		}
 		if errors.Is(err, fs.ErrNotExist) {
 			log.Error("no config at %s: run `gh-issue-killer -init` to create one", configFile)
 		} else {
 			log.Error("%v", err)
 		}
 		os.Exit(1)
+	}
+	if *webPort > 0 && *webPort <= 65535 {
+		cfg.WebPort = *webPort
 	}
 	proxy, err := parseProxy(cfg.Proxy)
 	if err != nil {
@@ -290,7 +316,7 @@ func main() {
 	}
 	defer release()
 
-	log.Info("gh-issue-killer %s starting, config=%s proxy=%s", version, cfg.File, firstNonEmpty(cfg.Proxy, "direct"))
+	log.Info("gh-issue-killer %s starting, config=%s proxy=%s", buildLabel(), cfg.File, firstNonEmpty(cfg.Proxy, "direct"))
 	log.Debug("runtime: codingAgent=%s model=%s poll=%s webhook=%v planParallel=%d implementParallel=%d maxFixRounds=%d",
 		cfg.CodingAgent, firstNonEmpty(cfg.Model, "(default)"), cfg.PollInterval, cfg.Webhook, cfg.PlanParallel, cfg.ImplementParallel, cfg.MaxFixRounds)
 	log.Debug("paths: config=%s state=%s log=%s", cfg.File, stateFile(), daemonLogPath())
@@ -389,9 +415,22 @@ func main() {
 
 	router := NewRouter(cfg, contexts, identity.Login, store, log)
 
+	webReload := make(chan struct{}, 1)
+	requestReload := func() {
+		select {
+		case webReload <- struct{}{}:
+		default:
+		}
+	}
+
 	var web *http.Server
 	if !*once && cfg.WebPort > 0 {
-		server, webErr := startWeb(cfg, router, store, log, identity.Login, version)
+		server, webErr := startWeb(cfg, router, store, log, webOptions{
+			identity: identity.Login,
+			version:  version,
+			embedded: *embedded,
+			reload:   requestReload,
+		})
 		if webErr != nil {
 			log.Warn("web UI disabled: %v", webErr)
 		} else {
@@ -413,12 +452,7 @@ func main() {
 	reload := watchConfig(ctx, cfg.File, log, configWatchEvery, configDebounce)
 	var selfRestart <-chan struct{}
 	if cfg.SelfUpdate {
-		env := os.Environ()
-		for _, app := range contexts {
-			env = app.Env
-			break
-		}
-		selfRestart = watchSelfUpdates(ctx, log, env)
+		selfRestart = watchSelfUpdates(ctx, log, cfg)
 	}
 
 	if cfg.Webhook && store.GlobalSecret() == "" {
@@ -457,9 +491,12 @@ func main() {
 	case <-reload:
 		reloadRequested = true
 		log.Info("config reload requested; waiting for running jobs to finish")
+	case <-webReload:
+		reloadRequested = true
+		log.Info("restart requested from the dashboard; waiting for running jobs to finish")
 	case <-selfRestart:
 		reloadRequested = true
-		log.Info("self-update: restarting on the rebuilt binary; waiting for running jobs to finish")
+		log.Info("self-update: restarting on the updated binary; waiting for running jobs to finish")
 	}
 
 	if reloadRequested {
@@ -483,22 +520,114 @@ func main() {
 	_ = store.Save()
 
 	if reloadRequested {
-		reexec(log)
+		reexec(log, *embedded)
 	}
 	log.Info("bye")
 }
 
-// reexec replaces the process image with a fresh daemon so the new config
-// applies everywhere: repos, agents, proxy, worker count. The pid is kept,
-// so the lock file stays valid, and interrupted work resumes on startup.
-func reexec(log *Logger) {
+// exitRestart makes the process exit with a code the desktop shell recognises:
+// restart the engine instead of treating it as a crash. The shell passes
+// -embedded on every start, so the restarted engine keeps the same config and
+// the same web port.
+const exitRestart = 75
+
+// reexec applies a new config or a freshly installed binary. On POSIX the
+// process image is replaced, which keeps the pid (and the lock) valid. Windows
+// has no exec(2): start the same command again and let this process exit. The
+// desktop shell starts the engine with -embedded and restarts it on exitRestart
+// instead, because its own child handle would otherwise go stale.
+func reexec(log *Logger, embedded bool) {
 	exe, err := os.Executable()
 	if err != nil {
 		log.Error("reload: %v", err)
 		return
 	}
-	log.Info("reloading %s", exe)
-	if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
-		log.Error("reload failed: %v", err)
+	if embedded {
+		log.Info("reload: exiting for the desktop shell to restart %s", exe)
+		if lockIsOurs() {
+			_ = os.Remove(lockFile())
+		}
+		os.Exit(exitRestart)
 	}
+	if canExecInPlace {
+		log.Info("reloading %s", exe)
+		if err := execInPlace(exe, os.Args, os.Environ()); err != nil {
+			log.Error("reload failed: %v", err)
+		}
+		return
+	}
+	// Drop the lock first: the replacement daemon must be able to take it, and
+	// the deferred cleanup must not delete the new pid afterwards.
+	_ = os.Remove(lockFile())
+	cmd := exec.Command(exe, os.Args[1:]...)
+	cmd.Env = os.Environ()
+	cmd.SysProcAttr = detachSysProcAttr()
+	log.Info("reloading %s", exe)
+	if err := cmd.Start(); err != nil {
+		log.Error("reload failed: %v", err)
+		return
+	}
+	log.Info("reload: started pid %d", cmd.Process.Pid)
+	_ = cmd.Process.Release()
+}
+
+// serveSetup runs a dashboard-only engine when the config is missing or invalid.
+// The desktop shell has no terminal, so the settings panel is the first-run UI:
+// saving a valid config there restarts the engine through exitRestart.
+func serveSetup(configFile string, webPort int, reason string) {
+	if err := ensureDirs(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	log := NewLogger("daemon")
+	if webPort <= 0 || webPort > 65535 {
+		log.Error("no web port for setup mode (config %s: %s); pass -web-port", configFile, reason)
+		os.Exit(1)
+	}
+	store, _ := LoadStore()
+	cfg := &Config{
+		File: configFile, WebPort: webPort, PollInterval: 30 * time.Second,
+		CodingAgent: "opencode", Language: "auto", PlanParallel: 5, ImplementParallel: 1,
+	}
+	reload := make(chan struct{}, 1)
+	server, err := startWeb(cfg, nil, store, log, webOptions{
+		version:     version,
+		embedded:    true,
+		configError: reason,
+		reload: func() {
+			select {
+			case reload <- struct{}{}:
+			default:
+			}
+		},
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	log.Info("setup mode: %s; serving the dashboard on http://127.0.0.1:%d", reason, webPort)
+
+	stopSignals := make(chan os.Signal, 1)
+	signal.Notify(stopSignals, syscall.SIGINT, syscall.SIGTERM)
+	restart := false
+	select {
+	case <-stopSignals:
+	case <-reload:
+		restart = true
+		log.Info("config saved; restarting the engine")
+	}
+	shutdownWeb(server)
+	if restart {
+		os.Exit(exitRestart)
+	}
+}
+
+// lockIsOurs reports whether daemon.lock still contains this process's pid.
+func lockIsOurs() bool {
+	data, err := os.ReadFile(lockFile())
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	return err == nil && pid == os.Getpid()
 }

@@ -398,6 +398,51 @@
 
   .link-row { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 2px; }
 
+  /* ---------- settings / setup ---------- */
+  .settings {
+    position: fixed; inset: 0; z-index: 30; display: none;
+    background: rgba(6, 12, 14, .62); padding: 36px 16px; overflow: auto;
+  }
+  .settings.open { display: block; }
+  .settings-panel {
+    width: min(720px, 100%); margin: 0 auto; background: var(--panel);
+    border: 1px solid var(--rule); box-shadow: 0 18px 50px rgba(0, 0, 0, .35);
+  }
+  .settings-body { padding: 16px 18px 22px; display: flex; flex-direction: column; gap: 16px; }
+  .settings-form { display: flex; flex-direction: column; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 150px; }
+  .field > span { color: var(--muted); font-size: 10.5px; letter-spacing: .04em; }
+  .field input, .field select, .field textarea {
+    background: var(--ink-2); border: 1px solid var(--rule); color: var(--text);
+    font: inherit; font-size: 11.5px; padding: 5px 8px; width: 100%;
+  }
+  .field textarea { resize: vertical; min-height: 58px; }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--focus); outline: none; }
+  .field-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .check { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; padding-top: 18px; }
+  .check input { accent-color: var(--work); }
+  .settings-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .settings-actions button {
+    border: 1px solid var(--rule); padding: 6px 13px; color: var(--text); font-size: 11px;
+  }
+  .settings-actions button:hover { background: var(--rule-soft); }
+  .settings-actions button.primary { border-color: var(--work); color: var(--work); }
+  .settings-actions button:disabled { opacity: .5; cursor: default; }
+  .settings-update { border-top: 1px solid var(--rule); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .update-line { display: flex; gap: 16px; flex-wrap: wrap; color: var(--dim); font-size: 11px; }
+  .update-line b { color: var(--text); font-weight: 500; }
+  .settings .result { font-size: 10.5px; color: var(--muted); }
+  .settings .result.ok { color: var(--done); }
+  .settings .result.fail { color: var(--blocked); }
+  .setup-note {
+    border-left: 2px solid var(--work); background: rgba(240, 165, 63, .08);
+    padding: 8px 11px; font-size: 11.5px; white-space: pre-wrap;
+  }
+  .detect-grid { display: flex; flex-direction: column; gap: 5px; font-size: 10.5px; color: var(--muted); }
+  .detect-grid .detect-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .detect-grid .ok { color: var(--done); }
+  .detect-grid .fail { color: var(--blocked); }
+
   @media (max-width: 900px) {
     .masthead, .band, .board-wrap, .console { padding-left: 16px; padding-right: 16px; }
     .status-strip { margin-left: 0; width: 100%; }
@@ -431,6 +476,7 @@
       <div class="stat"><b id="s-uptime">0m</b><small data-i18n="stat.uptime">UPTIME</small></div>
     </div>
     <div class="toolbar">
+      <button class="gh-link" id="settings-open" data-i18n="settings.open">设置</button>
       <a class="gh-link" id="gh-link" href="https://github.com/uiautodev/gh-issue-killer" target="_blank" rel="noreferrer" data-i18n-aria="github.aria">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
         <span data-i18n="github.label">项目主页</span>
@@ -454,6 +500,76 @@
     <span>config <b id="s-config">–</b></span>
   </div>
 </header>
+
+<aside class="settings" id="settings" aria-hidden="true" role="dialog" aria-modal="true" data-i18n-aria="settings.aria">
+  <div class="settings-panel">
+    <div class="drawer-head">
+      <div>
+        <h2 data-i18n="settings.title">设置</h2>
+        <div class="ref" id="settings-path">–</div>
+      </div>
+      <button class="drawer-close" id="settings-close" type="button" data-i18n-aria="settings.close">×</button>
+    </div>
+    <div class="settings-body">
+      <div class="setup-note" id="settings-note" hidden></div>
+      <form class="settings-form" id="settings-form" autocomplete="off">
+        <label class="field">
+          <span data-i18n="settings.repos">监控仓库（一行一个 owner/repo）</span>
+          <textarea id="cfg-repos" rows="3" spellcheck="false" placeholder="uiautodev/gh-issue-killer"></textarea>
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span data-i18n="settings.agent">编码代理</span>
+            <select id="cfg-agent"></select>
+          </label>
+          <label class="field">
+            <span data-i18n="settings.model">模型</span>
+            <input id="cfg-model" list="cfg-models" data-i18n-ph="settings.modelHint" placeholder="留空使用代理默认模型">
+            <datalist id="cfg-models"></datalist>
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span data-i18n="settings.proxy">GitHub 代理</span>
+            <input id="cfg-proxy" spellcheck="false" placeholder="socks5h://127.0.0.1:10808">
+          </label>
+          <label class="field">
+            <span data-i18n="settings.webPort">看板端口（0 = 关闭）</span>
+            <input id="cfg-webport" type="number" min="0" max="65535" step="1" placeholder="8787">
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span data-i18n="settings.updateProxy">更新镜像（直连失败时回退）</span>
+            <input id="cfg-updateproxy" spellcheck="false" placeholder="gh-proxy.com">
+          </label>
+          <label class="check">
+            <input id="cfg-selfupdate" type="checkbox">
+            <span data-i18n="settings.selfUpdate">自动更新</span>
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button type="submit" class="primary" data-i18n="settings.save">保存并重启</button>
+          <button type="button" id="settings-detect" data-i18n="settings.detect">检测环境</button>
+          <button type="button" id="settings-restart" data-i18n="settings.restart">重启引擎</button>
+          <button type="button" id="settings-reload" data-i18n="settings.reload">重新读取</button>
+          <span class="result" id="settings-result" role="status"></span>
+        </div>
+      </form>
+      <div class="detect-grid" id="settings-detected" hidden></div>
+      <div class="settings-update">
+        <div class="update-line">
+          <span>version <b id="settings-version">–</b></span>
+          <span id="update-status"></span>
+        </div>
+        <div class="settings-actions">
+          <button type="button" id="update-check" data-i18n="settings.checkUpdate">检查更新</button>
+          <button type="button" id="update-apply" class="primary" hidden data-i18n="settings.installUpdate">立即升级</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</aside>
 
 <section class="band">
   <h2 class="band-title" data-i18n="band.lines">LINES</h2>
@@ -517,7 +633,7 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const state = { data: null, filter: "all", hideFinished: false, repo: "", search: "", selected: null, logPaused: false, logOpen: true, failures: 0, down: false, live: false, drawerSig: "", lang: "zh" };
+  const state = { data: null, filter: "all", hideFinished: false, repo: "", search: "", selected: null, logPaused: false, logOpen: true, failures: 0, down: false, live: false, drawerSig: "", lang: "zh", configDoc: null, configDefaults: {}, settingsOpen: false, setupShown: false, agents: [], update: null };
 
   const LANG_KEY = "ghik-lang";
   // Every user-visible string lives here. Chinese keeps the dashboard's
@@ -566,6 +682,31 @@
       "action.cancelled": "已取消", "action.failed": "失败：{msg}",
       "action.confirmApprove": "批准计划并开始实现？",
       "action.confirmCancel": "取消这个任务？进行中的工作会被终止。",
+      "settings.open": "设置", "settings.aria": "设置与更新", "settings.close": "关闭设置",
+      "settings.title": "设置",
+      "settings.repos": "监控仓库（一行一个 owner/repo）",
+      "settings.agent": "编码代理", "settings.model": "模型",
+      "settings.modelHint": "留空使用代理默认模型",
+      "settings.proxy": "GitHub 代理", "settings.webPort": "看板端口（0 = 关闭）",
+      "settings.updateProxy": "更新镜像（直连失败时回退）", "settings.selfUpdate": "自动更新",
+      "settings.save": "保存并重启", "settings.detect": "检测环境",
+      "settings.restart": "重启引擎", "settings.reload": "重新读取",
+      "settings.checkUpdate": "检查更新", "settings.installUpdate": "立即升级",
+      "settings.newFile": "将新建", "settings.saving": "保存中…",
+      "settings.saved": "已保存，引擎正在重启",
+      "settings.failed": "失败：{msg}", "settings.repoRequired": "至少需要一个仓库",
+      "settings.setupHint": "当前没有可用的配置：填好下面几项并保存即可开始。",
+      "settings.detecting": "检测中…", "settings.detected": "检测完成",
+      "settings.restarting": "已请求重启…",
+      "settings.updateChecking": "检查中…", "settings.updateAvailable": "发现新版本 {latest}",
+      "settings.updateCurrent": "已是最新版本 {current}",
+      "settings.updateFailed": "检查更新失败：{msg}",
+      "settings.updateInstalling": "下载并校验中…",
+      "settings.updateInstalled": "已安装 {latest}，正在重启",
+      "settings.detectedAgents": "编码代理", "settings.detectedProxy": "代理",
+      "settings.detectedRepos": "仓库权限",
+      "settings.noAgents": "PATH 上没有受支持的编码代理",
+      "settings.noProxy": "未检测到可用的本地代理",
     },
     en: {
       "document.title": "gh-issue-killer · Dashboard",
@@ -609,6 +750,31 @@
       "action.cancelled": "Cancelled", "action.failed": "Failed: {msg}",
       "action.confirmApprove": "Approve the plan and start implementation?",
       "action.confirmCancel": "Cancel this task? Work in progress will be terminated.",
+      "settings.open": "Settings", "settings.aria": "Settings and updates", "settings.close": "Close settings",
+      "settings.title": "Settings",
+      "settings.repos": "Watched repos (one owner/repo per line)",
+      "settings.agent": "Coding agent", "settings.model": "Model",
+      "settings.modelHint": "Leave empty for the agent default",
+      "settings.proxy": "GitHub proxy", "settings.webPort": "Dashboard port (0 = off)",
+      "settings.updateProxy": "Update mirror (fallback when GitHub fails)", "settings.selfUpdate": "Auto update",
+      "settings.save": "Save & restart", "settings.detect": "Check environment",
+      "settings.restart": "Restart engine", "settings.reload": "Reload",
+      "settings.checkUpdate": "Check for updates", "settings.installUpdate": "Install update",
+      "settings.newFile": "will be created", "settings.saving": "Saving…",
+      "settings.saved": "Saved, restarting the engine",
+      "settings.failed": "Failed: {msg}", "settings.repoRequired": "At least one repo is required",
+      "settings.setupHint": "No usable config yet: fill in the fields below and save to start.",
+      "settings.detecting": "Checking…", "settings.detected": "Check finished",
+      "settings.restarting": "Restart requested…",
+      "settings.updateChecking": "Checking…", "settings.updateAvailable": "New version {latest}",
+      "settings.updateCurrent": "Up to date ({current})",
+      "settings.updateFailed": "Update check failed: {msg}",
+      "settings.updateInstalling": "Downloading and verifying…",
+      "settings.updateInstalled": "Installed {latest}, restarting",
+      "settings.detectedAgents": "Coding agents", "settings.detectedProxy": "Proxy",
+      "settings.detectedRepos": "Repo access",
+      "settings.noAgents": "No supported coding agent on PATH",
+      "settings.noProxy": "No working local proxy detected",
     },
   };
 
@@ -1369,6 +1535,303 @@
     if (atBottom) log.scrollTop = log.scrollHeight;
   }
 
+  const AGENT_FALLBACK = [
+    { id: "opencode", name: "opencode" },
+    { id: "claude", name: "Claude Code" },
+    { id: "codex", name: "Codex CLI" },
+  ];
+
+  function settingsResult(message, cls) {
+    const result = $("settings-result");
+    result.textContent = message || "";
+    result.className = "result" + (cls ? " " + cls : "");
+  }
+
+  function formError(message) {
+    settingsResult(t("settings.failed", { msg: message }), "fail");
+  }
+
+  function repoList(doc) {
+    const value = doc && doc.repos;
+    if (Array.isArray(value)) {
+      return value.map((item) => (typeof item === "string" ? item : (item && item.repo) || "")).filter(Boolean);
+    }
+    if (value && typeof value === "object") return Object.keys(value).sort();
+    return [];
+  }
+
+  // Repos may be a plain array or an object with per-repo overrides. Keep the
+  // overrides of repos that stay, and only add/remove names.
+  function setRepoList(doc, names) {
+    const original = doc.repos;
+    if (!original || Array.isArray(original)) {
+      doc.repos = names;
+      return;
+    }
+    const next = {};
+    for (const name of names) {
+      const existing = original[name];
+      next[name] = existing && typeof existing === "object" ? existing : {};
+    }
+    doc.repos = next;
+  }
+
+  function parseRepos(text) {
+    const names = text
+      .split(/[\s,;]+/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map((value) => value
+        .replace(/^https?:\/\/github\.com\//i, "")
+        .replace(/\.git$/i, "")
+        .replace(/^\/+|\/+$/g, ""))
+      .filter(Boolean);
+    if (!names.length) throw new Error(t("settings.repoRequired"));
+    return [...new Set(names)];
+  }
+
+  function renderAgents(current) {
+    const select = $("cfg-agent");
+    const seen = new Set();
+    select.replaceChildren();
+    for (const agent of state.agents.length ? state.agents : AGENT_FALLBACK) {
+      const id = typeof agent === "string" ? agent : agent.id;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = agent.version ? id + " · " + agent.version : id;
+      select.appendChild(option);
+    }
+    if (current && !seen.has(current)) {
+      const option = document.createElement("option");
+      option.value = current;
+      option.textContent = current;
+      select.appendChild(option);
+    }
+    select.value = current || "opencode";
+  }
+
+  function renderModels(models) {
+    const list = $("cfg-models");
+    const fragment = document.createDocumentFragment();
+    for (const model of models) {
+      const option = document.createElement("option");
+      option.value = model;
+      fragment.appendChild(option);
+    }
+    list.replaceChildren(fragment);
+  }
+
+  function renderDetected(data) {
+    const holder = $("settings-detected");
+    holder.replaceChildren();
+    const row = (label, values) => {
+      if (!values.length) return;
+      const line = document.createElement("div");
+      line.className = "detect-row";
+      line.appendChild(text("span", label + ":", ""));
+      for (const value of values) line.appendChild(value.nodeType ? value : text("span", value, ""));
+      holder.appendChild(line);
+    };
+    const agents = (data.agents || []).map((agent) => {
+      const label = agent.version ? agent.id + " · " + agent.version : agent.id;
+      return text("span", label, "ok");
+    });
+    row(t("settings.detectedAgents"), agents.length ? agents : [t("settings.noAgents")]);
+    if (data.proxy) row(t("settings.detectedProxy"), [text("span", data.proxy, "ok")]);
+    const repos = (data.repos || []).map((repo) => {
+      const cls = repo.permission === "admin" || repo.permission === "write" ? "ok" : "fail";
+      const note = repo.error ? " (" + repo.error + ")" : "";
+      return text("span", repo.repo + " · " + repo.permission + note, cls);
+    });
+    row(t("settings.detectedRepos"), repos);
+    if (data.error) row("!", [text("span", data.error, "fail")]);
+    holder.hidden = holder.childElementCount === 0;
+  }
+
+  function applyConfigPayload(data) {
+    state.configDoc = data.config || {};
+    state.configDefaults = data.defaults || {};
+    const doc = state.configDoc;
+    const pick = (key, fallback) => (doc[key] !== undefined ? doc[key] : (state.configDefaults[key] !== undefined ? state.configDefaults[key] : fallback));
+    $("settings-path").textContent = data.path + (data.exists ? "" : " · " + t("settings.newFile"));
+    $("settings-version").textContent = data.version || "–";
+    $("cfg-repos").value = repoList(doc).join("\n");
+    renderAgents(pick("codingAgent", "opencode"));
+    $("cfg-model").value = pick("model", "");
+    $("cfg-proxy").value = pick("proxy", "");
+    $("cfg-webport").value = doc.webPort !== undefined ? doc.webPort : 0;
+    $("cfg-updateproxy").value = pick("updateProxy", "");
+    $("cfg-selfupdate").checked = Boolean(pick("selfUpdate", false));
+    renderModels([]);
+    $("settings-detected").hidden = true;
+    $("update-apply").hidden = true;
+    $("update-status").textContent = "";
+    const note = $("settings-note");
+    const problem = data.configError || data.error || "";
+    note.hidden = !problem;
+    note.textContent = problem ? t("settings.setupHint") + "\n" + problem : "";
+  }
+
+  async function loadConfig() {
+    try {
+      const response = await fetch("/api/config", { cache: "no-store" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      applyConfigPayload(await response.json());
+    } catch (err) {
+      formError(err.message);
+    }
+  }
+
+  function openSettings() {
+    $("settings").classList.add("open");
+    $("settings").setAttribute("aria-hidden", "false");
+    state.settingsOpen = true;
+    state.setupShown = true;
+    loadConfig();
+  }
+
+  function closeSettings() {
+    $("settings").classList.remove("open");
+    $("settings").setAttribute("aria-hidden", "true");
+    state.settingsOpen = false;
+  }
+
+  async function saveSettings(event) {
+    event.preventDefault();
+    const doc = JSON.parse(JSON.stringify(state.configDoc || {}));
+    let repos;
+    try {
+      repos = parseRepos($("cfg-repos").value);
+    } catch (err) {
+      formError(err.message);
+      return;
+    }
+    setRepoList(doc, repos);
+    const assign = (key, value) => {
+      if (value === "" || value === null || value === undefined) delete doc[key];
+      else doc[key] = value;
+    };
+    assign("codingAgent", $("cfg-agent").value);
+    assign("model", $("cfg-model").value.trim());
+    assign("proxy", $("cfg-proxy").value.trim());
+    assign("updateProxy", $("cfg-updateproxy").value.trim());
+    const port = Number($("cfg-webport").value);
+    doc.webPort = Number.isFinite(port) && port >= 0 && port <= 65535 ? Math.trunc(port) : 0;
+    doc.selfUpdate = $("cfg-selfupdate").checked;
+    settingsResult(t("settings.saving"), "");
+    const buttons = document.querySelectorAll(".settings-actions button");
+    for (const button of buttons) button.disabled = true;
+    try {
+      const response = await fetch("/api/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: doc }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "HTTP " + response.status);
+      state.configDoc = doc;
+      settingsResult(t("settings.saved"), "ok");
+      if (state.data && state.data.configError) setTimeout(closeSettings, 1200);
+      setTimeout(refreshState, 1500);
+    } catch (err) {
+      formError(err.message);
+    } finally {
+      for (const button of buttons) button.disabled = false;
+    }
+  }
+
+  async function runDetect() {
+    const button = $("settings-detect");
+    button.disabled = true;
+    settingsResult(t("settings.detecting"), "");
+    try {
+      const params = new URLSearchParams({ agent: $("cfg-agent").value || "", proxy: "1" });
+      try {
+        const repos = parseRepos($("cfg-repos").value);
+        if (repos.length) params.set("repos", repos.join(","));
+      } catch (_) { /* no repos yet: agents/models still work */ }
+      const response = await fetch("/api/detect?" + params.toString(), { cache: "no-store" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+      state.agents = data.agents || [];
+      renderAgents($("cfg-agent").value);
+      renderModels(data.models || []);
+      renderDetected(data);
+      settingsResult(t("settings.detected"), "ok");
+    } catch (err) {
+      formError(err.message);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function restartEngine() {
+    settingsResult(t("settings.restarting"), "");
+    try {
+      const response = await fetch("/api/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "HTTP " + response.status);
+      settingsResult(t("settings.restarting"), "ok");
+    } catch (err) {
+      formError(err.message);
+    }
+  }
+
+  function renderUpdate(payload) {
+    state.update = payload;
+    if (payload.error) {
+      $("update-status").textContent = t("settings.updateFailed", { msg: payload.error });
+      $("update-apply").hidden = true;
+      return;
+    }
+    $("update-status").textContent = payload.available
+      ? t("settings.updateAvailable", { latest: payload.latest })
+      : t("settings.updateCurrent", { current: payload.current });
+    $("update-apply").hidden = !payload.available;
+  }
+
+  async function checkUpdate() {
+    const button = $("update-check");
+    button.disabled = true;
+    $("update-status").textContent = t("settings.updateChecking");
+    try {
+      const response = await fetch("/api/update", { cache: "no-store" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      renderUpdate(await response.json());
+    } catch (err) {
+      $("update-status").textContent = t("settings.updateFailed", { msg: err.message });
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function installUpdate() {
+    const button = $("update-apply");
+    button.disabled = true;
+    $("update-status").textContent = t("settings.updateInstalling");
+    try {
+      const response = await fetch("/api/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "HTTP " + response.status);
+      if (data.error) throw new Error(data.error);
+      $("update-status").textContent = t("settings.updateInstalled", { latest: data.latest });
+    } catch (err) {
+      $("update-status").textContent = t("settings.updateFailed", { msg: err.message });
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function refreshState() {
     try {
       const response = await fetch("/api/state", { cache: "no-store" });
@@ -1378,6 +1841,7 @@
       state.down = false;
       const changed = !state.data || JSON.stringify(state.data) !== JSON.stringify(data);
       state.data = data;
+      if (data.configError && !state.settingsOpen && !state.setupShown) openSettings();
       renderHeader(data);
       renderLines(data);
       updateChips(data);
@@ -1441,8 +1905,21 @@
       if (state.data) renderTasks(state.data);
     });
     $("d-close").addEventListener("click", closeDrawer);
+    $("settings-open").addEventListener("click", () => (state.settingsOpen ? closeSettings() : openSettings()));
+    $("settings-close").addEventListener("click", closeSettings);
+    $("settings-form").addEventListener("submit", saveSettings);
+    $("settings-detect").addEventListener("click", runDetect);
+    $("settings-restart").addEventListener("click", restartEngine);
+    $("settings-reload").addEventListener("click", loadConfig);
+    $("update-check").addEventListener("click", checkUpdate);
+    $("update-apply").addEventListener("click", installUpdate);
+    $("settings").addEventListener("click", (event) => {
+      if (event.target === $("settings")) closeSettings();
+    });
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") closeDrawer();
+      if (event.key !== "Escape") return;
+      closeDrawer();
+      if (state.settingsOpen) closeSettings();
     });
     $("log-toggle").addEventListener("click", () => {
       state.logOpen = !state.logOpen;

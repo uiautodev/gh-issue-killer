@@ -262,7 +262,7 @@ func TestEnsureGhAgentWrapper(t *testing.T) {
 	if !created {
 		t.Fatal("wrapper should be created on a clean machine")
 	}
-	want := filepath.Join(home, ".local", "bin", "gh-agent")
+	want, content := ghAgentWrapperFile()
 	if path != want {
 		t.Fatalf("path = %q, want %q", path, want)
 	}
@@ -270,7 +270,7 @@ func TestEnsureGhAgentWrapper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != ghAgentWrapperScript {
+	if string(data) != content {
 		t.Fatalf("wrapper content = %q", data)
 	}
 	info, err := os.Stat(path)
@@ -340,15 +340,6 @@ func TestLoadConfigParallelKeys(t *testing.T) {
 		if cfg.ImplementParallel != c.want || cfg.DeprecatedMaxParallel != c.deprecated {
 			t.Fatalf("%s: implementParallel=%d deprecated=%v", c.body, cfg.ImplementParallel, cfg.DeprecatedMaxParallel)
 		}
-	}
-}
-
-func TestHeadFromLSRemote(t *testing.T) {
-	if got := headFromLSRemote("abc123def456\trefs/heads/master\n"); got != "abc123def456" {
-		t.Fatalf("head = %q", got)
-	}
-	if got := headFromLSRemote("  \n"); got != "" {
-		t.Fatalf("empty head = %q", got)
 	}
 }
 

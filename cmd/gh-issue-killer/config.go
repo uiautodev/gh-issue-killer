@@ -45,6 +45,7 @@ type Config struct {
 	File                  string
 	Repos                 []RepoConfig
 	Proxy                 string
+	UpdateProxy           string
 	PollInterval          time.Duration
 	Webhook               bool
 	MaxFixRounds          int
@@ -72,19 +73,23 @@ type repoOptions struct {
 }
 
 type rawConfig struct {
-	Repos             json.RawMessage `json:"repos"`
-	CodingAgent       string          `json:"codingAgent"`
-	Model             string          `json:"model"`
-	Approvers         []string        `json:"approvers"`
-	Proxy             string          `json:"proxy"`
-	PollIntervalSec   int             `json:"pollIntervalSec"`
-	Webhook           *bool           `json:"webhook"`
-	WorktreeRoot      string          `json:"worktreeRoot"`
-	MaxFixRounds      int             `json:"maxFixRounds"`
-	PlanParallel      int             `json:"planParallel"`
-	ImplementParallel int             `json:"implementParallel"`
-	SelfUpdate        bool            `json:"selfUpdate"`
-	WebPort           int             `json:"webPort"`
+	Repos       json.RawMessage `json:"repos"`
+	CodingAgent string          `json:"codingAgent"`
+	Model       string          `json:"model"`
+	Approvers   []string        `json:"approvers"`
+	Proxy       string          `json:"proxy"`
+	// UpdateProxy is a release-download mirror prefix (for example
+	// https://gh-proxy.com) that is prepended to the GitHub asset URL when the
+	// direct download fails. It is not an HTTP proxy: it only affects updates.
+	UpdateProxy       string `json:"updateProxy"`
+	PollIntervalSec   int    `json:"pollIntervalSec"`
+	Webhook           *bool  `json:"webhook"`
+	WorktreeRoot      string `json:"worktreeRoot"`
+	MaxFixRounds      int    `json:"maxFixRounds"`
+	PlanParallel      int    `json:"planParallel"`
+	ImplementParallel int    `json:"implementParallel"`
+	SelfUpdate        bool   `json:"selfUpdate"`
+	WebPort           int    `json:"webPort"`
 	// MaxParallel is the old name for implementParallel.
 	MaxParallel         int `json:"maxParallel"`
 	PlanTimeoutMin      int `json:"planTimeoutMin"`
@@ -230,6 +235,7 @@ func loadConfig(file string) (*Config, error) {
 	cfg := &Config{
 		File:              file,
 		Proxy:             strings.TrimSpace(raw.Proxy),
+		UpdateProxy:       strings.TrimSpace(raw.UpdateProxy),
 		PollInterval:      time.Duration(raw.PollIntervalSec) * time.Second,
 		Webhook:           true,
 		MaxFixRounds:      raw.MaxFixRounds,

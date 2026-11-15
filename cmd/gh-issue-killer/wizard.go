@@ -32,6 +32,7 @@ type wizardConfig struct {
 	Model               string   `json:"model,omitempty"`
 	Approvers           []string `json:"approvers,omitempty"`
 	Proxy               string   `json:"proxy,omitempty"`
+	UpdateProxy         string   `json:"updateProxy,omitempty"`
 	PollIntervalSec     int      `json:"pollIntervalSec,omitempty"`
 	Webhook             *bool    `json:"webhook,omitempty"`
 	MaxFixRounds        int      `json:"maxFixRounds,omitempty"`
@@ -619,6 +620,9 @@ func buildWizardJSON(answers wizardConfig) ([]byte, error) {
 	if answers.Proxy != "" {
 		output["proxy"] = answers.Proxy
 	}
+	if answers.UpdateProxy != "" {
+		output["updateProxy"] = answers.UpdateProxy
+	}
 	if answers.PollIntervalSec != 0 && answers.PollIntervalSec != 30 {
 		output["pollIntervalSec"] = answers.PollIntervalSec
 	}
@@ -758,6 +762,7 @@ func loadWizardDefaults(file string) wizardConfig {
 	defaults.Model = strings.TrimSpace(raw.Model)
 	defaults.Approvers = raw.Approvers
 	defaults.Proxy = strings.TrimSpace(raw.Proxy)
+	defaults.UpdateProxy = strings.TrimSpace(raw.UpdateProxy)
 	defaults.oldAgent = strings.TrimSpace(raw.Agent)
 	if raw.PollIntervalSec >= 10 {
 		defaults.PollIntervalSec = raw.PollIntervalSec

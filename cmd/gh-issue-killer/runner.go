@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -131,7 +130,7 @@ func runProcess(ctx context.Context, binary string, args []string, opts RunnerOp
 	cmd.Dir = opts.Cwd
 	cmd.Env = opts.Env
 	cmd.Stdin = nil // /dev/null: non-interactive CLIs must not wait for input
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = childSysProcAttr()
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -202,7 +201,7 @@ func runProcess(ctx context.Context, binary string, args []string, opts RunnerOp
 	if runCtx.Err() == context.DeadlineExceeded {
 		result.TimedOut = true
 		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			killChildTree(cmd.Process.Pid)
 		}
 		return result, fmt.Errorf("coding agent timed out after %s", opts.Timeout)
 	}

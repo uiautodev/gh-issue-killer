@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -46,8 +45,6 @@ func tmpDir() string    { return filepath.Join(stateDir(), "tmp") }
 func lockFile() string  { return filepath.Join(stateDir(), "daemon.lock") }
 func stateFile() string { return filepath.Join(stateDir(), "state.json") }
 
-const ghAgentWrapperScript = "#!/bin/sh\nGH_CONFIG_DIR=\"$HOME/.config/gh-agent\" exec gh \"$@\"\n"
-
 // ensureGhAgentWrapper drops ~/.local/bin/gh-agent when the CLI is missing.
 // It is only a two-line wrapper around gh with the bot config dir; an existing
 // file (or a gh-agent already on PATH) is left untouched.
@@ -55,14 +52,14 @@ func ensureGhAgentWrapper() (path string, created bool, err error) {
 	if existing, lookErr := exec.LookPath("gh-agent"); lookErr == nil {
 		return existing, false, nil
 	}
-	path = filepath.Join(homeDir(), ".local", "bin", "gh-agent")
+	path, content := ghAgentWrapperFile()
 	if _, statErr := os.Stat(path); statErr == nil {
 		return path, false, nil
 	}
 	if err = os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", false, err
 	}
-	if err = os.WriteFile(path, []byte(ghAgentWrapperScript), 0o755); err != nil {
+	if err = os.WriteFile(path, []byte(content), 0o755); err != nil {
 		return "", false, err
 	}
 	if err = os.Chmod(path, 0o755); err != nil {
@@ -315,7 +312,7 @@ func runCmd(ctx context.Context, name string, args []string, opts CmdOptions) (C
 		cmd.Env = opts.Env
 	}
 	cmd.Stdin = opts.Stdin
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = childSysProcAttr()
 
 	maxOutput := opts.MaxOutput
 	if maxOutput <= 0 {
@@ -333,7 +330,7 @@ func runCmd(ctx context.Context, name string, args []string, opts CmdOptions) (C
 		result.TimedOut = true
 		result.Code = 124
 		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			killChildTree(cmd.Process.Pid)
 		}
 		if !opts.AllowFailure {
 			return result, fmt.Errorf("%s %s timed out after %s", name, strings.Join(args, " "), opts.Timeout)
@@ -374,7 +371,8 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 func (b *limitedBuffer) String() string { return b.buf.String() }
 
 func runShell(ctx context.Context, command string, opts CmdOptions) (CmdResult, error) {
-	return runCmd(ctx, "/bin/sh", []string{"-c", command}, opts)
+	shell, args := shellCommand(command)
+	return runCmd(ctx, shell, args, opts)
 }
 
 func tailString(text string, lines int) string {
@@ -386,6 +384,14 @@ func tailString(text string, lines int) string {
 		return strings.Join(parts, "\n")
 	}
 	return strings.Join(parts[len(parts)-lines:], "\n")
+}
+
+// shortSHA trims a commit sha to eight characters for log lines.
+func shortSHA(sha string) string {
+	if len(sha) > 8 {
+		return sha[:8]
+	}
+	return sha
 }
 
 func shortID(value string) string {
