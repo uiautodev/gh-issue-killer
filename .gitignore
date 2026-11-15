@@ -1,7 +1,12 @@
 bin/
 /gh-issue-killer
+/gh-issue-killer.exe
 config.json
 .state/
 *.log
 .DS_Store
 .playwright-mcp/
+/desktop/desktop
+/desktop/gh-issue-killer-desktop
+/desktop/*.exe
+/desktop/build/dist/

@@ -17,7 +17,16 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 go vet ./...
 go test ./...
 gofmt -l .            # must print nothing
+GOOS=windows GOARCH=amd64 go build ./cmd/gh-issue-killer   # platform layer still compiles
 pre-commit install    # optional: gofmt, vet, test, build, 1 MB file guard
+```
+
+The desktop shell is a separate module so the daemon keeps its single
+dependency (`fsnotify`):
+
+```bash
+cd desktop && go build .        # Wails 3 window; needs the wails v3 module
+desktop/build/package.sh v1.2.3 # macOS .app / Linux tarball; .ps1 on Windows
 ```
 
 Go 1.27 (see `go.mod`). The only direct dependency is `github.com/fsnotify/fsnotify`;
@@ -53,9 +62,9 @@ Everything lives under `~/.gh-issue-killer` (`stateDir()` in `util.go`):
 | `logs/daemon.log` | rotating daemon log (10 MB × 5) |
 | `repos/<owner>-<repo>/` | managed clone per watched repository |
 | `worktrees/<owner>-<repo>/issue-<n>-<id>/` | one implementation worktree per issue |
-| `tmp/` | detached plan worktrees and self-update clones |
+| `tmp/` | detached plan worktrees and downloaded update archives |
 | `runs/<owner>-<repo>/issue-<n>/` | per-run artifacts: `plan-*.log`, `implement-*.log`, `revise-*.log`, `ci-fix-*.log`, `checks.json`, `checks/`, `result.json`, `screenshots/` |
-| `self/` | self-update build cache |
+| `logs/desktop-engine.log` | stdout/stderr of the engine started by the desktop shell (created by `desktop/`) |
 
 Only the daemon writes `state.json`; the web UI and CLIs read it. Treat
 `Store` as the single writer (see §13).
@@ -63,8 +72,13 @@ Only the daemon writes `state.json`; the web UI and CLIs read it. Treat
 ## 3. Startup sequence (`main.go`)
 
 1. Flags; a bare run daemonizes itself (`startBackground` child mode).
+   `-embedded` is the desktop shell's engine: foreground, no detach, no
+   process-group tricks on Windows, and an exit code 75 (`exitRestart`) when a
+   config save or an update asks for a restart. `-web-port` overrides
+   `config.webPort` for that run.
 2. `ensureDirs`, logger, `loadConfig`, `parseProxy`.
-3. `acquireLock` on `daemon.lock` — one daemon per machine.
+3. `acquireLock` on `daemon.lock` — one daemon per machine, desktop engine
+   included.
 4. `NewGH`: reads the `gh-agent` token and identity (never the human account).
 5. For each repo: `GetRepo`, `resolveRepo` (managed clone under `repos/`),
    `EnsureLabels`, build the child env (proxy + `GH_CONFIG_DIR`).
@@ -72,7 +86,7 @@ Only the daemon writes `state.json`; the web UI and CLIs read it. Treat
 7. `router.StartupScan`: resumes interrupted work, applies pending closes,
    and picks up issues that already mention the agent.
 8. `watchConfig` (fsnotify + debounce + 30 s safety poll) and, when
-   `selfUpdate` is on, `watchSelfUpdates`.
+   `selfUpdate` is on, `watchSelfUpdates` (release polling).
 9. Smee webhook per repo (`ensureSmeeHook`) plus one poller goroutine per
    repository. Each repo has its own 30 s ticker, so a slow or stalled API call
    in one repository does not delay the others. The SSE stream is recycled every
@@ -81,14 +95,30 @@ Only the daemon writes `state.json`; the web UI and CLIs read it. Treat
 10. `SIGINT`/`SIGTERM` → wait for `router.Idle()` → shut down → `reexec` for
     config reloads and self-updates (pid is kept, so the lock stays valid).
 
+**Setup mode.** `-embedded` with a missing or invalid config does not exit and
+does not start a daemon loop: `serveSetup` runs the dashboard on the requested
+port with an empty router, `configError` in `/api/state`, and the settings
+panel. Saving a valid config exits with 75 so the shell starts the real engine.
+
+**Platform layer.** `process_unix.go` / `process_windows.go` own every
+`syscall.Kill`, `Setsid`, `Setpgid`, `exec` and shell invocation:
+`processAlive`, `terminateProcess`, `detachSysProcAttr`, `childSysProcAttr`,
+`killChildTree`, `shellCommand`, `canExecInPlace` + `execInPlace`, and the
+`gh-agent` wrapper path. Windows uses `OpenProcess`/`GetExitCodeProcess`,
+`taskkill /T /F` for process trees, `cmd /C` for checks, and “start a new
+process, then exit” instead of `syscall.Exec`.
+
 ## 4. Package map
 
 All Go code is `package main` in `cmd/gh-issue-killer`; `prompts` embeds the
-Markdown prompts; `web` embeds `index.html` and `logo.svg`.
+Markdown prompts; `web` embeds `index.html` and `logo.svg`. `desktop/` is a
+separate Go module (Wails 3) so the daemon does not inherit the GUI
+dependencies.
 
 | file | responsibility |
 | --- | --- |
 | `main.go` | flags, startup order, daemonize, lock, shutdown/reexec |
+| `process_unix.go`, `process_windows.go` | the platform layer: liveness, terminate/process tree, detach, shell, `exec` |
 | `config.go` | config parsing, normalization, per-repo defaults |
 | `router.go` | event handling, commands, state machine, job scheduler (`plan`/`work`/`ci` queues), startup scan |
 | `actions.go` | the stages: plan, implement, revise, CI settle, merge, and their helpers |
@@ -98,15 +128,17 @@ Markdown prompts; `web` embeds `index.html` and `logo.svg`.
 | `runner.go` | coding-agent registry (`opencode`, `claude`, `codex`) and process/JSON output handling |
 | `state.go` | `Store`, `IssueState`, `RepoState`, atomic persistence |
 | `watcher.go`, `watch.go` | config reload (fsnotify + digest polling) |
-| `selfupdate.go` | rebuild the binary when `master` moves, then restart |
+| `selfupdate.go` | release asset selection, checksum verification, binary replacement, 30 min polling |
 | `logs.go` | rotating log file, `-logs` follower |
 | `shots.go` | screenshot collection, before/after composition, upload |
 | `proxy.go` | SOCKS5/HTTP proxies for HTTP clients, git and child processes |
 | `wizard.go` | `-init` interactive setup |
-| `web.go`, `web/` | loopback dashboard and its JSON API |
+| `web.go`, `web/` | loopback dashboard, `/api/state`, `/api/issue`, `/api/logs`, `/api/action` |
+| `webconfig.go` | settings API: `/api/config`, `/api/detect`, `/api/restart`, `/api/update` |
 | `messages.go` | scaffolding text (headings, hints, footers) in Chinese/English, `app.text`, language detection |
 | `util.go` | paths, logger, atomic writes, `tailString`, small helpers |
 | `prompts/*.md` | stage prompts (embedded via `prompts/embed.go`) |
+| `desktop/` | separate Go module: Wails 3 shell (`main.go`, `engine.go`, `process_*.go`) and `build/` packaging |
 
 ## 5. State model and phases
 
@@ -376,40 +408,84 @@ Parsed in `config.go`, documented in DEPLOY.md §4.1. Defaults that matter to
 the code: `pollIntervalSec` 30, `webhook` true, `maxFixRounds` 3 (local checks
 **and** CI repair rounds), `planParallel` 5, `implementParallel` 1,
 `planTimeoutMin` 15, `implementTimeoutMin` 60, `webPort` 0 (off), `selfUpdate`
-false, `worktreeRoot` = state dir, `language` `auto` (the coding agent
-writes in the issue's or PR's language; a language tag forces one and is passed
-to the prompts as `{{LANGUAGE}}`). `repos` also accepts an object for per-repo
-`codingAgent`/`model`/`approvers`/`worktreeRoot`/`language`.
+false, `updateProxy` empty (direct downloads only; a wrong or unreachable
+mirror is ignored), `worktreeRoot` = state dir, `language` `auto` (the coding
+agent writes in the issue's or PR's language; a language tag forces one and is
+passed to the prompts as `{{LANGUAGE}}`). `repos` also accepts an object for
+per-repo `codingAgent`/`model`/`approvers`/`worktreeRoot`/`language`.
 
 A valid `config.json` save triggers a graceful re-exec: jobs finish, state is
-saved, `syscall.Exec` replaces the process (same pid).
+saved, `syscall.Exec` replaces the process (same pid). Under `-embedded` the
+process exits with 75 instead, because the desktop shell owns the child handle
+and starts it again.
 
 ## 15. Web dashboard
 
 Loopback only. Routes: `/`, `/api/state`, `/api/issue`, `/api/logs`,
-`/api/action` (approve/cancel; requires JSON content type and a loopback
-origin), `/logo.svg`. Queue depth in `/api/state` includes `plan`, `work` and
-`ci`. `waiting` counts tasks whose phase needs the approver
-(`awaiting_approval`, `pr_open`, `blocked`, see `phaseNeedsUser`); the board can
-be filtered by phase, by project (the repo dropdown) and by free text.
+`/api/action` (approve/cancel), `/api/config` (GET raw file + defaults, PUT
+validated save), `/api/detect` (installed agents, model list, optional proxy and
+repo-access probes), `/api/restart`, `/api/update` (GET checks
+`releases/latest`, POST installs), `/logo.svg`. The four mutating routes require
+a JSON content type and a loopback `Origin`; `/api/config` runs
+`loadConfig` against a temp file before it writes, so an invalid agent, repo,
+port, proxy or mirror returns 400 and nothing is saved. Queue depth in
+`/api/state` includes `plan`, `work` and `ci`. `waiting` counts tasks whose phase
+needs the approver (`awaiting_approval`, `pr_open`, `blocked`, see
+`phaseNeedsUser`); the board can be filtered by phase, by project (the repo
+dropdown) and by free text.
 
 `web/index.html` is self-contained: no build step, no dependencies. The masthead
 switches between Chinese (default) and English (`localStorage` key `ghik-lang`)
 and links to the project on GitHub. Every string, including phases, filters,
-the drawer and the empty states, comes from the `zh`/`en` tables in the script;
-`/api/logs` stays plain text and the console colours INFO/WARN/ERROR/DEBUG in
-the browser. `planParallel` and `implementParallel` size each repository's own
-pool, so the PLAN/WORK meters are rendered per repository line rather than
-globally. A board toggle hides `done` and `cancelled` tasks on top of the other
-filters; it is off by default.
+the drawer, the settings panel and the empty states, comes from the `zh`/`en`
+tables in the script; `/api/logs` stays plain text and the console colours
+INFO/WARN/ERROR/DEBUG in the browser. `planParallel` and `implementParallel`
+size each repository's own pool, so the PLAN/WORK meters are rendered per
+repository line rather than globally. A board toggle hides `done` and
+`cancelled` tasks on top of the other filters; it is off by default.
+
+The settings button opens a panel over the board: repos (array or object form
+with per-repo overrides preserved), coding agent (populated from `/api/detect`),
+model, proxy, `webPort`, `selfUpdate` and `updateProxy`, plus the version card
+and the update buttons. When `/api/state` reports `configError` (first run or a
+broken edit) the panel opens by itself and the save button starts the real
+engine.
 
 ## 16. Reload and self-update
 
 `watchConfig` watches the config file with fsnotify plus a 30 s digest safety
-poll and a 500 ms debounce; invalid edits are ignored with a warning.
-`watchSelfUpdates` polls `master`, rebuilds in a throwaway clone, and signals a
-restart. Both end in `reexec`, so the pid and the lock stay valid; interrupted
-implementations resume from their worktree on the next startup scan.
+poll and a 500 ms debounce; invalid edits are ignored with a warning. The
+dashboard's PUT reuses the same loader and triggers the same reload, as do
+`/api/restart` and a finished update. Both end in `reexec`, so the pid and the
+lock stay valid; interrupted implementations resume from their worktree on the
+next startup scan. Under `-embedded`, `reexec` exits with 75 and the desktop
+shell restarts the engine with the same `-config` / `-web-port`.
+
+`watchSelfUpdates` polls `releases/latest` (every 30 min, unauthenticated GitHub
+API limits) and only acts when the tag parses and is newer than `version`; a
+`dev`/local build never auto-installs (use the dashboard button). The installer:
+
+1. picks `gh-issue-killer_<tag>_<goos>_<goarch>.tar.gz` (`.zip` on Windows); the
+   `gh-issue-killer_` prefix keeps the desktop bundles out;
+2. downloads `checksums.txt` and refuses to continue when it has no entry for
+   the asset or the sha256 does not match — the running binary is untouched;
+3. extracts only a regular file named `gh-issue-killer` (`gh-issue-killer.exe`);
+4. renames it over the executable, or `.old` first on Windows where a running
+   image cannot be replaced;
+5. signals a restart. Release downloads try github.com directly and retry
+   `<updateProxy>/<url>` when that fails; the API lookup only uses `proxy`.
+
+In the desktop bundle this replaces the engine binary inside
+`gh-issue-killer.app/Contents/MacOS/` (or next to `gh-issue-killer-desktop.exe`)
+and the shell restarts it; the thin shell keeps its version. Replacing the file
+invalidates a macOS signature, so a
+`xattr -dr com.apple.quarantine` / re-download is needed if Gatekeeper refuses a
+locally modified bundle.
+
+The release workflow (`v*` tag) builds the daemon archives for Linux, macOS and
+Windows, the desktop bundles per runner, and publishes `checksums.txt` with
+everything. A failed build in the desktop matrix blocks the release, but the
+AppImage step is best-effort so the tarball still ships.
 
 ## 17. Testing
 
@@ -438,6 +514,8 @@ keeps tests quiet. Notable coverage:
 | `watch_test.go` | config reload fires on valid edits, ignores invalid ones |
 | `watcher_test.go` | `Store` round-trip |
 | `web_test.go` | dashboard snapshot only lists tracked tasks |
+| `webconfig_test.go` | `/api/config` validation/round-trip/origin check, `/api/detect` degradation, `/api/update` payload, snapshot without a router |
+| `selfupdate_test.go` | version ordering, asset selection, mirror/digest parsing, archive extraction, checksum mismatch keeps the binary |
 | `wizard_test.go` | `-init` setup wizard flows |
 | `logs_test.go`, `logging_test.go` | log rotation, follower, daemonize helpers |
 
@@ -448,6 +526,8 @@ must stay clean; `gofmt -l .` must print nothing.
 ## 18. Invariants and pitfalls
 
 - One daemon per machine (lock file). Multiple daemons corrupt `state.json`.
+  The desktop app runs the same engine, so it takes the same lock: never run
+  the desktop app and the background daemon together.
 - Conflicts are resolved by merging the base into the PR branch, never by
   rebasing or force-pushing; the merge commit is what keeps the branch honest.
 - `Store` is the only writer of state; stages mutate it through
@@ -469,6 +549,9 @@ must stay clean; `gofmt -l .` must print nothing.
   is approved through `/actions/runs/{id}/approve`.
 - Never `pkill -f` a pattern from a prompt: the prompt is in the agent’s own
   argv.
+- POSIX-only calls do not belong in shared files: every signal, process group,
+  `exec` and shell invocation goes through `process_unix.go` /
+  `process_windows.go`, or `GOOS=windows go build ./cmd/gh-issue-killer` breaks.
 
 ## 19. Keeping this document in sync
 
@@ -492,5 +575,7 @@ must stay clean; `gofmt -l .` must print nothing.
 | web routes or API payloads | §15 |
 | reload/self-update behaviour | §16 |
 | new or renamed test files | §17 |
-| startup order, flags, daemonizing | §3 and §1 |
+| startup order, flags, daemonizing, `-embedded`, platform process helpers | §3 and §1 |
+| web routes or API payloads | §15 |
+| the desktop shell, packaging, release assets | §1, §4, §15 and §16 |
 | the file map itself | §4 |

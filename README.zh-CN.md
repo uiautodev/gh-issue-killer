@@ -43,13 +43,23 @@ flowchart LR
 - **多仓库、互不阻塞。** 每个仓库有自己的 agent、model、approvers 和队列，
   一个慢仓库堵不住别的。
 - **单个静态二进制。** 只发起出站 HTTPS，运行时只需要 `git`、一个编码 agent
-  CLI 和 `/bin/sh`。
+  CLI 和一个 shell（`/bin/sh`，Windows 上是 `cmd`）。发布产物覆盖 macOS、
+  Linux 和 Windows。
 
 配置 `webPort` 后还能打开实时看板：每个仓库的队列与并发表（PLAN/WORK 上限按
 项目各自计算）、阶段进度、PR、检查和截图，计划按 markdown 渲染。主题可跟随
 系统或固定日间/夜间，界面可中英文切换、右上角可跳转本项目，任务列表可按项目
 过滤或搜索、也可隐藏已完成和已取消，控制台按级别给日志配色，顶部显示“待我处理”
 的任务数（待批准、待合并、被阻塞）。
+
+### 桌面版
+
+不用开终端：从 [Releases](https://github.com/uiautodev/gh-issue-killer/releases)
+下载对应平台的桌面包（macOS `.app`、Linux tar 包/AppImage、Windows zip）双击
+运行即可。窗口里就是同一套看板，带 **设置** 面板（仓库、编码代理、模型、代理、
+更新镜像），以及显示当前版本、可检查并一键升级的更新卡片。首次运行没有配置时
+会直接停在设置页；关窗口即停引擎，不会在后台留进程。细节见
+[DEPLOY.md](DEPLOY.md#31-desktop-app--optional)。
 
 ## 用编码 agent 安装
 
@@ -119,8 +129,10 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 ```
 
 `-init` 会写好配置；手写就是同样的 `repos` / `codingAgent` / `approvers` /
-`proxy` 字段。完整配置项（`language`、`webPort`、每仓库覆盖、保存即重载）见
-[DEPLOY.md](DEPLOY.md#41-configuration-reference)。
+`proxy` 字段。完整配置项（`language`、`webPort`、`updateProxy`、每仓库覆盖、
+保存即重载）见 [DEPLOY.md](DEPLOY.md#41-configuration-reference)。打开
+`selfUpdate` 后 daemon 会自己安装新版本（校验 checksums，直连失败时走
+`updateProxy` 镜像）；也可以在看板里手动检查并升级。
 
 ## 开发
 

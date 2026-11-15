@@ -52,7 +52,8 @@ resumes it.
   approvers and queues, and CI runs on a separate queue, so one slow repo never
   blocks another.
 - **One static binary.** Outbound HTTPS only; at runtime it needs `git`, one
-  coding-agent CLI and `/bin/sh`.
+  coding-agent CLI and a shell (`/bin/sh`, `cmd` on Windows). Releases ship
+  macOS, Linux and Windows builds.
 
 Set `webPort` for the live dashboard: per-repo queues and parallel meters (the
 PLAN/WORK limits apply per project), stage progress, PRs, checks, screenshots
@@ -62,6 +63,17 @@ Chinese and English and links back to this repository, tasks can be filtered by
 project or free text or hide finished/cancelled work, the console colours the
 log by level, and the header counts the tasks waiting for you (approval, merge
 or unblock).
+
+### Desktop app
+
+No terminal needed: download the desktop bundle from
+[Releases](https://github.com/uiautodev/gh-issue-killer/releases) (macOS `.app`,
+Linux tarball/AppImage, Windows zip) and launch it. The window is the same
+dashboard, with a **Settings** panel for repos, coding agent, model, proxy and
+the release mirror, plus a version card that checks and installs updates. On
+first run it opens on the settings panel; closing the window stops the engine,
+so nothing is left in the background. Details:
+[DEPLOY.md](DEPLOY.md#31-desktop-app--optional).
 
 ## Install with a coding agent
 
@@ -138,8 +150,11 @@ comment**. Approval words, status labels and review rules live in
 
 `-init` writes the config for you; a hand-written JSON uses the same `repos` /
 `codingAgent` / `approvers` / `proxy` keys. Full reference (`language`,
-`webPort`, per-repo overrides, live reload):
-[DEPLOY.md](DEPLOY.md#41-configuration-reference).
+`webPort`, `updateProxy`, per-repo overrides, live reload):
+[DEPLOY.md](DEPLOY.md#41-configuration-reference). With `selfUpdate` on, the
+daemon installs new releases itself (checksums verified, `updateProxy` mirror
+when github.com is unreachable); the dashboard can also check and install on
+demand.
 
 ## Development
 

@@ -66,7 +66,7 @@ command -v opencode claude codex             # at least one
 | Go or git missing | install with the platform package manager; if that needs sudo, **ASK** once and include the exact command |
 | no coding-agent CLI | install `opencode` by default and say so; **ASK** only if the human has a stated preference |
 | token unset | check `~/.config/gh-agent/hosts.yml`; if absent → step 2 (this is the one allowed question) |
-| OS not macOS/Linux | stop: unsupported |
+| Windows | supported: the binary builds and runs there (`process_windows.go`), but `scripts/smoke-test.sh` needs a POSIX shell. Prefer the desktop app below |
 
 The coding agent must work unattended on this machine, as the same user
 (`opencode run`, `claude -p`, `codex exec`). If unsure, run its help command;
@@ -121,6 +121,12 @@ than $REPOS.
 
 ## 3. Install — ENSURE
 
+Prebuilt archives (no Go needed): download the matching
+`gh-issue-killer_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) and
+`checksums.txt` from
+[Releases](https://github.com/uiautodev/gh-issue-killer/releases), verify with
+`sha256sum -c` (or `shasum -a 256 -c`), then put the binary on `PATH`.
+
 ```bash
 git clone <this-repo> gh-issue-killer && cd gh-issue-killer
 go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
@@ -137,6 +143,35 @@ install -m 0755 bin/gh-issue-killer "$BIN_DIR/gh-issue-killer"
 Prompts are embedded in the binary, so a copied binary is self-contained. A
 `prompts/` directory next to the binary (or in the working directory) still
 overrides the embedded copies for development.
+
+### 3.1 Desktop app — optional
+
+The desktop app is a thin Wails 3 window over the same engine: no separate
+daemon, no terminal wizard. Download the bundle for the platform:
+
+| platform | asset | contents |
+| --- | --- | --- |
+| macOS | `gh-issue-killer-desktop_<version>_darwin_<arch>.zip` | `gh-issue-killer.app` (shell + engine inside `Contents/MacOS/`) |
+| Linux | `gh-issue-killer-desktop_<version>_linux_<arch>.tar.gz` (or `.AppImage`) | `gh-issue-killer-desktop` + `gh-issue-killer` |
+| Windows | `gh-issue-killer-desktop_<version>_windows_amd64.zip` | `gh-issue-killer-desktop.exe` + `gh-issue-killer.exe` |
+
+Unzip and launch. On first run there is no config, so the window opens on the
+settings panel: fill in repos, coding agent, model, proxy (and optionally the
+update mirror `gh-proxy.com`), save, and the engine restarts with it. Closing
+the window stops the engine — nothing is left in the background.
+
+- Config file: `~/.config/gh-issue-killer/config.json` (`GHIK_CONFIG` overrides).
+- State/logs: `~/.gh-issue-killer` — the same as the daemon.
+- The engine still takes `daemon.lock`, so do not run the desktop app and the
+  background daemon at the same time.
+- Updates replace the engine binary inside the bundle (the shell is a thin
+  window and rarely changes); the engine restarts into the new version when the
+  download and checksum succeed, and the old binary stays on any failure.
+- `GHIK_ENGINE` points the shell at a different engine binary (development).
+- Build from source: `cd desktop && go build .`, then
+  `desktop/build/package.sh vX.Y.Z` (macOS/Linux) or
+  `desktop/build/package.ps1 -Version vX.Y.Z` (Windows). `wails3` is not needed:
+  there is no frontend build, the window loads the engine's dashboard.
 
 ## 4. Configure — do not use `-init` in automation
 
@@ -188,9 +223,14 @@ Non-zero exit or missing lines → see failures.
 
 Optional: `pollIntervalSec` (30), `webhook` (true), `maxFixRounds` (3),
 `planParallel` (5) and `implementParallel` (1), both **per repository**,
-`selfUpdate` (false), `webPort` (0 = off; `8787` serves the dashboard on
-127.0.0.1), `planTimeoutMin` (15), `implementTimeoutMin` (60),
-`worktreeRoot` (state dir), `language` (`auto`).
+`selfUpdate` (false), `updateProxy` (empty = direct only), `webPort` (0 = off;
+`8787` serves the dashboard on 127.0.0.1), `planTimeoutMin` (15),
+`implementTimeoutMin` (60), `worktreeRoot` (state dir), `language` (`auto`).
+
+`updateProxy` is a download mirror prefix for release assets, not an HTTP
+proxy: when the direct download from github.com fails, the daemon retries
+`<updateProxy>/<original asset url>`. `gh-proxy.com` is the usual value for
+mainland China. The GitHub API lookup itself still goes through `proxy`.
 
 `language` controls the language the coding agent writes in — plans,
 summaries, PR bodies and review findings — and the daemon's own scaffolding
@@ -286,8 +326,9 @@ macOS: start it once after login, or add it to login items. Nothing else.
 | follow logs | `gh-issue-killer -config "$CONFIG" -logs` |
 | stop | `gh-issue-killer -config "$CONFIG" -stop` |
 | apply a config change | save the file; the daemon reloads in place when jobs finish (same PID) |
-| self-update | with `"selfUpdate": true`, poll the project's `master` every 30 s, rebuild 5 s after a change, then re-exec (needs Go and a writable binary) |
-| restart after upgrade | stop → rebuild → start |
+| self-update | with `"selfUpdate": true`, poll `releases/latest` every 30 min, verify `checksums.txt`, replace the binary and re-exec (no Go toolchain needed) |
+| install a release now | dashboard → 设置 → 检查更新 → 立即升级, or download the archive and replace the binary |
+| update behind the GFW | set `"updateProxy": "gh-proxy.com"`; release downloads fall back to it |
 | smoke test | `gh-issue-killer -config "$CONFIG" -once` |
 | full loop with the human's `gh` | `scripts/smoke-test.sh <owner/repo>` |
 
@@ -296,14 +337,23 @@ per-issue trees (auto-removed after merge/cancel), `runs/` agent logs and
 screenshots (safe to prune), `logs/daemon.log*` (10 MB × 5), `state.json`
 (tracking; deleting it re-plans open issues), `daemon.lock`.
 
-Upgrade:
+Upgrade (either path keeps `state.json`, so nothing is re-planned):
 
 ```bash
+# release archive
+sha256sum -c checksums.txt --ignore-missing
+install -m 0755 gh-issue-killer "$BIN_DIR/gh-issue-killer"
+gh-issue-killer -config "$CONFIG" -stop
+gh-issue-killer -config "$CONFIG"
+
+# or from source
 gh-issue-killer -config "$CONFIG" -stop
 git pull && go build -o bin/gh-issue-killer ./cmd/gh-issue-killer && go test ./...
 gh-issue-killer -config "$CONFIG"
 ```
 
+A failed self-update (no asset for the platform, bad checksum, mirror and
+GitHub both unreachable) leaves the running binary untouched and logs why.
 Interrupted implementations resume from their worktree on the next start.
 
 ## 8. Failure → action
@@ -321,6 +371,8 @@ Interrupted implementations resume from their worktree on the next start.
 | 👍 on the plan does nothing | reaction must be on the plan comment by an approver; the poll checks every 30 s |
 | stale `agent:*` labels | only `agent:awaiting-approval` is still managed; delete the leftover old labels by hand in the repo settings |
 | `already running (pid N)` | use `-status` / `-stop`; never start a second instance |
+| desktop window says the engine exited | read `~/.gh-issue-killer/logs/desktop-engine.log`; the usual cause is a daemon (or a second desktop) already holding `daemon.lock` |
+| update fails with `checksum mismatch` | do not bypass it; the release asset or the mirror is corrupt. Retry, or install the archive by hand after `sha256sum -c` |
 
 ## 9. Invariants — NEVER
 
