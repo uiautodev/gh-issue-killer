@@ -28,7 +28,9 @@ mkdir -p "$work"
 
 # make_icns turns build/appicon.png into the multi-size icon macOS reads from
 # Contents/Resources. sips and iconutil ship with macOS, so packaging needs no
-# extra tool; the 256 px source is scaled up for the larger slots.
+# extra tool. appicon.png is a 1024 px render of
+# cmd/gh-issue-killer/web/logo.svg, the dashboard favicon: regenerate it when
+# the favicon changes so the bundle and the web UI stay identical.
 make_icns() {
   local source="$desktop_dir/build/appicon.png"
   local iconset="$work/AppIcon.iconset"
