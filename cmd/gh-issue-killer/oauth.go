@@ -358,14 +358,6 @@ func loadAgentTokenSource(proxy *Proxy) (tokenSource, error) {
 	return tokenSource{}, errors.New("no GitHub token: log in from the dashboard (recommended: a separate bot account), set GH_AGENT_TOKEN, or run `gh-issue-killer -init`")
 }
 
-func loadAgentToken() (string, error) {
-	source, err := loadAgentTokenSource(nil)
-	if err != nil {
-		return "", err
-	}
-	return source.Token, nil
-}
-
 // loginDeviceFlowInteractive walks the same Device Flow in a terminal so
 // `gh-issue-killer -init` can log in without gh or a wrapper.
 func loginDeviceFlowInteractive(ctx context.Context, proxy *Proxy, out io.Writer) (tokenRecord, error) {

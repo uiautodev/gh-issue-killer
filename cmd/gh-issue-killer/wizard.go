@@ -914,7 +914,7 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 		return err
 	}
 
-	if _, tokenErr := loadAgentToken(); tokenErr != nil {
+	if _, tokenErr := loadAgentTokenSource(proxyObject); tokenErr != nil {
 		// With a real terminal this runs the same Device Flow as the dashboard;
 		// with piped input the wizard keeps going and prints where to log in.
 		if file, ok := in.(*os.File); ok && isTerminal(file) {
