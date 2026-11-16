@@ -1,4 +1,4 @@
-<p align="center"><img src="cmd/gh-issue-killer/web/logo.svg" width="88" height="88" alt="gh-issue-killer"></p>
+<p align="center"><img src="frontend/static/logo.svg" width="88" height="88" alt="gh-issue-killer"></p>
 
 # gh-issue-killer
 
@@ -74,7 +74,9 @@ Chinese and English and links back to this repository, tasks can be filtered by
 project or free text or hide finished/cancelled work, the console colours the
 log by level, and the header counts the tasks waiting for you (approval, merge
 or unblock). The settings panel edits the repos, coding agent, model, proxy,
-update mirror and each project's release schedule.
+update mirror and each project's release schedule. The board is a SvelteKit app
+in `frontend/` (Tailwind + shadcn-svelte theme); release binaries embed its
+build output, and a source build needs `npm --prefix frontend run build` first.
 
 ### Desktop app
 

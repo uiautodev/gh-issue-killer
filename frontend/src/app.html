@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="text-scale" content="scale" />
+		<title>gh-issue-killer · 调度台</title>
+		<link rel="icon" type="image/svg+xml" href="/logo.svg" />
+		<script>
+			// Paint the right theme before the bundle loads: `auto` follows the OS,
+			// and ghik-theme mirrors the toggle. The Svelte theme store takes over
+			// after hydration.
+			try {
+				const mode = localStorage.getItem('ghik-theme') || 'auto';
+				const dark =
+					mode === 'dark' ||
+					(mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+				document.documentElement.classList.toggle('dark', dark);
+				document.documentElement.dataset.theme = mode;
+				if (localStorage.getItem('ghik-lang') === 'en') {
+					document.documentElement.lang = 'en';
+					document.title = 'gh-issue-killer · Dashboard';
+				}
+			} catch (_) {
+				/* private mode */
+			}
+		</script>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

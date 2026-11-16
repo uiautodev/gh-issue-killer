@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestWebSnapshotOnlyListsTrackedTasks(t *testing.T) {
@@ -197,5 +199,122 @@ func TestWebOpenURLReportsBrowserFailure(t *testing.T) {
 	recorder := postOpenURL(t, web, `{"url":"https://example.com"}`, "")
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 (%s)", recorder.Code, recorder.Body.String())
+	}
+}
+
+func newStaticTestWeb(files fs.FS) *webServer {
+	return &webServer{cfg: &Config{File: "config.json", WebPort: 8787}, log: NewSilentLogger(), assets: files}
+}
+
+func getStatic(t *testing.T, web *webServer, method, target string) *httptest.ResponseRecorder {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	web.handleStatic(recorder, httptest.NewRequest(method, target, nil))
+	return recorder
+}
+
+func TestWebStaticServesBuiltSPA(t *testing.T) {
+	files := fstest.MapFS{
+		"index.html":                 {Data: []byte("<html>dashboard</html>")},
+		"assets/immutable/app-1.js":  {Data: []byte("console.log(1)")},
+		"assets/immutable/app-1.css": {Data: []byte("body{}")},
+		"logo.svg":                   {Data: []byte("<svg></svg>")},
+	}
+	web := newStaticTestWeb(files)
+
+	for _, target := range []string{"/", "/tasks/1", "/deep/link"} {
+		recorder := getStatic(t, web, http.MethodGet, target)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", target, recorder.Code)
+		}
+		if got := recorder.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+			t.Fatalf("%s: content type = %q", target, got)
+		}
+		if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("%s: cache = %q", target, got)
+		}
+		if !strings.Contains(recorder.Body.String(), "dashboard") {
+			t.Fatalf("%s: body = %s", target, recorder.Body.String())
+		}
+	}
+
+	js := getStatic(t, web, http.MethodGet, "/assets/immutable/app-1.js")
+	if js.Code != http.StatusOK || js.Body.String() != "console.log(1)" {
+		t.Fatalf("js = %d %q", js.Code, js.Body.String())
+	}
+	if got := js.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+		t.Fatalf("js content type = %q", got)
+	}
+	if got := js.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
+		t.Fatalf("js cache = %q", got)
+	}
+
+	css := getStatic(t, web, http.MethodGet, "/assets/immutable/app-1.css")
+	if got := css.Header().Get("Content-Type"); got != "text/css; charset=utf-8" {
+		t.Fatalf("css content type = %q", got)
+	}
+
+	logo := getStatic(t, web, http.MethodGet, "/logo.svg")
+	if logo.Code != http.StatusOK || logo.Header().Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("logo = %d %q", logo.Code, logo.Header().Get("Content-Type"))
+	}
+	if got := logo.Header().Get("Cache-Control"); got != "public, max-age=3600" {
+		t.Fatalf("logo cache = %q", got)
+	}
+
+	head := getStatic(t, web, http.MethodHead, "/")
+	if head.Code != http.StatusOK || head.Body.Len() != 0 {
+		t.Fatalf("HEAD = %d with %d bytes", head.Code, head.Body.Len())
+	}
+	if head.Header().Get("Content-Type") != "text/html; charset=utf-8" {
+		t.Fatalf("HEAD content type = %q", head.Header().Get("Content-Type"))
+	}
+
+	for _, target := range []string{"/assets/missing.js", "/favicon.ico", "/api/unknown"} {
+		if recorder := getStatic(t, web, http.MethodGet, target); recorder.Code != http.StatusNotFound {
+			t.Fatalf("%s: status = %d, want 404", target, recorder.Code)
+		}
+	}
+}
+
+func TestWebStaticRejectsNonGet(t *testing.T) {
+	web := newStaticTestWeb(fstest.MapFS{"index.html": {Data: []byte("ok")}})
+	recorder := getStatic(t, web, http.MethodPost, "/")
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", recorder.Code)
+	}
+	if got := recorder.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Fatalf("Allow = %q", got)
+	}
+}
+
+func TestWebStaticHintsWhenFrontendIsNotBuilt(t *testing.T) {
+	// A checkout that never ran npm only embeds the tracked .gitkeep.
+	web := newStaticTestWeb(fstest.MapFS{".gitkeep": {Data: nil}})
+	recorder := getStatic(t, web, http.MethodGet, "/")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Fatalf("content type = %q", got)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "npm --prefix frontend run build") {
+		t.Fatalf("build hint missing: %s", body)
+	}
+	if !strings.Contains(body, "Build the frontend first") {
+		t.Fatalf("english hint missing: %s", body)
+	}
+}
+
+func TestEmbeddedWebServesDashboardOrHint(t *testing.T) {
+	web := newStaticTestWeb(embeddedWeb())
+	recorder := getStatic(t, web, http.MethodGet, "/")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "gh-issue-killer") && !strings.Contains(body, "npm --prefix frontend") {
+		t.Fatalf("unexpected embedded page: %s", body)
 	}
 }

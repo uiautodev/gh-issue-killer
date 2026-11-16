@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Build the desktop shell and the engine, then assemble a portable bundle.
 #
-# There is no frontend build step: the Wails window loads the engine's own
-# dashboard. The macOS bundle is a .app inside a zip and a DMG, Linux is a
-# tarball. The release workflow runs this once per runner; version comes from
-# the tag.
+# The engine embeds the SvelteKit dashboard, so build `frontend/` first
+# (`npm --prefix frontend ci && npm --prefix frontend run build`); the release
+# workflow does this before calling the script. The macOS bundle is a .app
+# inside a zip and a DMG, Linux is a tarball. The release workflow runs this
+# once per runner; version comes from the tag.
 #
 #   desktop/build/package.sh v1.2.3
 set -euo pipefail
@@ -29,7 +30,7 @@ mkdir -p "$work"
 # make_icns turns build/appicon.png into the multi-size icon macOS reads from
 # Contents/Resources. sips and iconutil ship with macOS, so packaging needs no
 # extra tool. appicon.png is a 1024 px render of
-# cmd/gh-issue-killer/web/logo.svg, the dashboard favicon: regenerate it when
+# frontend/static/logo.svg, the dashboard favicon: regenerate it when
 # the favicon changes so the bundle and the web UI stay identical.
 make_icns() {
   local source="$desktop_dir/build/appicon.png"

@@ -1,4 +1,4 @@
-<p align="center"><img src="cmd/gh-issue-killer/web/logo.svg" width="88" height="88" alt="gh-issue-killer"></p>
+<p align="center"><img src="frontend/static/logo.svg" width="88" height="88" alt="gh-issue-killer"></p>
 
 # gh-issue-killer
 
@@ -59,7 +59,9 @@ flowchart LR
 系统或固定日间/夜间，界面可中英文切换、右上角可跳转本项目，任务列表可按项目
 过滤或搜索、也可隐藏已完成和已取消，控制台按级别给日志配色，顶部显示“待我处理”
 的任务数（待批准、待合并、被阻塞）。设置面板可改仓库、编码代理、模型、代理、
-更新镜像，以及每个项目的定时发版。
+更新镜像，以及每个项目的定时发版。看板本身是 `frontend/` 里的 SvelteKit 应用
+（Tailwind + shadcn-svelte 主题）；发布产物已内嵌构建结果，从源码构建前需要先跑
+`npm --prefix frontend run build`。
 
 ### 桌面版
 

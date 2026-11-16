@@ -1,4 +1,6 @@
 # Assemble the Windows desktop bundle: the shell and the engine in one zip.
+# Build the SvelteKit dashboard first (`npm --prefix frontend run build`); the
+# engine embeds cmd/gh-issue-killer/web/dist.
 # Run from PowerShell on a Windows machine (the release workflow does this).
 param(
     [string]$Version = "dev"

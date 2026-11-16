@@ -17,7 +17,14 @@ go vet ./...                   # must pass
 go test ./...                  # must pass
 gofmt -l .                     # must print nothing
 go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
+npm --prefix frontend ci       # dashboard deps
+npm --prefix frontend run check
+npm --prefix frontend run build   # writes the embedded web/dist
 ```
+
+`go build` embeds `cmd/gh-issue-killer/web/dist`; run the frontend build before
+building a release binary. `go test ./...` still passes on a checkout without
+the build (the server then serves the "build the frontend" page).
 
 End-to-end: `scripts/smoke-test.sh owner/repo` (needs `gh` and a bot token:
 dashboard login, `~/.gh-issue-killer/token`, or `GH_AGENT_TOKEN`).

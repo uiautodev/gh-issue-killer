@@ -21,6 +21,18 @@ GOOS=windows GOARCH=amd64 go build ./cmd/gh-issue-killer   # platform layer stil
 pre-commit install    # optional: gofmt, vet, test, build, 1 MB file guard
 ```
 
+The dashboard is a SvelteKit SPA in `frontend/`; `go build` embeds
+`cmd/gh-issue-killer/web/dist`. Build it once before building a release binary
+(and always after changing `frontend/`), otherwise the binary serves a "build
+the frontend" page:
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run check
+npm --prefix frontend run build   # writes cmd/gh-issue-killer/web/dist
+go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
+```
+
 The desktop shell is a separate module so the daemon keeps its single
 dependency (`fsnotify`):
 
@@ -119,8 +131,9 @@ process, then exit” instead of `syscall.Exec`.
 ## 4. Package map
 
 All Go code is `package main` in `cmd/gh-issue-killer`; `prompts` embeds the
-Markdown prompts; `web` embeds `index.html` and `logo.svg`. `desktop/` is a
-separate Go module (Wails 3) so the daemon does not inherit the GUI
+Markdown prompts; `web` embeds the SvelteKit build in `web/dist`. `frontend/`
+is the SvelteKit/Tailwind/shadcn-svelte source for that build, and `desktop/` is
+a separate Go module (Wails 3) so the daemon does not inherit the GUI
 dependencies.
 
 | file | responsibility |
@@ -143,7 +156,7 @@ dependencies.
 | `shots.go` | screenshot collection, before/after composition, upload |
 | `proxy.go` | SOCKS5/HTTP proxies for HTTP clients, git and child processes |
 | `wizard.go` | `-init` interactive setup |
-| `web.go`, `web/` | loopback dashboard, `/api/state`, `/api/issue`, `/api/logs`, `/api/action`, `/api/open-url`, `/api/auth*` |
+| `web.go`, `web/dist` | loopback dashboard; embeds the SvelteKit build and serves it with an SPA fallback: `/api/state`, `/api/issue`, `/api/logs`, `/api/action`, `/api/open-url`, `/api/auth*` |
 | `webauth.go` | dashboard login endpoints: Device Flow start/poll and pasted-token fallback |
 | `openurl.go` | opens an external http(s) link in the platform browser (`open`/`xdg-open`/`rundll32`) |
 | `webconfig.go` | settings API: `/api/config`, `/api/detect`, `/api/restart`, `/api/update` |
@@ -154,7 +167,8 @@ dependencies.
 | `docs/v2ex-share.md` | Chinese V2EX sharing draft plus a manual publishing checklist (not part of the build) |
 | `docs/images/dashboard-*.png` | dashboard screenshots referenced by the V2EX draft, captured with sample data (not part of the build) |
 | `assets/sponsor.png` | WeChat reward QR code shown at the end of `README.zh-CN.md` (not part of the build) |
-| `desktop/` | separate Go module: Wails 3 shell (`main.go`, `engine.go`, `process_*.go`) and `build/` packaging (icon rendered from `web/logo.svg`, `.app`, DMG) |
+| `desktop/` | separate Go module: Wails 3 shell (`main.go`, `engine.go`, `process_*.go`) and `build/` packaging (icon rendered from `frontend/static/logo.svg`, `.app`, DMG) |
+| `frontend/` | SvelteKit SPA for the dashboard: Tailwind v4 + shadcn-svelte tokens, zh/en strings, routes and `$lib` API/i18n/theme modules; `npm run build` writes `cmd/gh-issue-killer/web/dist` |
 
 ## 5. State model and phases
 
@@ -482,7 +496,7 @@ Device Flow, GET polls), `/api/auth/token` (paste a PAT), `/api/config` (GET raw
 file + defaults, PUT
 validated save), `/api/detect` (installed agents, model list, optional proxy and
 repo-access probes), `/api/restart`, `/api/update` (GET checks
-`releases/latest`, POST installs), `/logo.svg`. The mutating routes require
+`releases/latest`, POST installs). The mutating routes require
 a JSON content type and a loopback `Origin`; `/api/config` runs
 `loadConfig` against a temp file before it writes, so an invalid agent, repo,
 port, proxy, mirror, release interval or bump returns 400 and nothing is saved.
@@ -493,19 +507,31 @@ needs the approver (`awaiting_approval`, `pr_open`, `blocked`, see
 `phaseNeedsUser`); the board can be filtered by phase, by project (the repo
 dropdown) and by free text.
 
-`web/index.html` is self-contained: no build step, no dependencies. The masthead
-switches between Chinese (default) and English (`localStorage` key `ghik-lang`)
-and links to the project on GitHub. Every external link goes through
-`openExternal`: a normal browser gets `window.open`, while the desktop shell
-loads the page with `?surface=desktop` and the click is posted to
-`/api/open-url`, because Wails' WKWebView drops `target="_blank"`. Every string,
-including phases, filters,
-the drawer, the settings panel and the empty states, comes from the `zh`/`en`
-tables in the script; `/api/logs` stays plain text and the console colours
-INFO/WARN/ERROR/DEBUG in the browser. `planParallel` and `implementParallel`
-size each repository's own pool, so the PLAN/WORK meters are rendered per
-repository line rather than globally. A board toggle hides `done` and
-`cancelled` tasks on top of the other filters; it is off by default.
+The page is a client-rendered SvelteKit SPA in `frontend/` (Svelte 5 runes,
+Tailwind v4, shadcn-svelte CSS tokens). `npm run build` writes it to
+`cmd/gh-issue-killer/web/dist`, which `web.go` embeds with
+`//go:embed all:web/dist`; `dist` is not committed, so a release build must run
+the frontend build first (CI and the release workflow do). `web.go` serves
+`index.html` with `no-store`, hashed files under `/assets/` with an immutable
+cache, other static files (for example `/logo.svg`) for an hour, and falls back
+to `index.html` for unknown non-asset paths. A missing `/assets/*` file is a
+404, and so is an unknown `/api/*` route. If `dist` contains no `index.html`
+the server returns a page that explains how to build the frontend.
+
+The masthead switches between Chinese (default) and English (`localStorage` key
+`ghik-lang`) and links to the project on GitHub. The theme toggle (`ghik-theme`)
+offers auto/light/dark: `auto` follows `prefers-color-scheme` and the store
+flips the `.dark` class on `<html>`, matching the shadcn token set. Every
+external link goes through `openExternal`: a normal browser gets `window.open`,
+while the desktop shell loads the page with `?surface=desktop` and the click is
+posted to `/api/open-url`, because Wails' WKWebView drops `target="_blank"`.
+Every string, including phases, filters, the drawer, the settings panel and the
+empty states, lives in the `zh`/`en` tables in `$lib/i18n.svelte.ts`;
+`/api/logs` stays plain text and the console colours INFO/WARN/ERROR/DEBUG in
+the browser. `planParallel` and `implementParallel` size each repository's own
+pool, so the PLAN/WORK meters are rendered per repository line rather than
+globally. A board toggle hides `done` and `cancelled` tasks on top of the other
+filters; it is off by default.
 
 The settings button opens a panel over the board: repos (array, array of
 objects or object form, with per-repo overrides preserved), one release row per
@@ -586,7 +612,7 @@ keeps tests quiet. Notable coverage:
 | `plan_test.go` | plan text trimming |
 | `watch_test.go` | config reload fires on valid edits, ignores invalid ones |
 | `watcher_test.go` | `Store` round-trip |
-| `web_test.go` | dashboard snapshot only lists tracked tasks, `/api/open-url` validation and browser handoff |
+| `web_test.go` | dashboard snapshot only lists tracked tasks, `/api/open-url` validation and browser handoff, embedded SPA serving (index, hashed assets, cache headers, 404s, SPA fallback, unbuilt-frontend hint) |
 | `oauth_test.go` | Device Flow pending/slow_down/expired, token file 0600, refresh success/failure, credential precedence, 401 retry, login/paste endpoints, login panel markup |
 | `openurl_test.go` | per-platform browser command, no shell, injected runner |
 | `webconfig_test.go` | `/api/config` validation/round-trip/origin check, `release` defaults and rejection, `/api/detect` degradation, `/api/update` payload, snapshot without a router |
@@ -597,6 +623,14 @@ keeps tests quiet. Notable coverage:
 Add a test for every new branch in the gate, a new command keyword, a new
 phase transition, or a scheduler invariant. `go test ./...` and `go vet ./...`
 must stay clean; `gofmt -l .` must print nothing.
+
+The dashboard is tested with its own toolchain: `npm --prefix frontend run check`
+(svelte-check) and `npm --prefix frontend run build`. Any change to `frontend/`
+or to the dashboard handlers in `web.go` must also be driven in a real browser
+with Playwright or cua-driver before it is called done — open the page against a
+running engine, exercise the changed component (both themes when colours
+changed), read the browser console, and keep the before/after screenshots. A
+green unit check does not cover the UI; skipping this step is not allowed.
 
 ## 18. Invariants and pitfalls
 
@@ -649,11 +683,13 @@ must stay clean; `gofmt -l .` must print nothing.
 | the periodic release checker, version bumps, release notes | §7, §14 and §17 |
 | a user-facing comment string | §18 (goes through `app.text` and `messages.go`) |
 | web routes or API payloads | §15 |
+| the dashboard frontend, its build output or `web.go` static serving | §1, §4, §15 and §17 |
 | the login flow, token file or credential precedence | §3, §11, §15 and DEPLOY.md §2 |
 | reload/self-update behaviour | §16 |
 | new or renamed test files | §17 |
 | startup order, flags, daemonizing, `-embedded`, platform process helpers | §3 and §1 |
 | web routes or API payloads | §15 |
+| the dashboard frontend, its build output or `web.go` static serving | §1, §4, §15 and §17 |
 | the login flow, token file or credential precedence | §3, §11, §15 and DEPLOY.md §2 |
 | the desktop shell, packaging, release assets | §1, §4, §15 and §16 |
 | the file map itself | §4 |

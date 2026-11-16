@@ -426,18 +426,29 @@ func TestAuthStatusWithoutToken(t *testing.T) {
 	}
 }
 
-func TestWebIndexHasLoginPanel(t *testing.T) {
-	data, err := webIndex.ReadFile("web/index.html")
-	if err != nil {
-		t.Fatal(err)
+// The dashboard moved to SvelteKit, so the login panel is asserted in the
+// component and its API/i18n sources instead of the old single index.html.
+func TestDashboardHasLoginPanel(t *testing.T) {
+	files := map[string][]string{
+		filepath.Join("..", "..", "frontend", "src", "lib", "components", "settings-panel.svelte"): {
+			`data-testid="auth-panel"`, `authDevice`, "t('auth.login')",
+		},
+		filepath.Join("..", "..", "frontend", "src", "lib", "api.ts"): {
+			`/api/auth/device`, `/api/auth/token`, `'/api/auth'`,
+		},
+		filepath.Join("..", "..", "frontend", "src", "lib", "i18n.svelte.ts"): {
+			`'auth.hint'`, `'auth.login'`, `'auth.code'`,
+		},
 	}
-	html := string(data)
-	for _, want := range []string{
-		`id="auth-panel"`, `data-i18n="auth.hint"`, `id="auth-code"`,
-		`/api/auth/device`, `/api/auth/token`, `"auth.hint"`, `"auth.login"`,
-	} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("index.html is missing %s", want)
+	for path, wants := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		for _, want := range wants {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("%s is missing %s", path, want)
+			}
 		}
 	}
 }

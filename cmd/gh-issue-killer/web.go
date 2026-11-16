@@ -5,10 +5,14 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -17,8 +21,38 @@ import (
 	"time"
 )
 
-//go:embed web/index.html web/logo.svg
-var webIndex embed.FS
+// The dashboard is a SvelteKit SPA built by `npm run build` in frontend/ into
+// web/dist. The placeholder file keeps `go build` working on a checkout that
+// has never installed node; such a binary serves the "build the frontend"
+// page instead of the app.
+//
+//go:embed all:web/dist
+var webDist embed.FS
+
+const webDistRoot = "web/dist"
+
+// embeddedWeb returns the built app rooted at web/dist.
+func embeddedWeb() fs.FS {
+	sub, err := fs.Sub(webDist, webDistRoot)
+	if err != nil {
+		panic("web/dist: " + err.Error())
+	}
+	return sub
+}
+
+const webBuildHint = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>gh-issue-killer</title></head>
+<body style="font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;max-width:42rem;margin:4rem auto;padding:0 1rem">
+<h1>请先构建前端 / Build the frontend first</h1>
+<p>这个二进制里没有打包好的看板。在仓库根目录运行：</p>
+<pre>npm --prefix frontend install
+npm --prefix frontend run build
+go build ./cmd/gh-issue-killer</pre>
+<p>The dashboard is not embedded in this binary. Run the commands above from
+the repository root so <code>cmd/gh-issue-killer/web/dist</code> contains the
+SvelteKit build output.</p>
+</body></html>
+`
 
 type webOptions struct {
 	identity    string
@@ -41,6 +75,9 @@ type webServer struct {
 	embedded    bool
 	configError string
 	reload      func()
+	// assets is the built dashboard; tests inject a fs.FS. Nil means the
+	// embedded web/dist.
+	assets fs.FS
 	// latestRelease is replaced in tests so /api/update never hits GitHub.
 	latestRelease func(ctx context.Context) (*releaseInfo, error)
 	updateMu      sync.Mutex
@@ -121,9 +158,10 @@ func startWeb(cfg *Config, router *Router, store *Store, log *Logger, opts webOp
 		cfg: cfg, router: router, store: store, log: log,
 		identity: opts.identity, version: opts.version, started: time.Now(),
 		embedded: opts.embedded, configError: opts.configError, reload: opts.reload,
+		assets: embeddedWeb(),
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", web.handleIndex)
+	mux.HandleFunc("/", web.handleStatic)
 	mux.HandleFunc("/api/state", web.handleState)
 	mux.HandleFunc("/api/issue", web.handleIssue)
 	mux.HandleFunc("/api/logs", web.handleLogs)
@@ -136,7 +174,6 @@ func startWeb(cfg *Config, router *Router, store *Store, log *Logger, opts webOp
 	mux.HandleFunc("/api/detect", web.handleDetect)
 	mux.HandleFunc("/api/restart", web.handleRestart)
 	mux.HandleFunc("/api/update", web.handleUpdate)
-	mux.HandleFunc("/logo.svg", web.handleLogo)
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", cfg.WebPort))
 	if err != nil {
@@ -151,30 +188,130 @@ func startWeb(cfg *Config, router *Router, store *Store, log *Logger, opts webOp
 	return server, nil
 }
 
-func (w *webServer) handleIndex(rw http.ResponseWriter, req *http.Request) {
-	if req.URL.Path != "/" {
+// handleStatic serves the built SPA. Files are looked up by exact name; a
+// missing asset is a 404, while any other path falls back to index.html so
+// client-side routes (and a stale bookmark) keep working. `/api/` paths never
+// fall back: an unknown endpoint must not return HTML.
+func (w *webServer) handleStatic(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		rw.Header().Set("Allow", "GET, HEAD")
+		http.Error(rw, "GET required", http.StatusMethodNotAllowed)
+		return
+	}
+	if strings.HasPrefix(req.URL.Path, "/api/") {
 		http.NotFound(rw, req)
 		return
 	}
-	data, err := webIndex.ReadFile("web/index.html")
+	files := w.assets
+	if files == nil {
+		files = embeddedWeb()
+	}
+
+	name := strings.TrimPrefix(path.Clean("/"+req.URL.Path), "/")
+	if name == "" || name == "." {
+		name = "index.html"
+	}
+	if strings.HasPrefix(name, "..") || strings.HasPrefix(name, "/") {
+		http.NotFound(rw, req)
+		return
+	}
+	if name == "index.html" {
+		w.serveIndex(rw, req, files)
+		return
+	}
+
+	if data, ok := readWebFile(files, name); ok {
+		serveWebBytes(rw, req, name, data)
+		return
+	}
+	// A missing hashed asset is a real 404; the browser would otherwise parse
+	// the HTML fallback as JavaScript.
+	if strings.HasPrefix(req.URL.Path, "/assets/") || filepath.Ext(name) != "" {
+		http.NotFound(rw, req)
+		return
+	}
+	w.serveIndex(rw, req, files)
+}
+
+// readWebFile reads a regular file; directories are not static content.
+func readWebFile(files fs.FS, name string) ([]byte, bool) {
+	info, err := fs.Stat(files, name)
+	if err != nil || info.IsDir() {
+		return nil, false
+	}
+	data, err := fs.ReadFile(files, name)
 	if err != nil {
-		http.Error(rw, "missing web/index.html", http.StatusInternalServerError)
+		return nil, false
+	}
+	return data, true
+}
+
+func serveWebBytes(rw http.ResponseWriter, req *http.Request, name string, data []byte) {
+	rw.Header().Set("Content-Type", webContentType(name))
+	if strings.HasPrefix(name, "assets/") {
+		// SvelteKit hashes these filenames, so they never change in place.
+		rw.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		rw.Header().Set("Cache-Control", "public, max-age=3600")
+	}
+	if req.Method == http.MethodHead {
+		rw.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		rw.WriteHeader(http.StatusOK)
+		return
+	}
+	_, _ = rw.Write(data)
+}
+
+func (w *webServer) serveIndex(rw http.ResponseWriter, req *http.Request, files fs.FS) {
+	data, ok := readWebFile(files, "index.html")
+	if !ok {
+		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		rw.Header().Set("Cache-Control", "no-store")
+		if req.Method == http.MethodHead {
+			rw.WriteHeader(http.StatusOK)
+			return
+		}
+		_, _ = rw.Write([]byte(webBuildHint))
 		return
 	}
 	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 	rw.Header().Set("Cache-Control", "no-store")
+	if req.Method == http.MethodHead {
+		rw.WriteHeader(http.StatusOK)
+		return
+	}
 	_, _ = rw.Write(data)
 }
 
-func (w *webServer) handleLogo(rw http.ResponseWriter, req *http.Request) {
-	data, err := webIndex.ReadFile("web/logo.svg")
-	if err != nil {
-		http.NotFound(rw, req)
-		return
+// webContentType covers the handful of extensions SvelteKit emits even where
+// the host has no mime table (Windows) and keeps charset handling explicit.
+func webContentType(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".html":
+		return "text/html; charset=utf-8"
+	case ".js", ".mjs":
+		return "text/javascript; charset=utf-8"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".json", ".map":
+		return "application/json; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	case ".txt":
+		return "text/plain; charset=utf-8"
+	case ".woff2":
+		return "font/woff2"
+	case ".woff":
+		return "font/woff"
+	case ".png":
+		return "image/png"
+	case ".ico":
+		return "image/x-icon"
 	}
-	rw.Header().Set("Content-Type", "image/svg+xml")
-	rw.Header().Set("Cache-Control", "public, max-age=3600")
-	_, _ = rw.Write(data)
+	if detected := mime.TypeByExtension(filepath.Ext(name)); detected != "" {
+		return detected
+	}
+	return "application/octet-stream"
 }
 
 // handleAction approves or cancels a task. The dashboard binds to loopback

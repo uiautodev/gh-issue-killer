@@ -10,3 +10,10 @@ config.json
 /desktop/gh-issue-killer-desktop
 /desktop/*.exe
 /desktop/build/dist/
+
+# frontend build output: the embedded SPA is assembled by CI and the release
+# workflow, never committed
+/frontend/node_modules/
+/frontend/.svelte-kit/
+/cmd/gh-issue-killer/web/dist/*
+!/cmd/gh-issue-killer/web/dist/.gitkeep

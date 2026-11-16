@@ -132,6 +132,8 @@ Prebuilt archives (no Go needed): download the matching
 
 ```bash
 git clone <this-repo> gh-issue-killer && cd gh-issue-killer
+npm --prefix frontend ci
+npm --prefix frontend run build   # writes cmd/gh-issue-killer/web/dist (embedded)
 go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 go test ./...
 install -m 0755 bin/gh-issue-killer "$BIN_DIR/gh-issue-killer"
@@ -178,8 +180,10 @@ is the embedded desktop one.
 - `GHIK_ENGINE` points the shell at a different engine binary (development).
 - Build from source: `cd desktop && go build .`, then
   `desktop/build/package.sh vX.Y.Z` (macOS/Linux; macOS also gets a DMG) or
-  `desktop/build/package.ps1 -Version vX.Y.Z` (Windows). `wails3` is not needed:
-  there is no frontend build, the window loads the engine's dashboard.
+  `desktop/build/package.ps1 -Version vX.Y.Z` (Windows). Build the dashboard
+  first (`npm --prefix frontend ci && npm --prefix frontend run build`), since
+  the engine embeds `cmd/gh-issue-killer/web/dist`; `wails3` itself is not
+  needed, the window loads the engine's dashboard.
 - The macOS bundle is not signed or notarised. If Gatekeeper refuses the first
   launch, use Open from the Finder context menu or
   `xattr -dr com.apple.quarantine gh-issue-killer.app`.

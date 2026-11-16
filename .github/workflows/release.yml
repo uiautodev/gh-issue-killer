@@ -19,6 +19,19 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # The dashboard is embedded into the Go binary; without this build the
+      # release archives would only contain the "build the frontend" page.
+      - name: build dashboard
+        run: |
+          npm ci
+          npm run build
+        working-directory: frontend
 
       - run: go vet ./...
       - run: go test ./...
@@ -82,6 +95,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: build dashboard
+        run: |
+          npm ci
+          npm run build
+        working-directory: frontend
 
       - name: install webkitgtk
         if: matrix.os == 'linux'
