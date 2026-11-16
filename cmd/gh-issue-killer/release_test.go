@@ -104,23 +104,17 @@ func TestClassifyCommit(t *testing.T) {
 
 func TestNextReleaseVersion(t *testing.T) {
 	current := releaseVersion{1, 2, 3}
-	def := ReleaseConfig{BugBump: bumpPatch, FeatureBump: bumpMinor}
-	if got := nextReleaseVersion(current, []string{"fix: a", "chore: b"}, def); got != (releaseVersion{1, 2, 4}) {
+	if got := nextReleaseVersion(current, []string{"fix: a", "chore: b"}); got != (releaseVersion{1, 2, 4}) {
 		t.Fatalf("fixes bumped to %+v", got)
 	}
-	if got := nextReleaseVersion(current, []string{"fix: a", "feat: b"}, def); got != (releaseVersion{1, 3, 0}) {
+	if got := nextReleaseVersion(current, []string{"fix: a", "feat: b"}); got != (releaseVersion{1, 3, 0}) {
 		t.Fatalf("feature bumped to %+v", got)
 	}
-	custom := ReleaseConfig{BugBump: bumpMajor, FeatureBump: bumpPatch}
-	if got := nextReleaseVersion(current, []string{"fix: a"}, custom); got != (releaseVersion{2, 0, 0}) {
-		t.Fatalf("custom bug bump = %+v", got)
+	if got := nextReleaseVersion(current, []string{"feat(ui): add a button"}); got != (releaseVersion{1, 3, 0}) {
+		t.Fatalf("scoped feature bumped to %+v", got)
 	}
-	if got := nextReleaseVersion(current, []string{"feat: a"}, custom); got != (releaseVersion{1, 2, 4}) {
-		t.Fatalf("custom feature bump = %+v", got)
-	}
-	empty := ReleaseConfig{}
-	if got := nextReleaseVersion(current, []string{"fix: a"}, empty); got != (releaseVersion{1, 2, 4}) {
-		t.Fatalf("zero config must default to patch, got %+v", got)
+	if got := nextReleaseVersion(current, nil); got != (releaseVersion{1, 2, 4}) {
+		t.Fatalf("empty batch bumped to %+v", got)
 	}
 }
 
@@ -178,7 +172,7 @@ func TestCheckReleaseBumpsMinorForFeature(t *testing.T) {
 		}
 	})
 	store := newReleaseTestStore(t)
-	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1, BugBump: bumpPatch, FeatureBump: bumpMinor})
+	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1})
 	if err := checkRelease(context.Background(), app); err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +234,7 @@ func TestCheckReleaseBumpsPatchForFixes(t *testing.T) {
 		}
 	})
 	store := newReleaseTestStore(t)
-	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1, BugBump: bumpPatch, FeatureBump: bumpMinor})
+	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1})
 	if err := checkRelease(context.Background(), app); err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +264,7 @@ func TestCheckReleaseFirstReleaseIsZeroOneZero(t *testing.T) {
 		}
 	})
 	store := newReleaseTestStore(t)
-	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1, BugBump: bumpPatch, FeatureBump: bumpMinor})
+	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1})
 	if err := checkRelease(context.Background(), app); err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +289,7 @@ func TestCheckReleaseSkipsWithoutCommits(t *testing.T) {
 		}
 	})
 	store := newReleaseTestStore(t)
-	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1, BugBump: bumpPatch, FeatureBump: bumpMinor})
+	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1})
 	if err := checkRelease(context.Background(), app); err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +309,7 @@ func TestCheckReleaseSkipsWhenNotDue(t *testing.T) {
 	store.UpdateMeta("acme/app", func(meta *RepoMeta) {
 		meta.LastReleaseCheckAt = time.Now().UTC().Format(time.RFC3339)
 	})
-	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 3, BugBump: bumpPatch, FeatureBump: bumpMinor})
+	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 3})
 	if err := checkRelease(context.Background(), app); err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +324,7 @@ func TestCheckReleaseFailureKeepsTimestamp(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	})
 	store := newReleaseTestStore(t)
-	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1, BugBump: bumpPatch, FeatureBump: bumpMinor})
+	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1})
 	if err := checkRelease(context.Background(), app); err == nil {
 		t.Fatal("expected the tag lookup to fail")
 	}
@@ -351,8 +345,8 @@ func TestStartReleaseCheckerOnlyChecksEnabledRepos(t *testing.T) {
 		_ = json.NewEncoder(w).Encode([]map[string]any{})
 	})
 	store := newReleaseTestStore(t)
-	enabled := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1, BugBump: bumpPatch, FeatureBump: bumpMinor})
-	disabled := releaseTestApp(gh, store, ReleaseConfig{IntervalDays: 1, BugBump: bumpPatch, FeatureBump: bumpMinor})
+	enabled := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1})
+	disabled := releaseTestApp(gh, store, ReleaseConfig{IntervalDays: 1})
 	disabled.Repo.FullName = "acme/other"
 
 	ctx, cancel := context.WithCancel(context.Background())

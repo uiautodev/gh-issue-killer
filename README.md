@@ -54,7 +54,8 @@ resumes it.
 - **Optional scheduled releases.** A repository can opt into publishing GitHub
   releases after its default branch moves: a `feat:` commit bumps the second
   version number, any other commit the third, checked once a day (or every few
-  days). Off by default and configured per repository.
+  days). Major versions stay a manual decision. Off by default and configured per
+  repository.
 - **One static binary.** Outbound HTTPS only; at runtime it needs `git`, one
   coding-agent CLI and a shell (`/bin/sh`, `cmd` on Windows). Releases ship
   macOS, Linux and Windows builds.

@@ -344,7 +344,7 @@ func TestLoadConfigParallelKeys(t *testing.T) {
 }
 
 func TestLoadConfigRelease(t *testing.T) {
-	body := `{"repos":{"me/app":{"release":{"enabled":true,"intervalDays":3,"bugBump":"MINOR","featureBump":"major"}},"me/plain":{}}}`
+	body := `{"repos":{"me/app":{"release":{"enabled":true,"intervalDays":3}},"me/plain":{}}}`
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -358,21 +358,27 @@ func TestLoadConfigRelease(t *testing.T) {
 		t.Fatalf("repos = %+v", cfg.Repos)
 	}
 	// The object form is sorted by repo name.
-	want := ReleaseConfig{Enabled: true, IntervalDays: 3, BugBump: "minor", FeatureBump: "major"}
+	want := ReleaseConfig{Enabled: true, IntervalDays: 3}
 	if cfg.Repos[0].Release != want {
 		t.Fatalf("release = %+v, want %+v", cfg.Repos[0].Release, want)
 	}
-	defaults := ReleaseConfig{Enabled: false, IntervalDays: 1, BugBump: "patch", FeatureBump: "minor"}
+	defaults := ReleaseConfig{Enabled: false, IntervalDays: 1}
 	if cfg.Repos[1].Release != defaults {
 		t.Fatalf("default release = %+v, want %+v", cfg.Repos[1].Release, defaults)
 	}
 
-	invalid := `{"repos":{"me/app":{"release":{"enabled":true,"bugBump":"hotfix"}}}}`
-	if err := os.WriteFile(path, []byte(invalid), 0o644); err != nil {
+	// bugBump/featureBump were removed when the bump became conventional; an
+	// older config must keep loading instead of failing on the unknown keys.
+	legacy := `{"repos":{"me/app":{"release":{"enabled":true,"bugBump":"major","featureBump":"patch"}}}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadConfig(path); err == nil || !strings.Contains(err.Error(), "release.bugBump") {
-		t.Fatalf("invalid bump error = %v", err)
+	cfg, err = loadConfig(path)
+	if err != nil {
+		t.Fatalf("legacy bump keys must be ignored: %v", err)
+	}
+	if got := cfg.Repos[0].Release; got != (ReleaseConfig{Enabled: true, IntervalDays: 1}) {
+		t.Fatalf("legacy release = %+v", got)
 	}
 }
 
@@ -396,7 +402,7 @@ func TestLoadConfigRepoObjectArray(t *testing.T) {
 	if cfg.Repos[0].FullName != "me/app" || cfg.Repos[0].CodingAgent != "claude" {
 		t.Fatalf("first repo = %+v", cfg.Repos[0])
 	}
-	want := ReleaseConfig{Enabled: true, IntervalDays: 2, BugBump: bumpPatch, FeatureBump: bumpMinor}
+	want := ReleaseConfig{Enabled: true, IntervalDays: 2}
 	if cfg.Repos[0].Release != want {
 		t.Fatalf("release = %+v, want %+v", cfg.Repos[0].Release, want)
 	}

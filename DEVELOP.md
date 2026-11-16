@@ -430,24 +430,24 @@ agent writes in the issue's or PR's language; a language tag forces one and is
 passed to the prompts as `{{LANGUAGE}}`). `repos` also accepts an object for
 per-repo `codingAgent`/`model`/`approvers`/`worktreeRoot`/`language`/`release`.
 
-`release` is an optional per-repo block — `enabled` (false), `intervalDays` (1),
-`bugBump` (`patch`) and `featureBump` (`minor`); a bump accepts `patch`, `minor`
-or `major` and anything else fails `loadConfig`. The newest `vMAJOR.MINOR.PATCH`
-tag is the version source; a repo without one publishes `v0.1.0` first (the
-bump settings only apply afterwards). `release.go` bumps `featureBump` when the
-batch contains a `feat`/`feature` commit subject and `bugBump` otherwise.
-Publishing creates the tag and the release in one call
-(`target_commitish` = default branch), so the token needs `contents: write`,
-which the push-capable gh-agent token already has.
+`release` is an optional per-repo block — `enabled` (false) and `intervalDays`
+(1). The bump part is not a config key: `release.go` bumps minor when the batch
+contains a `feat`/`feature` commit subject and patch otherwise, and never
+publishes a major automatically. The newest `vMAJOR.MINOR.PATCH` tag is the
+version source; a repo without one publishes `v0.1.0` first (the bump rule only
+applies afterwards). Older files may still carry `bugBump`/`featureBump`; the
+decoder ignores them and a dashboard save drops them. Publishing creates the tag
+and the release in one call (`target_commitish` = default branch), so the token
+needs `contents: write`, which the push-capable gh-agent token already has.
 
 The dashboard's settings panel edits the same block: `/api/config` sends the
-1/patch/minor fallbacks as `defaults.release` and renders one row per repo; the
-PUT rejects `intervalDays` below 1 (or a non-integer) and an unknown bump before
-the temp-file `loadConfig`, instead of letting the loader clamp the value. A row
-left off with the defaults is removed from the saved file. `repos` may be an
-array of names, an array of objects (`{"repo": "owner/name", ...overrides}`) or
-a keyed object; the panel keeps the existing shape and the overrides of repos
-that stay.
+one-day default as `defaults.release` and renders one row per repo with the
+switch and the interval; the PUT rejects `intervalDays` below 1 (or a
+non-integer) before the temp-file `loadConfig`, instead of letting the loader
+clamp the value, and strips the removed bump keys. A row left off with the
+defaults is removed from the saved file. `repos` may be an array of names, an
+array of objects (`{"repo": "owner/name", ...overrides}`) or a keyed object; the
+panel keeps the existing shape and the overrides of repos that stay.
 
 A valid `config.json` save triggers a graceful re-exec: jobs finish, state is
 saved, `syscall.Exec` replaces the process (same pid). Under `-embedded` the
@@ -482,7 +482,7 @@ repository line rather than globally. A board toggle hides `done` and
 
 The settings button opens a panel over the board: repos (array, array of
 objects or object form, with per-repo overrides preserved), one release row per
-repo (`enabled`, `intervalDays`, `bugBump`, `featureBump`), coding agent
+repo (`enabled`, `intervalDays`), coding agent
 (populated from `/api/detect`), model, proxy, `webPort`, `selfUpdate` and
 `updateProxy`, plus the version card and the update buttons. When `/api/state`
 reports `configError` (first run or a broken edit) the panel opens by itself and

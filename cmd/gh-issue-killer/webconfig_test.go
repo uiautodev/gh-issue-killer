@@ -101,15 +101,16 @@ func TestWebConfigDefaultsIncludeRelease(t *testing.T) {
 	if !ok {
 		t.Fatalf("defaults.release = %#v", defaults["release"])
 	}
-	want := ReleaseConfig{Enabled: false, IntervalDays: 1, BugBump: bumpPatch, FeatureBump: bumpMinor}
+	want := ReleaseConfig{Enabled: false, IntervalDays: 1}
 	got := ReleaseConfig{
 		Enabled:      release["enabled"] == true,
 		IntervalDays: release["intervalDays"].(int),
-		BugBump:      release["bugBump"].(string),
-		FeatureBump:  release["featureBump"].(string),
 	}
 	if got != want {
 		t.Fatalf("defaults.release = %+v, want %+v", got, want)
+	}
+	if _, ok := release["bugBump"]; ok {
+		t.Fatalf("defaults.release must not carry a bump: %#v", release)
 	}
 }
 
@@ -129,7 +130,7 @@ func TestWebConfigSavesReleaseObjectForm(t *testing.T) {
 		t.Fatalf("repos = %+v", cfg.Repos)
 	}
 	repo := cfg.Repos[0]
-	want := ReleaseConfig{Enabled: true, IntervalDays: 7, BugBump: bumpMinor, FeatureBump: bumpMajor}
+	want := ReleaseConfig{Enabled: true, IntervalDays: 7}
 	if repo.Release != want {
 		t.Fatalf("release = %+v, want %+v", repo.Release, want)
 	}
@@ -137,11 +138,17 @@ func TestWebConfigSavesReleaseObjectForm(t *testing.T) {
 	if repo.CodingAgent != "claude" || repo.Model != "sonnet" || repo.Language != "en" {
 		t.Fatalf("overrides = %+v", repo)
 	}
-	// A bump sent in upper case is stored in its canonical form.
+	// The removed bump switches are stripped, so an upgraded file saves clean.
 	raw := readRawConfig(t, path)
 	release := raw["repos"].(map[string]any)["o/r"].(map[string]any)["release"].(map[string]any)
-	if release["bugBump"] != bumpMinor || release["intervalDays"] != float64(7) {
+	if release["intervalDays"] != float64(7) {
 		t.Fatalf("raw release = %#v", release)
+	}
+	if _, ok := release["bugBump"]; ok {
+		t.Fatalf("legacy bugBump must be dropped, got %#v", release)
+	}
+	if _, ok := release["featureBump"]; ok {
+		t.Fatalf("legacy featureBump must be dropped, got %#v", release)
 	}
 }
 
@@ -160,7 +167,7 @@ func TestWebConfigSavesReleaseArrayForm(t *testing.T) {
 	if len(cfg.Repos) != 2 {
 		t.Fatalf("repos = %+v", cfg.Repos)
 	}
-	want := ReleaseConfig{Enabled: true, IntervalDays: 3, BugBump: bumpPatch, FeatureBump: bumpMinor}
+	want := ReleaseConfig{Enabled: true, IntervalDays: 3}
 	if cfg.Repos[0].FullName != "o/r" || cfg.Repos[0].Release != want || cfg.Repos[0].CodingAgent != "codex" {
 		t.Fatalf("first repo = %+v", cfg.Repos[0])
 	}
@@ -175,8 +182,7 @@ func TestWebConfigRejectsInvalidRelease(t *testing.T) {
 		`{"config":{"repos":{"o/r":{"release":{"enabled":true,"intervalDays":0}}}}}`,
 		`{"config":{"repos":{"o/r":{"release":{"intervalDays":-2}}}}}`,
 		`{"config":{"repos":{"o/r":{"release":{"intervalDays":1.5}}}}}`,
-		`{"config":{"repos":{"o/r":{"release":{"bugBump":"hotfix"}}}}}`,
-		`{"config":{"repos":{"o/r":{"release":{"featureBump":"patchy"}}}}}`,
+		`{"config":{"repos":{"o/r":{"release":{"enabled":"yes"}}}}}`,
 		`{"config":{"repos":{"o/r":{"release":true}}}}`,
 		`{"config":{"repos":[{"repo":"o/r","release":{"intervalDays":0}}]}}`,
 	}

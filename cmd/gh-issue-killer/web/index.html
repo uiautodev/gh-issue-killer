@@ -459,12 +459,11 @@
   .release-row label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 10px; letter-spacing: .03em; }
   .release-row label.check { flex-direction: row; align-items: center; gap: 6px; padding-top: 0; padding-bottom: 5px; }
   .release-row label.check input { accent-color: var(--work); }
-  .release-row input[type="number"], .release-row select {
+  .release-row input[type="number"] {
     background: var(--ink-2); border: 1px solid var(--rule); color: var(--text);
-    font: inherit; font-size: 11px; padding: 4px 6px;
+    font: inherit; font-size: 11px; padding: 4px 6px; width: 64px;
   }
-  .release-row input[type="number"] { width: 64px; }
-  .release-row input:focus, .release-row select:focus { border-color: var(--focus); outline: none; }
+  .release-row input:focus { border-color: var(--focus); outline: none; }
 
   @media (max-width: 900px) {
     .masthead, .band, .board-wrap, .console { padding-left: 16px; padding-right: 16px; }
@@ -716,9 +715,8 @@
       "settings.title": "设置",
       "settings.repos": "监控仓库（一行一个 owner/repo）",
       "settings.release": "定时发版（按项目）",
-      "settings.releaseHint": "每个仓库独立；关闭且保持默认时不写入配置。",
+      "settings.releaseHint": "feat 提交升 minor，其余升 patch；关闭且保持默认时不写入配置。",
       "settings.releaseEnabled": "启用", "settings.releaseInterval": "间隔（天）",
-      "settings.releaseBug": "修复递增", "settings.releaseFeature": "功能递增",
       "settings.releaseIntervalInvalid": "发版间隔必须是 ≥1 的整数",
       "settings.agent": "编码代理", "settings.model": "模型",
       "settings.modelHint": "留空使用代理默认模型",
@@ -789,9 +787,8 @@
       "settings.title": "Settings",
       "settings.repos": "Watched repos (one owner/repo per line)",
       "settings.release": "Scheduled releases (per project)",
-      "settings.releaseHint": "Per repo. A row left off with the defaults is not written to the config.",
+      "settings.releaseHint": "A feat commit bumps minor, everything else patch; a row left off with the defaults is not written.",
       "settings.releaseEnabled": "Enabled", "settings.releaseInterval": "Every (days)",
-      "settings.releaseBug": "Bug bump", "settings.releaseFeature": "Feature bump",
       "settings.releaseIntervalInvalid": "The release interval must be a whole number ≥ 1",
       "settings.agent": "Coding agent", "settings.model": "Model",
       "settings.modelHint": "Leave empty for the agent default",
@@ -1600,8 +1597,6 @@
     return [];
   }
 
-  const BUMP_PARTS = ["patch", "minor", "major"];
-
   // Repos may be a plain array, an array of objects with overrides, or an
   // object keyed by name. Keep the overrides of repos that stay, and only
   // add/remove names.
@@ -1649,16 +1644,14 @@
   }
 
   // releaseDefaults and releaseValue mirror normalizeRelease in config.go: one
-  // day, patch for a bug and minor for a feature unless the config says
-  // otherwise.
+  // day between checks unless the config says otherwise. The bump part is not
+  // stored: a feature commit bumps minor, everything else patch.
   function releaseDefaults() {
     const defaults = (state.configDefaults && state.configDefaults.release) || {};
     const interval = Number(defaults.intervalDays);
     return {
       enabled: defaults.enabled === true,
       intervalDays: Number.isInteger(interval) && interval >= 1 ? interval : 1,
-      bugBump: BUMP_PARTS.includes(defaults.bugBump) ? defaults.bugBump : "patch",
-      featureBump: BUMP_PARTS.includes(defaults.featureBump) ? defaults.featureBump : "minor",
     };
   }
 
@@ -1679,8 +1672,6 @@
     return {
       enabled: release.enabled === true,
       intervalDays: Number.isInteger(interval) && interval >= 1 ? interval : base.intervalDays,
-      bugBump: BUMP_PARTS.includes(release.bugBump) ? release.bugBump : base.bugBump,
-      featureBump: BUMP_PARTS.includes(release.featureBump) ? release.featureBump : base.featureBump,
     };
   }
 
@@ -1688,19 +1679,6 @@
     const label = text("span", t(key), "");
     label.dataset.i18n = key;
     return label;
-  }
-
-  function bumpSelect(kind, current) {
-    const select = document.createElement("select");
-    select.dataset.bump = kind;
-    for (const part of BUMP_PARTS) {
-      const option = document.createElement("option");
-      option.value = part;
-      option.textContent = part;
-      select.appendChild(option);
-    }
-    select.value = BUMP_PARTS.includes(current) ? current : (kind === "bug" ? "patch" : "minor");
-    return select;
   }
 
   function releaseRow(name, value) {
@@ -1726,17 +1704,6 @@
     input.value = value.intervalDays === undefined || value.intervalDays === null ? "1" : String(value.intervalDays);
     interval.appendChild(input);
     row.appendChild(interval);
-
-    const bumps = [
-      ["bug", "settings.releaseBug", "bugBump", "patch"],
-      ["feature", "settings.releaseFeature", "featureBump", "minor"],
-    ];
-    for (const [kind, key, field, fallback] of bumps) {
-      const label = document.createElement("label");
-      label.appendChild(releaseLabel(key));
-      label.appendChild(bumpSelect(kind, value[field] || fallback));
-      row.appendChild(label);
-    }
     return row;
   }
 
@@ -1748,8 +1715,6 @@
       rows[row.dataset.repo] = {
         enabled: row.querySelector("input[type=checkbox]").checked,
         intervalDays: row.querySelector("input[type=number]").value,
-        bugBump: row.querySelector("select[data-bump=bug]").value,
-        featureBump: row.querySelector("select[data-bump=feature]").value,
       };
     }
     return rows;
@@ -1770,10 +1735,7 @@
   }
 
   function releaseIsSet(value, defaults) {
-    return value.enabled
-      || Number(value.intervalDays) !== defaults.intervalDays
-      || (value.bugBump || defaults.bugBump) !== defaults.bugBump
-      || (value.featureBump || defaults.featureBump) !== defaults.featureBump;
+    return value.enabled || Number(value.intervalDays) !== defaults.intervalDays;
   }
 
   // repoObjects turns the array-of-names form into objects so a release block
@@ -1820,8 +1782,6 @@
       entry.release = {
         enabled: Boolean(value.enabled),
         intervalDays: Number.isInteger(interval) && interval >= 1 ? interval : defaults.intervalDays,
-        bugBump: value.bugBump,
-        featureBump: value.featureBump,
       };
     }
   }

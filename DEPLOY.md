@@ -257,9 +257,7 @@ and ignored, so the old settings stay active.
     "me/app": {
       "release": {
         "enabled": true,
-        "intervalDays": 1,
-        "bugBump": "patch",
-        "featureBump": "minor"
+        "intervalDays": 1
       }
     }
   }
@@ -270,24 +268,26 @@ and ignored, so the old settings stay active.
 | --- | --- | --- |
 | `enabled` | `false` | publish releases for this repository |
 | `intervalDays` | `1` | minimum days between checks |
-| `bugBump` | `patch` | part to bump when the batch has no `feat` commit |
-| `featureBump` | `minor` | part to bump when it has one |
 
 The dashboard shows the same block: **Settings** has one row per repository with
-the switch, the interval and both bump parts, and saving writes them back into
-`repos` (keeping `codingAgent`, `model`, `language` and the other overrides)
-before restarting the daemon. A row left off with the default values is not
-written, so the file stays free of no-op `release` blocks.
+the switch and the interval, and saving writes them back into `repos` (keeping
+`codingAgent`, `model`, `language` and the other overrides) before restarting
+the daemon. A row left off with the default values is not written, so the file
+stays free of no-op `release` blocks.
 
-`bugBump`/`featureBump` accept `patch`, `minor` or `major`; any other value is a
-config error. The newest `vMAJOR.MINOR.PATCH` tag is the version source. A
-repository without a version tag publishes `v0.1.0` as its first release — the
-bump settings describe a change relative to a published version, so they only
-apply afterwards. A check lists the commits on the default branch since that
-tag, bumps `featureBump` when any subject starts with `feat`/`feature`
-(conventional commits, including `feat(scope):`) and `bugBump` otherwise, then
-creates the tag and the release on the default branch. The release body lists
-those commit subjects and a compare link.
+The bump part is not configurable because it follows the conventional commits:
+a `feat`/`feature` subject (including `feat(scope):`) bumps the minor part,
+anything else bumps the patch part. A **major** release is a deliberate human
+decision and is never published automatically — cut the `vX.0.0` tag yourself
+when you mean it. The newest `vMAJOR.MINOR.PATCH` tag is the version source. A
+repository without a version tag publishes `v0.1.0` as its first release, since
+a bump describes a change relative to a published version. A check lists the
+commits on the default branch since that tag, bumps once, then creates the tag
+and the release on the default branch. The release body lists those commit
+subjects and a compare link.
+
+Older configs may still contain `bugBump`/`featureBump`; both keys are ignored
+now and a save from the dashboard removes them.
 
 Checks run at startup and then hourly, but at most once per `intervalDays`. A
 check with no new commits records the timestamp and publishes nothing; a failed
@@ -380,7 +380,7 @@ macOS: start it once after login, or add it to login items. Nothing else.
 | install a release now | dashboard → 设置 → 检查更新 → 立即升级, or download the archive and replace the binary |
 | update behind the GFW | set `"updateProxy": "gh-proxy.com"`; release downloads fall back to it |
 | release check | `grep 'release' "$LOG"`; a due check publishes a tag + release, a failure logs `release check:` and retries next hour |
-| bump the next release | edit `release.bugBump` / `release.featureBump` and save; the version itself comes from the newest `v*` tag |
+| bump the next release | nothing to configure: `feat`/`feature` commits bump minor and everything else patch; tag a major (`vX.0.0`) by hand when intended. The version comes from the newest `v*` tag |
 | smoke test | `gh-issue-killer -config "$CONFIG" -once` |
 | full loop with the human's `gh` | `scripts/smoke-test.sh <owner/repo>` |
 

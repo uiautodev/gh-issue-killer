@@ -73,18 +73,6 @@ const (
 	bumpMajor = "major"
 )
 
-func isBumpPart(part string) bool {
-	switch part {
-	case bumpPatch, bumpMinor, bumpMajor:
-		return true
-	}
-	return false
-}
-
-func bumpPartList() string {
-	return strings.Join([]string{bumpPatch, bumpMinor, bumpMajor}, ", ")
-}
-
 // bumpVersion increments one part and resets the parts to its right, so a minor
 // release clears the patch and a major release clears both.
 func bumpVersion(version releaseVersion, part string) releaseVersion {
@@ -124,13 +112,14 @@ func classifyCommit(title string) string {
 // happened, whatever the commit mix contains.
 var initialRelease = releaseVersion{Minor: 1}
 
-// nextReleaseVersion bumps the feature part when the batch contains a feature
-// commit, otherwise the configured bug part.
-func nextReleaseVersion(current releaseVersion, titles []string, cfg ReleaseConfig) releaseVersion {
-	part := firstNonEmpty(cfg.BugBump, bumpPatch)
+// nextReleaseVersion applies the conventional-commit rule: a feature commit
+// bumps the minor part, any other commit the patch part. A major release is a
+// deliberate human decision, so the checker never publishes one by itself.
+func nextReleaseVersion(current releaseVersion, titles []string) releaseVersion {
+	part := bumpPatch
 	for _, title := range titles {
 		if classifyCommit(title) == commitFeature {
-			part = firstNonEmpty(cfg.FeatureBump, bumpMinor)
+			part = bumpMinor
 			break
 		}
 	}
@@ -237,7 +226,7 @@ func checkRelease(ctx context.Context, app *AppContext) error {
 	}
 	next := initialRelease
 	if tagged {
-		next = nextReleaseVersion(current, titles, cfg)
+		next = nextReleaseVersion(current, titles)
 	}
 	notes := releaseNotes(app.Repo.FullName, previous, next, commits)
 	if _, err := app.GH.CreateRelease(ctx, app.Repo.FullName, next.String(), next.String(), notes, base); err != nil {

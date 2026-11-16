@@ -107,7 +107,7 @@ func (w *webServer) configPayload() map[string]any {
 // configDefaults are the values the daemon would use when the key is absent.
 func (w *webServer) configDefaults() map[string]any {
 	cfg := w.cfg
-	release, _ := normalizeRelease(releaseOptions{})
+	release := normalizeRelease(releaseOptions{})
 	return map[string]any{
 		"codingAgent":         cfg.CodingAgent,
 		"model":               cfg.Model,
@@ -128,8 +128,6 @@ func (w *webServer) configDefaults() map[string]any {
 		"release": map[string]any{
 			"enabled":      release.Enabled,
 			"intervalDays": release.IntervalDays,
-			"bugBump":      release.BugBump,
-			"featureBump":  release.FeatureBump,
 		},
 	}
 }
@@ -269,10 +267,10 @@ func numberAsInt(value any) (int, error) {
 }
 
 // normalizeReleaseDocument validates the optional per-repo release block before
-// the file is written. loadConfig would clamp an interval below one and reject a
-// bad bump, but the dashboard's PUT should refuse the document instead of
-// silently storing a value the user did not choose. repos may be an array of
-// names, an array of objects or a keyed object; a plain name has no block.
+// the file is written. loadConfig would clamp an interval below one, but the
+// dashboard's PUT should refuse the document instead of silently storing a
+// value the user did not choose. repos may be an array of names, an array of
+// objects or a keyed object; a plain name has no block.
 func normalizeReleaseDocument(doc map[string]any) error {
 	repos, ok := doc["repos"]
 	if !ok || repos == nil {
@@ -316,6 +314,11 @@ func normalizeReleaseBlock(entry map[string]any) error {
 	if !ok {
 		return errors.New("release must be an object")
 	}
+	// The bump part follows the conventional commits in the batch, so the old
+	// per-repo switches are gone. Drop them instead of rejecting the document:
+	// an upgraded config then saves back clean.
+	delete(release, "bugBump")
+	delete(release, "featureBump")
 	if raw, ok := release["intervalDays"]; ok {
 		if raw == nil {
 			// loadConfig treats a null as the zero value and clamps it to the
@@ -329,31 +332,15 @@ func normalizeReleaseBlock(entry map[string]any) error {
 			release["intervalDays"] = days
 		}
 	}
-	for _, key := range []string{"bugBump", "featureBump"} {
-		raw, ok := release[key]
-		if !ok {
-			continue
-		}
-		if raw == nil {
-			delete(release, key)
-			continue
-		}
-		text, ok := raw.(string)
-		if !ok {
-			return fmt.Errorf("release.%s must be a string", key)
-		}
-		part := strings.ToLower(strings.TrimSpace(text))
-		if !isBumpPart(part) {
-			return fmt.Errorf("release.%s %q is invalid (supported: %s)", key, text, bumpPartList())
-		}
-		release[key] = part
-	}
 	if raw, ok := release["enabled"]; ok {
 		if raw == nil {
 			delete(release, "enabled")
 		} else if _, ok := raw.(bool); !ok {
 			return errors.New("release.enabled must be true or false")
 		}
+	}
+	if len(release) == 0 {
+		delete(entry, "release")
 	}
 	return nil
 }
