@@ -479,3 +479,38 @@ func TestDeviceLoginPollRespectsInterval(t *testing.T) {
 		t.Fatalf("payload = %+v", payload)
 	}
 }
+
+func TestGHRefreshIsSerializedAcrossPollers(t *testing.T) {
+	var mu sync.Mutex
+	refreshCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer new" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		oauthJSON(w, User{Login: "bot", ID: 7})
+	}))
+	defer server.Close()
+
+	gh := &GH{Token: "old", APIBase: server.URL, Client: server.Client(), Log: NewSilentLogger()}
+	gh.refresh = func(context.Context) (string, error) {
+		mu.Lock()
+		refreshCalls++
+		mu.Unlock()
+		return "new", nil
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := gh.GetUser(context.Background()); err != nil {
+				t.Errorf("GetUser: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if refreshCalls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", refreshCalls)
+	}
+}

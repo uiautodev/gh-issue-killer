@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -175,8 +177,36 @@ type GH struct {
 	Log        *Logger
 	Agent      User
 	// refresh replaces an expired token file credential. nil for env and
-	// legacy hosts.yml tokens, which have no refresh token.
+	// legacy hosts.yml tokens, which have no refresh token. tokenMu serializes
+	// the rotation: several pollers can see 401 at once, and two refresh calls
+	// with the same rotating refresh token would invalidate one of them.
 	refresh func(ctx context.Context) (string, error)
+	tokenMu sync.Mutex
+}
+
+func (g *GH) currentToken() string {
+	g.tokenMu.Lock()
+	defer g.tokenMu.Unlock()
+	return g.Token
+}
+
+// refreshAfterUnauthorized rotates the token once per failed value. A second
+// goroutine that also got a 401 with the old token just picks up the new one.
+func (g *GH) refreshAfterUnauthorized(ctx context.Context, failed string) (string, error) {
+	g.tokenMu.Lock()
+	defer g.tokenMu.Unlock()
+	if g.Token != failed {
+		return g.Token, nil
+	}
+	if g.refresh == nil {
+		return "", errors.New("token cannot be refreshed")
+	}
+	token, err := g.refresh(ctx)
+	if err != nil {
+		return "", err
+	}
+	g.Token = token
+	return token, nil
 }
 
 func NewGH(proxy *Proxy, log *Logger) (*GH, error) {
@@ -228,7 +258,8 @@ func (g *GH) do(ctx context.Context, method, path string, body, out any) error {
 		if err != nil {
 			return err
 		}
-		request.Header.Set("Authorization", "Bearer "+g.Token)
+		token := g.currentToken()
+		request.Header.Set("Authorization", "Bearer "+token)
 		request.Header.Set("Accept", "application/vnd.github+json")
 		request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 		request.Header.Set("User-Agent", "gh-issue-killer-go/0.1")
@@ -267,9 +298,8 @@ func (g *GH) do(ctx context.Context, method, path string, body, out any) error {
 		if response.StatusCode == http.StatusUnauthorized && attempt < 3 && g.refresh != nil {
 			// An expired OAuth token answers 401. Refresh once and retry the
 			// same request; the refresh is stored so the next poll uses it.
-			token, refreshErr := g.refresh(ctx)
-			if refreshErr == nil && token != "" {
-				g.Token = token
+			refreshed, refreshErr := g.refreshAfterUnauthorized(ctx, token)
+			if refreshErr == nil && refreshed != "" {
 				if g.Log != nil {
 					g.Log.Info("github token refreshed")
 				}
