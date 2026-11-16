@@ -142,6 +142,8 @@ dependencies.
 | `util.go` | paths, logger, atomic writes, `tailString`, small helpers |
 | `prompts/*.md` | stage prompts (embedded via `prompts/embed.go`) |
 | `docs/testerhome.md` | Chinese promo article for testerhome.com (not part of the build) |
+| `docs/v2ex-share.md` | Chinese V2EX sharing draft plus a manual publishing checklist (not part of the build) |
+| `docs/images/dashboard-*.png` | dashboard screenshots referenced by the V2EX draft, captured with sample data (not part of the build) |
 | `assets/sponsor.png` | WeChat reward QR code shown at the end of `README.zh-CN.md` (not part of the build) |
 | `desktop/` | separate Go module: Wails 3 shell (`main.go`, `engine.go`, `process_*.go`) and `build/` packaging |
 
