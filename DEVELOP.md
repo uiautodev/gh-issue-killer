@@ -440,6 +440,15 @@ Publishing creates the tag and the release in one call
 (`target_commitish` = default branch), so the token needs `contents: write`,
 which the push-capable gh-agent token already has.
 
+The dashboard's settings panel edits the same block: `/api/config` sends the
+1/patch/minor fallbacks as `defaults.release` and renders one row per repo; the
+PUT rejects `intervalDays` below 1 (or a non-integer) and an unknown bump before
+the temp-file `loadConfig`, instead of letting the loader clamp the value. A row
+left off with the defaults is removed from the saved file. `repos` may be an
+array of names, an array of objects (`{"repo": "owner/name", ...overrides}`) or
+a keyed object; the panel keeps the existing shape and the overrides of repos
+that stay.
+
 A valid `config.json` save triggers a graceful re-exec: jobs finish, state is
 saved, `syscall.Exec` replaces the process (same pid). Under `-embedded` the
 process exits with 75 instead, because the desktop shell owns the child handle
@@ -454,7 +463,8 @@ repo-access probes), `/api/restart`, `/api/update` (GET checks
 `releases/latest`, POST installs), `/logo.svg`. The four mutating routes require
 a JSON content type and a loopback `Origin`; `/api/config` runs
 `loadConfig` against a temp file before it writes, so an invalid agent, repo,
-port, proxy or mirror returns 400 and nothing is saved. Queue depth in
+port, proxy, mirror, release interval or bump returns 400 and nothing is saved.
+Queue depth in
 `/api/state` includes `plan`, `work` and `ci`. `waiting` counts tasks whose phase
 needs the approver (`awaiting_approval`, `pr_open`, `blocked`, see
 `phaseNeedsUser`); the board can be filtered by phase, by project (the repo
@@ -470,12 +480,13 @@ size each repository's own pool, so the PLAN/WORK meters are rendered per
 repository line rather than globally. A board toggle hides `done` and
 `cancelled` tasks on top of the other filters; it is off by default.
 
-The settings button opens a panel over the board: repos (array or object form
-with per-repo overrides preserved), coding agent (populated from `/api/detect`),
-model, proxy, `webPort`, `selfUpdate` and `updateProxy`, plus the version card
-and the update buttons. When `/api/state` reports `configError` (first run or a
-broken edit) the panel opens by itself and the save button starts the real
-engine.
+The settings button opens a panel over the board: repos (array, array of
+objects or object form, with per-repo overrides preserved), one release row per
+repo (`enabled`, `intervalDays`, `bugBump`, `featureBump`), coding agent
+(populated from `/api/detect`), model, proxy, `webPort`, `selfUpdate` and
+`updateProxy`, plus the version card and the update buttons. When `/api/state`
+reports `configError` (first run or a broken edit) the panel opens by itself and
+the save button starts the real engine.
 
 ## 16. Reload and self-update
 
@@ -533,7 +544,7 @@ keeps tests quiet. Notable coverage:
 | `router_ci_test.go` | the CI queue does not block work; cancel stops CI jobs |
 | `gh_test.go` | label transitions and GitHub helpers |
 | `release_test.go` | version tag parsing, bump rules, commit classification, due check, release request body, disabled/not-due/no-commit skips |
-| `main_test.go` | proxy/env parsing, repo normalization, mentions and commands, closable phases |
+| `main_test.go` | proxy/env parsing, repo normalization (names, objects, object arrays), mentions and commands, closable phases |
 | `prompts_test.go` | every embedded prompt loads and keeps its placeholders |
 | `runner_test.go` | per-agent argv construction |
 | `shots_test.go` | before/after composition and screenshot markdown |
@@ -541,7 +552,7 @@ keeps tests quiet. Notable coverage:
 | `watch_test.go` | config reload fires on valid edits, ignores invalid ones |
 | `watcher_test.go` | `Store` round-trip |
 | `web_test.go` | dashboard snapshot only lists tracked tasks |
-| `webconfig_test.go` | `/api/config` validation/round-trip/origin check, `/api/detect` degradation, `/api/update` payload, snapshot without a router |
+| `webconfig_test.go` | `/api/config` validation/round-trip/origin check, `release` defaults and rejection, `/api/detect` degradation, `/api/update` payload, snapshot without a router |
 | `selfupdate_test.go` | version ordering, asset selection, mirror/digest parsing, archive extraction, checksum mismatch keeps the binary |
 | `wizard_test.go` | `-init` setup wizard flows |
 | `logs_test.go`, `logging_test.go` | log rotation, follower, daemonize helpers |

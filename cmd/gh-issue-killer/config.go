@@ -140,6 +140,12 @@ func normalizeRepos(raw json.RawMessage, defaults repoOptions) ([]RepoConfig, er
 			return nil, fmt.Errorf("config.repos is empty")
 		}
 		entries = make([]repoOptions, 0, len(names))
+		// Build the entries inside this branch: a failed unmarshal into
+		// []string still leaves a partially filled slice, so reading names
+		// afterwards would append an empty repo for every object entry.
+		for _, name := range names {
+			entries = append(entries, repoOptions{Repo: name})
+		}
 	} else {
 		var list []repoOptions
 		if err := json.Unmarshal(raw, &list); err == nil {
@@ -154,11 +160,6 @@ func normalizeRepos(raw json.RawMessage, defaults repoOptions) ([]RepoConfig, er
 				entries = append(entries, opts)
 			}
 			sortRepoOptions(entries)
-		}
-	}
-	if len(names) > 0 {
-		for _, name := range names {
-			entries = append(entries, repoOptions{Repo: name})
 		}
 	}
 	if len(entries) == 0 {

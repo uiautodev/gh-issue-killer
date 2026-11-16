@@ -273,6 +273,12 @@ and ignored, so the old settings stay active.
 | `bugBump` | `patch` | part to bump when the batch has no `feat` commit |
 | `featureBump` | `minor` | part to bump when it has one |
 
+The dashboard shows the same block: **Settings** has one row per repository with
+the switch, the interval and both bump parts, and saving writes them back into
+`repos` (keeping `codingAgent`, `model`, `language` and the other overrides)
+before restarting the daemon. A row left off with the default values is not
+written, so the file stays free of no-op `release` blocks.
+
 `bugBump`/`featureBump` accept `patch`, `minor` or `major`; any other value is a
 config error. The newest `vMAJOR.MINOR.PATCH` tag is the version source. A
 repository without a version tag publishes `v0.1.0` as its first release — the

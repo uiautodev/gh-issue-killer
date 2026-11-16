@@ -66,18 +66,19 @@ system theme or can be pinned to light/dark, the interface switches between
 Chinese and English and links back to this repository, tasks can be filtered by
 project or free text or hide finished/cancelled work, the console colours the
 log by level, and the header counts the tasks waiting for you (approval, merge
-or unblock).
+or unblock). The settings panel edits the repos, coding agent, model, proxy,
+update mirror and each project's release schedule.
 
 ### Desktop app
 
 No terminal needed: download the desktop bundle from
 [Releases](https://github.com/uiautodev/gh-issue-killer/releases) (macOS `.app`,
 Linux tarball/AppImage, Windows zip) and launch it. The window is the same
-dashboard, with a **Settings** panel for repos, coding agent, model, proxy and
-the release mirror, plus a version card that checks and installs updates. On
-first run it opens on the settings panel; closing the window stops the engine,
-so nothing is left in the background. Details:
-[DEPLOY.md](DEPLOY.md#31-desktop-app--optional).
+dashboard, with a **Settings** panel for repos, coding agent, model, proxy, each
+project's release schedule and the release mirror, plus a version card that
+checks and installs updates. On first run it opens on the settings panel;
+closing the window stops the engine, so nothing is left in the background.
+Details: [DEPLOY.md](DEPLOY.md#31-desktop-app--optional).
 
 ## Install with a coding agent
 

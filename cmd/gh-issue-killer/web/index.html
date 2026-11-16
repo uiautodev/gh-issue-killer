@@ -443,6 +443,29 @@
   .detect-grid .ok { color: var(--done); }
   .detect-grid .fail { color: var(--blocked); }
 
+  /* Per-repo release rows: the repo list may grow, so each row is a compact
+     line instead of a field grid. */
+  .release { display: flex; flex-direction: column; gap: 7px; border-top: 1px solid var(--rule); padding-top: 11px; }
+  .release-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .release-head > span { color: var(--muted); font-size: 10.5px; letter-spacing: .04em; }
+  .release-head small { color: var(--dim); font-size: 10.5px; }
+  .release-grid { display: flex; flex-direction: column; }
+  .release-row {
+    display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap;
+    padding: 6px 0; border-bottom: 1px solid var(--rule-soft);
+  }
+  .release-row:last-child { border-bottom: 0; padding-bottom: 0; }
+  .release-row .repo { flex: 1 1 150px; min-width: 110px; padding-bottom: 5px; color: var(--text); font-size: 11.5px; overflow-wrap: anywhere; }
+  .release-row label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 10px; letter-spacing: .03em; }
+  .release-row label.check { flex-direction: row; align-items: center; gap: 6px; padding-top: 0; padding-bottom: 5px; }
+  .release-row label.check input { accent-color: var(--work); }
+  .release-row input[type="number"], .release-row select {
+    background: var(--ink-2); border: 1px solid var(--rule); color: var(--text);
+    font: inherit; font-size: 11px; padding: 4px 6px;
+  }
+  .release-row input[type="number"] { width: 64px; }
+  .release-row input:focus, .release-row select:focus { border-color: var(--focus); outline: none; }
+
   @media (max-width: 900px) {
     .masthead, .band, .board-wrap, .console { padding-left: 16px; padding-right: 16px; }
     .status-strip { margin-left: 0; width: 100%; }
@@ -517,6 +540,13 @@
           <span data-i18n="settings.repos">监控仓库（一行一个 owner/repo）</span>
           <textarea id="cfg-repos" rows="3" spellcheck="false" placeholder="uiautodev/gh-issue-killer"></textarea>
         </label>
+        <div class="release" id="cfg-release" hidden>
+          <div class="release-head">
+            <span data-i18n="settings.release">定时发版（按项目）</span>
+            <small data-i18n="settings.releaseHint">每个仓库独立；关闭且保持默认时不写入配置。</small>
+          </div>
+          <div class="release-grid" id="cfg-releases"></div>
+        </div>
         <div class="field-row">
           <label class="field">
             <span data-i18n="settings.agent">编码代理</span>
@@ -685,6 +715,11 @@
       "settings.open": "设置", "settings.aria": "设置与更新", "settings.close": "关闭设置",
       "settings.title": "设置",
       "settings.repos": "监控仓库（一行一个 owner/repo）",
+      "settings.release": "定时发版（按项目）",
+      "settings.releaseHint": "每个仓库独立；关闭且保持默认时不写入配置。",
+      "settings.releaseEnabled": "启用", "settings.releaseInterval": "间隔（天）",
+      "settings.releaseBug": "修复递增", "settings.releaseFeature": "功能递增",
+      "settings.releaseIntervalInvalid": "发版间隔必须是 ≥1 的整数",
       "settings.agent": "编码代理", "settings.model": "模型",
       "settings.modelHint": "留空使用代理默认模型",
       "settings.proxy": "GitHub 代理", "settings.webPort": "看板端口（0 = 关闭）",
@@ -753,6 +788,11 @@
       "settings.open": "Settings", "settings.aria": "Settings and updates", "settings.close": "Close settings",
       "settings.title": "Settings",
       "settings.repos": "Watched repos (one owner/repo per line)",
+      "settings.release": "Scheduled releases (per project)",
+      "settings.releaseHint": "Per repo. A row left off with the defaults is not written to the config.",
+      "settings.releaseEnabled": "Enabled", "settings.releaseInterval": "Every (days)",
+      "settings.releaseBug": "Bug bump", "settings.releaseFeature": "Feature bump",
+      "settings.releaseIntervalInvalid": "The release interval must be a whole number ≥ 1",
       "settings.agent": "Coding agent", "settings.model": "Model",
       "settings.modelHint": "Leave empty for the agent default",
       "settings.proxy": "GitHub proxy", "settings.webPort": "Dashboard port (0 = off)",
@@ -1560,10 +1600,24 @@
     return [];
   }
 
-  // Repos may be a plain array or an object with per-repo overrides. Keep the
-  // overrides of repos that stay, and only add/remove names.
+  const BUMP_PARTS = ["patch", "minor", "major"];
+
+  // Repos may be a plain array, an array of objects with overrides, or an
+  // object keyed by name. Keep the overrides of repos that stay, and only
+  // add/remove names.
   function setRepoList(doc, names) {
     const original = doc.repos;
+    if (Array.isArray(original) && original.some((item) => item && typeof item === "object")) {
+      const byName = new Map();
+      for (const item of original) {
+        if (item && typeof item === "object" && typeof item.repo === "string") byName.set(item.repo, item);
+      }
+      doc.repos = names.map((name) => {
+        const existing = byName.get(name);
+        return existing ? { ...existing, repo: name } : { repo: name };
+      });
+      return;
+    }
     if (!original || Array.isArray(original)) {
       doc.repos = names;
       return;
@@ -1576,8 +1630,8 @@
     doc.repos = next;
   }
 
-  function parseRepos(text) {
-    const names = text
+  function parseRepoNames(text) {
+    return [...new Set(text
       .split(/[\s,;]+/)
       .map((value) => value.trim())
       .filter(Boolean)
@@ -1585,9 +1639,202 @@
         .replace(/^https?:\/\/github\.com\//i, "")
         .replace(/\.git$/i, "")
         .replace(/^\/+|\/+$/g, ""))
-      .filter(Boolean);
+      .filter(Boolean))];
+  }
+
+  function parseRepos(text) {
+    const names = parseRepoNames(text);
     if (!names.length) throw new Error(t("settings.repoRequired"));
-    return [...new Set(names)];
+    return names;
+  }
+
+  // releaseDefaults and releaseValue mirror normalizeRelease in config.go: one
+  // day, patch for a bug and minor for a feature unless the config says
+  // otherwise.
+  function releaseDefaults() {
+    const defaults = (state.configDefaults && state.configDefaults.release) || {};
+    const interval = Number(defaults.intervalDays);
+    return {
+      enabled: defaults.enabled === true,
+      intervalDays: Number.isInteger(interval) && interval >= 1 ? interval : 1,
+      bugBump: BUMP_PARTS.includes(defaults.bugBump) ? defaults.bugBump : "patch",
+      featureBump: BUMP_PARTS.includes(defaults.featureBump) ? defaults.featureBump : "minor",
+    };
+  }
+
+  function repoEntry(doc, name) {
+    const repos = doc && doc.repos;
+    if (Array.isArray(repos)) {
+      return repos.find((item) => item && typeof item === "object" && item.repo === name) || null;
+    }
+    if (repos && typeof repos === "object") return repos[name] || null;
+    return null;
+  }
+
+  function releaseValue(doc, name) {
+    const base = releaseDefaults();
+    const entry = repoEntry(doc, name);
+    const release = entry && entry.release && typeof entry.release === "object" ? entry.release : {};
+    const interval = Number(release.intervalDays);
+    return {
+      enabled: release.enabled === true,
+      intervalDays: Number.isInteger(interval) && interval >= 1 ? interval : base.intervalDays,
+      bugBump: BUMP_PARTS.includes(release.bugBump) ? release.bugBump : base.bugBump,
+      featureBump: BUMP_PARTS.includes(release.featureBump) ? release.featureBump : base.featureBump,
+    };
+  }
+
+  function releaseLabel(key) {
+    const label = text("span", t(key), "");
+    label.dataset.i18n = key;
+    return label;
+  }
+
+  function bumpSelect(kind, current) {
+    const select = document.createElement("select");
+    select.dataset.bump = kind;
+    for (const part of BUMP_PARTS) {
+      const option = document.createElement("option");
+      option.value = part;
+      option.textContent = part;
+      select.appendChild(option);
+    }
+    select.value = BUMP_PARTS.includes(current) ? current : (kind === "bug" ? "patch" : "minor");
+    return select;
+  }
+
+  function releaseRow(name, value) {
+    const row = document.createElement("div");
+    row.className = "release-row";
+    row.dataset.repo = name;
+    row.appendChild(text("span", name, "repo"));
+
+    const enabled = document.createElement("label");
+    enabled.className = "check";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = value.enabled === true;
+    enabled.append(checkbox, releaseLabel("settings.releaseEnabled"));
+    row.appendChild(enabled);
+
+    const interval = document.createElement("label");
+    interval.appendChild(releaseLabel("settings.releaseInterval"));
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.step = "1";
+    input.value = value.intervalDays === undefined || value.intervalDays === null ? "1" : String(value.intervalDays);
+    interval.appendChild(input);
+    row.appendChild(interval);
+
+    const bumps = [
+      ["bug", "settings.releaseBug", "bugBump", "patch"],
+      ["feature", "settings.releaseFeature", "featureBump", "minor"],
+    ];
+    for (const [kind, key, field, fallback] of bumps) {
+      const label = document.createElement("label");
+      label.appendChild(releaseLabel(key));
+      label.appendChild(bumpSelect(kind, value[field] || fallback));
+      row.appendChild(label);
+    }
+    return row;
+  }
+
+  // readReleaseRows keeps whatever the user typed, including an invalid
+  // interval, so changing the repo list does not silently rewrite the field.
+  function readReleaseRows() {
+    const rows = {};
+    for (const row of document.querySelectorAll("#cfg-releases .release-row")) {
+      rows[row.dataset.repo] = {
+        enabled: row.querySelector("input[type=checkbox]").checked,
+        intervalDays: row.querySelector("input[type=number]").value,
+        bugBump: row.querySelector("select[data-bump=bug]").value,
+        featureBump: row.querySelector("select[data-bump=feature]").value,
+      };
+    }
+    return rows;
+  }
+
+  function renderReleases(doc, names, keepEdits) {
+    const block = $("cfg-release");
+    const holder = $("cfg-releases");
+    block.hidden = names.length === 0;
+    if (!names.length) {
+      holder.replaceChildren();
+      return;
+    }
+    const edited = keepEdits ? readReleaseRows() : {};
+    const fragment = document.createDocumentFragment();
+    for (const name of names) fragment.appendChild(releaseRow(name, edited[name] || releaseValue(doc, name)));
+    holder.replaceChildren(fragment);
+  }
+
+  function releaseIsSet(value, defaults) {
+    return value.enabled
+      || Number(value.intervalDays) !== defaults.intervalDays
+      || (value.bugBump || defaults.bugBump) !== defaults.bugBump
+      || (value.featureBump || defaults.featureBump) !== defaults.featureBump;
+  }
+
+  // repoObjects turns the array-of-names form into objects so a release block
+  // can sit next to codingAgent/model/language. The keyed object form and the
+  // array-of-objects form are already per-repo.
+  function repoObjects(doc, names) {
+    const repos = doc.repos;
+    if (repos && !Array.isArray(repos) && typeof repos === "object") return;
+    const existing = new Map();
+    if (Array.isArray(repos)) {
+      for (const item of repos) {
+        if (item && typeof item === "object" && typeof item.repo === "string") existing.set(item.repo, { ...item });
+        else if (typeof item === "string") existing.set(item, { repo: item });
+      }
+    }
+    doc.repos = names.map((name) => existing.get(name) || { repo: name });
+  }
+
+  function mutableRepoEntry(doc, name) {
+    const repos = doc.repos;
+    if (Array.isArray(repos)) {
+      return repos.find((item) => item && typeof item === "object" && item.repo === name) || null;
+    }
+    if (repos && typeof repos === "object") {
+      if (!repos[name] || typeof repos[name] !== "object") repos[name] = {};
+      return repos[name];
+    }
+    return null;
+  }
+
+  function applyReleases(doc, names) {
+    const defaults = releaseDefaults();
+    const edited = readReleaseRows();
+    const values = names.map((name) => [name, edited[name] || releaseValue(doc, name)]);
+    if (values.some(([, value]) => releaseIsSet(value, defaults))) repoObjects(doc, names);
+    for (const [name, value] of values) {
+      const entry = mutableRepoEntry(doc, name);
+      if (!entry) continue;
+      if (!releaseIsSet(value, defaults)) {
+        delete entry.release;
+        continue;
+      }
+      const interval = Number(value.intervalDays);
+      entry.release = {
+        enabled: Boolean(value.enabled),
+        intervalDays: Number.isInteger(interval) && interval >= 1 ? interval : defaults.intervalDays,
+        bugBump: value.bugBump,
+        featureBump: value.featureBump,
+      };
+    }
+  }
+
+  function releaseRowsValid(names) {
+    const edited = readReleaseRows();
+    for (const name of names) {
+      const value = edited[name];
+      if (!value) continue;
+      const interval = Number(value.intervalDays);
+      if (!Number.isInteger(interval) || interval < 1) return false;
+    }
+    return true;
   }
 
   function renderAgents(current) {
@@ -1657,7 +1904,9 @@
     const pick = (key, fallback) => (doc[key] !== undefined ? doc[key] : (state.configDefaults[key] !== undefined ? state.configDefaults[key] : fallback));
     $("settings-path").textContent = data.path + (data.exists ? "" : " · " + t("settings.newFile"));
     $("settings-version").textContent = data.version || "–";
-    $("cfg-repos").value = repoList(doc).join("\n");
+    const repos = repoList(doc);
+    $("cfg-repos").value = repos.join("\n");
+    renderReleases(doc, repos, false);
     renderAgents(pick("codingAgent", "opencode"));
     $("cfg-model").value = pick("model", "");
     $("cfg-proxy").value = pick("proxy", "");
@@ -1708,7 +1957,12 @@
       formError(err.message);
       return;
     }
+    if (!releaseRowsValid(repos)) {
+      formError(t("settings.releaseIntervalInvalid"));
+      return;
+    }
     setRepoList(doc, repos);
+    applyReleases(doc, repos);
     const assign = (key, value) => {
       if (value === "" || value === null || value === undefined) delete doc[key];
       else doc[key] = value;
@@ -1908,6 +2162,11 @@
     $("settings-open").addEventListener("click", () => (state.settingsOpen ? closeSettings() : openSettings()));
     $("settings-close").addEventListener("click", closeSettings);
     $("settings-form").addEventListener("submit", saveSettings);
+    $("cfg-repos").addEventListener("input", () => {
+      // Render a row per repo while typing, keeping the values already entered
+      // for repos that stay in the list.
+      renderReleases(state.configDoc || {}, parseRepoNames($("cfg-repos").value), true);
+    });
     $("settings-detect").addEventListener("click", runDetect);
     $("settings-restart").addEventListener("click", restartEngine);
     $("settings-reload").addEventListener("click", loadConfig);

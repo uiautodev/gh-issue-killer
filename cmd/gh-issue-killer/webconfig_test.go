@@ -90,6 +90,137 @@ func TestWebConfigSavesValidDocument(t *testing.T) {
 	}
 }
 
+func TestWebConfigDefaultsIncludeRelease(t *testing.T) {
+	web, _ := newConfigTestWeb(t)
+	payload := web.configPayload()
+	defaults, ok := payload["defaults"].(map[string]any)
+	if !ok {
+		t.Fatalf("defaults = %#v", payload["defaults"])
+	}
+	release, ok := defaults["release"].(map[string]any)
+	if !ok {
+		t.Fatalf("defaults.release = %#v", defaults["release"])
+	}
+	want := ReleaseConfig{Enabled: false, IntervalDays: 1, BugBump: bumpPatch, FeatureBump: bumpMinor}
+	got := ReleaseConfig{
+		Enabled:      release["enabled"] == true,
+		IntervalDays: release["intervalDays"].(int),
+		BugBump:      release["bugBump"].(string),
+		FeatureBump:  release["featureBump"].(string),
+	}
+	if got != want {
+		t.Fatalf("defaults.release = %+v, want %+v", got, want)
+	}
+}
+
+func TestWebConfigSavesReleaseObjectForm(t *testing.T) {
+	web, path := newConfigTestWeb(t)
+	body := `{"config":{"repos":{"o/r":{"codingAgent":"claude","model":"sonnet","language":"en",` +
+		`"release":{"enabled":true,"intervalDays":7,"bugBump":"MINOR","featureBump":"major"}}}}}`
+	recorder := putConfig(t, web, body, "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("saved config does not load: %v", err)
+	}
+	if len(cfg.Repos) != 1 {
+		t.Fatalf("repos = %+v", cfg.Repos)
+	}
+	repo := cfg.Repos[0]
+	want := ReleaseConfig{Enabled: true, IntervalDays: 7, BugBump: bumpMinor, FeatureBump: bumpMajor}
+	if repo.Release != want {
+		t.Fatalf("release = %+v, want %+v", repo.Release, want)
+	}
+	// The per-repo overrides must survive the release row being written.
+	if repo.CodingAgent != "claude" || repo.Model != "sonnet" || repo.Language != "en" {
+		t.Fatalf("overrides = %+v", repo)
+	}
+	// A bump sent in upper case is stored in its canonical form.
+	raw := readRawConfig(t, path)
+	release := raw["repos"].(map[string]any)["o/r"].(map[string]any)["release"].(map[string]any)
+	if release["bugBump"] != bumpMinor || release["intervalDays"] != float64(7) {
+		t.Fatalf("raw release = %#v", release)
+	}
+}
+
+func TestWebConfigSavesReleaseArrayForm(t *testing.T) {
+	web, path := newConfigTestWeb(t)
+	body := `{"config":{"repos":[{"repo":"o/r","codingAgent":"codex","release":{"enabled":true,"intervalDays":3}},` +
+		`{"repo":"o/two"}]}}`
+	recorder := putConfig(t, web, body, "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("saved config does not load: %v", err)
+	}
+	if len(cfg.Repos) != 2 {
+		t.Fatalf("repos = %+v", cfg.Repos)
+	}
+	want := ReleaseConfig{Enabled: true, IntervalDays: 3, BugBump: bumpPatch, FeatureBump: bumpMinor}
+	if cfg.Repos[0].FullName != "o/r" || cfg.Repos[0].Release != want || cfg.Repos[0].CodingAgent != "codex" {
+		t.Fatalf("first repo = %+v", cfg.Repos[0])
+	}
+	if cfg.Repos[1].Release.Enabled {
+		t.Fatalf("second repo release = %+v", cfg.Repos[1].Release)
+	}
+}
+
+func TestWebConfigRejectsInvalidRelease(t *testing.T) {
+	web, path := newConfigTestWeb(t)
+	cases := []string{
+		`{"config":{"repos":{"o/r":{"release":{"enabled":true,"intervalDays":0}}}}}`,
+		`{"config":{"repos":{"o/r":{"release":{"intervalDays":-2}}}}}`,
+		`{"config":{"repos":{"o/r":{"release":{"intervalDays":1.5}}}}}`,
+		`{"config":{"repos":{"o/r":{"release":{"bugBump":"hotfix"}}}}}`,
+		`{"config":{"repos":{"o/r":{"release":{"featureBump":"patchy"}}}}}`,
+		`{"config":{"repos":{"o/r":{"release":true}}}}`,
+		`{"config":{"repos":[{"repo":"o/r","release":{"intervalDays":0}}]}}`,
+	}
+	for _, body := range cases {
+		recorder := putConfig(t, web, body, "")
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d (%s)", body, recorder.Code, recorder.Body.String())
+		}
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s: config must not be written", body)
+		}
+	}
+}
+
+func TestWebConfigDropsNullReleaseFields(t *testing.T) {
+	web, path := newConfigTestWeb(t)
+	body := `{"config":{"repos":{"o/r":{"release":{"enabled":false,"intervalDays":null,"bugBump":null}}}}}`
+	recorder := putConfig(t, web, body, "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	raw := readRawConfig(t, path)
+	release := raw["repos"].(map[string]any)["o/r"].(map[string]any)["release"].(map[string]any)
+	if _, ok := release["intervalDays"]; ok {
+		t.Fatalf("intervalDays must be dropped, got %#v", release)
+	}
+	if _, ok := release["bugBump"]; ok {
+		t.Fatalf("bugBump must be dropped, got %#v", release)
+	}
+}
+
+func readRawConfig(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 func TestWebConfigSaveRequestsRestart(t *testing.T) {
 	web, _ := newConfigTestWeb(t)
 	restarted := make(chan struct{}, 1)

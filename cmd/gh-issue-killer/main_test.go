@@ -376,6 +376,35 @@ func TestLoadConfigRelease(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRepoObjectArray(t *testing.T) {
+	// repos may be an array of objects (one entry per override), not only an
+	// array of names or a keyed object. A failed []string decode used to leave a
+	// partially filled slice and append an empty repo, so this pins the shape.
+	body := `{"repos":[{"repo":"me/app","codingAgent":"claude","release":{"enabled":true,"intervalDays":2}},{"repo":"me/plain"}]}`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Repos) != 2 {
+		t.Fatalf("repos = %+v", cfg.Repos)
+	}
+	if cfg.Repos[0].FullName != "me/app" || cfg.Repos[0].CodingAgent != "claude" {
+		t.Fatalf("first repo = %+v", cfg.Repos[0])
+	}
+	want := ReleaseConfig{Enabled: true, IntervalDays: 2, BugBump: bumpPatch, FeatureBump: bumpMinor}
+	if cfg.Repos[0].Release != want {
+		t.Fatalf("release = %+v, want %+v", cfg.Repos[0].Release, want)
+	}
+	if cfg.Repos[1].FullName != "me/plain" || cfg.Repos[1].Release.Enabled {
+		t.Fatalf("second repo = %+v", cfg.Repos[1])
+	}
+}
+
 func TestIssueByPRAndFeedback(t *testing.T) {
 	old := stateDirOverride
 	stateDirOverride = t.TempDir()
