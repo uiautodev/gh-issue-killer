@@ -413,6 +413,12 @@ divider, uploads through GitHub’s user-attachments endpoint, and the result is
 embedded in the PR and the comment. Backend/docs/test changes must not produce
 screenshots.
 
+UI verification is tool-agnostic on purpose: prompts ask for real browser or
+desktop automation (Playwright, cua-driver, the repo’s own E2E harness — whatever
+is available) and never a specific API, so desktop apps and repositories without
+Playwright can still prove a UI change. The agent exercises the changed control
+and checks the console before writing `result.json`.
+
 ## 11. GitHub client and labels (`gh.go`)
 
 `NewGH` builds an `http.Client` with the configured proxy, resolves the bot
@@ -626,8 +632,9 @@ must stay clean; `gofmt -l .` must print nothing.
 
 The dashboard is tested with its own toolchain: `npm --prefix frontend run check`
 (svelte-check) and `npm --prefix frontend run build`. Any change to `frontend/`
-or to the dashboard handlers in `web.go` must also be driven in a real browser
-with Playwright or cua-driver before it is called done — open the page against a
+or to the dashboard handlers in `web.go` must also be driven with real browser or
+desktop automation (Playwright, cua-driver, the repo’s own E2E setup — whatever
+is available) before it is called done — open the page against a
 running engine, exercise the changed component (both themes when colours
 changed), read the browser console, and keep the before/after screenshots. A
 green unit check does not cover the UI; skipping this step is not allowed.

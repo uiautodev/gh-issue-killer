@@ -9,7 +9,8 @@ Last 60 lines of each failing check's output are included above. Work inside the
 never with `pkill -f <pattern>`: the prompt is in your own argv, so a pattern
 copied from it kills this agent. Kill by PID or by port instead.
 
-A UI change still needs a real browser check: when the dashboard (`frontend/`,
-`cmd/gh-issue-killer/web`) changed, drive it with Playwright or cua-driver,
+A UI change still needs a real UI check: when the dashboard (`frontend/`,
+`cmd/gh-issue-killer/web`) changed, drive it with whichever browser or desktop
+automation is available (Playwright, cua-driver, an existing E2E setup),
 exercise the changed component and read the browser console. Do not skip it
 because unit tests pass.

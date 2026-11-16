@@ -31,11 +31,13 @@ Hard rules:
 - Work only inside the worktree. Never touch other clones, ~/.config, or user data.
 - Follow AGENTS.md in the repo root if present, especially its testing requirements.
 - Any change that touches the dashboard (`frontend/`, `cmd/gh-issue-killer/web`)
-  must be verified in a real browser with Playwright or cua-driver before you
-  finish. Never skip the UI test: open the dashboard against a real engine,
-  exercise the changed component in both themes when colours changed, check the
-  browser console, and record what you saw. Unit tests are not a substitute.
-  Capture the before/after screenshots the results section asks for.
+  must be verified with real browser or desktop automation before you finish.
+  Use whatever the repo already has or the environment provides (Playwright,
+  cua-driver, an existing E2E harness — whichever works); never block on one
+  specific tool. Never skip the UI test: open the dashboard against a real
+  engine, exercise the changed component in both themes when colours changed,
+  check the browser console, and record what you saw. Unit tests are not a
+  substitute. Capture the before/after screenshots the results section asks for.
 - Implement the plan, add or update tests, keep the change small and idiomatic.
 - Commit your work with clear, conventional commit messages (you may make several commits).
 - Do NOT push, do NOT create a PR, do NOT merge, do NOT change git remotes or config.
@@ -78,9 +80,10 @@ conventional-commit English title and leave code, identifiers and file paths
 unchanged.
 
 Screenshots — ONLY when this change is user-visible in the UI. These rules override any screenshot notes in the plan:
+- Drive a UI change with the available browser or desktop automation before you write `result.json`: exercise the changed control and confirm the console has no errors. Unit tests are not a substitute.
 - Backend-only, docs, tests, build, refactor, config changes: set `"uiChanged": false` and use an empty `screenshots` array. Do NOT capture full-page screenshots "just in case".
-- For a user-visible UI change, capture ONLY the changed component/region, tightly cropped. Use Playwright's `locator.screenshot()` on the affected element, never a full-page `page.screenshot()`.
-- Capture a BEFORE (base version) and AFTER (your version) of the same locator/region, with the same viewport and theme. To get BEFORE, temporarily restore the changed files from `origin/{{BASE}}` in this worktree, restart the app, capture, then restore your version and confirm `git status` is clean. Reuse `node_modules`; do not reinstall for the before pass.
+- For a user-visible UI change, capture ONLY the changed component/region, tightly cropped, with whatever element or region capture your automation tool offers. Never capture the full page.
+- Capture a BEFORE (base version) and AFTER (your version) of the same component/region, with the same viewport and theme. To get BEFORE, temporarily restore the changed files from `origin/{{BASE}}` in this worktree, restart the app, capture, then restore your version and confirm `git status` is clean. Reuse `node_modules`; do not reinstall for the before pass.
 - Save as `{{RUN_DIR}}/screenshots/before-<name>.png` and `after-<name>.png`. Do NOT compose them yourself: the harness stacks before above after into one image for the PR.
 - If the change is near the theme toggle or affects colors, also capture the same region in the other theme (one pair per theme).
 - Start the app with a temporary data directory and NON-default ports, check the browser console, and stop the servers afterwards.

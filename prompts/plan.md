@@ -25,7 +25,7 @@ Numbered, one line each: what to change and why.
 
 ## Tests
 - Commands or key assertions for the implement stage (write the install step first when something must be installed).
-- UI change: "screenshots: <element>, light + dark"; no UI change: "no UI change, no screenshots".
+- UI change: "browser/desktop automation verification + screenshots: <element>, light + dark"; no UI change: "no UI change, no screenshots".
 
 ## Risks
 Only add this section when the reviewer must know a real risk (data loss, incompatible behavior, hidden coupling, a test that cannot run here). One line, no lists. Otherwise omit the whole section — most plans do not need it.

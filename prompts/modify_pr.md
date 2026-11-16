@@ -28,7 +28,10 @@ Instructions from @{{SENDER}}:
   commits. Do not commit yourself.
 - Write `{{RUN_DIR}}/result.json` with the usual schema: `summary` (what you
   changed and why), `changes`, `tests`, `uiChanged` and screenshots only for
-  user-visible UI changes. Write `summary`, `changes` and `tests` in
+  user-visible UI changes. A UI change must be exercised with real browser or
+  desktop automation (whatever the repo or environment provides) and needs
+  before/after screenshots; docs, backend and test-only changes stay
+  `"uiChanged": false`. Write `summary`, `changes` and `tests` in
   {{LANGUAGE}}; keep code and identifiers unchanged.
 
 Reply with a short summary when done.

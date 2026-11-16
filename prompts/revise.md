@@ -25,9 +25,10 @@ Apply that feedback on top of the current worktree. Hard rules:
 - Work only inside the worktree. Never touch other clones, ~/.config, or user data.
 - Follow AGENTS.md in the repo root if present, especially its version-bump rules.
 - Any change that touches the dashboard (`frontend/`, `cmd/gh-issue-killer/web`)
-  must be verified in a real browser with Playwright or cua-driver. Exercise the
-  changed component, check the browser console and do not skip the UI test
-  because the unit checks pass.
+  must be verified with real browser or desktop automation — use whatever the
+  repo or environment provides (Playwright, cua-driver, an existing E2E setup),
+  not one named tool. Exercise the changed component, check the browser console
+  and do not skip the UI test because the unit checks pass.
 - Keep the change small; do not revert earlier work unless the feedback asks for it.
 - Commit your work with clear, conventional commit messages (you may make several commits).
 - Do NOT push, do NOT create a PR, do NOT merge, do NOT change git remotes or config.
@@ -63,6 +64,6 @@ Only include checks you actually ran and that pass.
 Write `summary`, `changes` and `tests` in {{LANGUAGE}}; keep code, identifiers and
 file paths unchanged.
 
-Screenshots — only for user-visible UI changes, tightly cropped to the changed region, before/after with the same viewport and theme; include the other theme when colors are involved. Skip them for backend/docs/test changes and set `"uiChanged": false`.
+Screenshots — only for user-visible UI changes, tightly cropped to the changed region with whatever capture the available automation offers, before/after with the same viewport and theme; include the other theme when colors are involved. Skip them for backend/docs/test changes and set `"uiChanged": false`.
 
 Reply with a short summary when done. The harness runs checks.json and pushes to the existing branch.
