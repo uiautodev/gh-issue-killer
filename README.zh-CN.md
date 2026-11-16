@@ -148,5 +148,11 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 内部实现和发版（打 `v*` tag）见 [DEVELOP.md](DEVELOP.md)，贡献规则见
 [AGENTS.md](AGENTS.md)。
 
+## 打赏
+
+如果这个项目帮你省下了时间，欢迎扫码请作者喝杯咖啡：
+
+<img src="assets/sponsor.png" alt="打赏二维码" width="240">
+
 ## License
 [MIT](LICENSE)
