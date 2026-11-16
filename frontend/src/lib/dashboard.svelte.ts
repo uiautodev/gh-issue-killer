@@ -163,6 +163,7 @@ class DashboardStore {
 			this.issue = (await getIssue(selected.repo, selected.number)) as IssueState;
 			this.drawerError = '';
 		} catch (err) {
+			this.issue = null;
 			this.drawerError = err instanceof Error ? err.message : String(err);
 		}
 	}
