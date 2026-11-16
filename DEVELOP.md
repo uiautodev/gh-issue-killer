@@ -49,7 +49,8 @@ scripts/smoke-test.sh owner/repo
 ```
 
 It drives a real issue through plan → approve → implement → merge using the human
-`gh` account while the daemon uses `gh-agent`.
+`gh` account while the daemon uses the bot token from the dashboard login (or
+`GH_AGENT_TOKEN` / the legacy `gh-agent` hosts file).
 
 ## 2. Runtime layout
 
@@ -59,6 +60,7 @@ Everything lives under `~/.gh-issue-killer` (`stateDir()` in `util.go`):
 | --- | --- |
 | `state.json` | the single source of task state (`state.go`), atomically rewritten |
 | `daemon.lock` | pid of the running daemon; `-stop`/`-status` read it |
+| `token` | built-in GitHub login (`oauth.go`): access token, expiry and refresh token, mode 0600 |
 | `logs/daemon.log` | rotating daemon log (10 MB × 5) |
 | `repos/<owner>-<repo>/` | managed clone per watched repository |
 | `worktrees/<owner>-<repo>/issue-<n>-<id>/` | one implementation worktree per issue |
@@ -79,9 +81,12 @@ Only the daemon writes `state.json`; the web UI and CLIs read it. Treat
 2. `ensureDirs`, logger, `loadConfig`, `parseProxy`.
 3. `acquireLock` on `daemon.lock` — one daemon per machine, desktop engine
    included.
-4. `NewGH`: reads the `gh-agent` token and identity (never the human account).
+4. `NewGH`: resolves the credential in `GH_AGENT_TOKEN` → `~/.gh-issue-killer/token`
+   → the old `gh-agent` `hosts.yml` (read-only compatibility), refreshes it when
+   it is close to expiry, and verifies the identity (never the human account).
 5. For each repo: `GetRepo`, `resolveRepo` (managed clone under `repos/`),
-   `EnsureLabels`, build the child env (proxy + `GH_CONFIG_DIR`).
+   `EnsureLabels`, build the child env (proxy + `GH_TOKEN`/`GITHUB_TOKEN` so the
+   agent's own `gh` calls use the bot).
 6. `LoadStore`, `NewRouter` (queues + worker goroutines), optional web server.
 7. `router.StartupScan`: resumes interrupted work, applies pending closes,
    and picks up issues that already mention the agent.
@@ -97,16 +102,17 @@ Only the daemon writes `state.json`; the web UI and CLIs read it. Treat
 11. `SIGINT`/`SIGTERM` → wait for `router.Idle()` → shut down → `reexec` for
     config reloads and self-updates (pid is kept, so the lock stays valid).
 
-**Setup mode.** `-embedded` with a missing or invalid config does not exit and
-does not start a daemon loop: `serveSetup` runs the dashboard on the requested
-port with an empty router, `configError` in `/api/state`, and the settings
-panel. Saving a valid config exits with 75 so the shell starts the real engine.
+**Setup mode.** `-embedded` with a missing or invalid config, or without a
+GitHub token, does not exit and does not start a daemon loop: `serveSetup` runs
+the dashboard on the requested port with an empty router, `configError` in
+`/api/state`, and the settings + login panels. Saving a valid config or
+finishing the login exits with 75 so the shell starts the real engine.
 
 **Platform layer.** `process_unix.go` / `process_windows.go` own every
 `syscall.Kill`, `Setsid`, `Setpgid`, `exec` and shell invocation:
 `processAlive`, `terminateProcess`, `detachSysProcAttr`, `childSysProcAttr`,
-`killChildTree`, `shellCommand`, `canExecInPlace` + `execInPlace`, and the
-`gh-agent` wrapper path. Windows uses `OpenProcess`/`GetExitCodeProcess`,
+`killChildTree`, `shellCommand`, `canExecInPlace` + `execInPlace`. The old
+`gh-agent` wrapper is no longer created. Windows uses `OpenProcess`/`GetExitCodeProcess`,
 `taskkill /T /F` for process trees, `cmd /C` for checks, and “start a new
 process, then exit” instead of `syscall.Exec`.
 
@@ -125,7 +131,8 @@ dependencies.
 | `router.go` | event handling, commands, state machine, job scheduler (`plan`/`work`/`ci` queues), startup scan |
 | `actions.go` | the stages: plan, implement, revise, CI settle, merge, and their helpers |
 | `checks.go` | `checks.json` detection/loading/execution and the summary line |
-| `gh.go` | GitHub REST client: issues, comments, PRs, labels, reviews, check runs, workflow runs/jobs, hooks, tags, commits, releases, asset uploads |
+| `gh.go` | GitHub REST client: issues, comments, PRs, labels, reviews, check runs, workflow runs/jobs, hooks, tags, commits, releases, asset uploads; token resolution and the 401 refresh retry |
+| `oauth.go` | built-in GitHub Device Flow, token file (`~/.gh-issue-killer/token`, 0600), expiry/refresh, legacy `hosts.yml` reader |
 | `git.go` | managed clone, worktrees, commit/push, diff/stat, env |
 | `runner.go` | coding-agent registry (`opencode`, `claude`, `codex`) and process/JSON output handling |
 | `state.go` | `Store`, `IssueState`, `RepoState`, atomic persistence |
@@ -136,7 +143,8 @@ dependencies.
 | `shots.go` | screenshot collection, before/after composition, upload |
 | `proxy.go` | SOCKS5/HTTP proxies for HTTP clients, git and child processes |
 | `wizard.go` | `-init` interactive setup |
-| `web.go`, `web/` | loopback dashboard, `/api/state`, `/api/issue`, `/api/logs`, `/api/action`, `/api/open-url` |
+| `web.go`, `web/` | loopback dashboard, `/api/state`, `/api/issue`, `/api/logs`, `/api/action`, `/api/open-url`, `/api/auth*` |
+| `webauth.go` | dashboard login endpoints: Device Flow start/poll and pasted-token fallback |
 | `openurl.go` | opens an external http(s) link in the platform browser (`open`/`xdg-open`/`rundll32`) |
 | `webconfig.go` | settings API: `/api/config`, `/api/detect`, `/api/restart`, `/api/update` |
 | `messages.go` | scaffolding text (headings, hints, footers) in Chinese/English, `app.text`, language detection |
@@ -393,10 +401,12 @@ screenshots.
 
 ## 11. GitHub client and labels (`gh.go`)
 
-`NewGH` builds an `http.Client` with the configured proxy, reads the `gh-agent`
-token (never the human’s), and exposes typed helpers for the REST endpoints the
-daemon needs. Retries: 429/5xx ×3 with backoff; other 4xx return `*APIError`
-(use `isStatus`). Logging of every request is DEBUG level. The release checker
+`NewGH` builds an `http.Client` with the configured proxy, resolves the bot
+token (env → token file → legacy hosts file, never the human’s), and exposes
+typed helpers for the REST endpoints the
+daemon needs. Retries: 429/5xx ×3 with backoff; a 401 from a refreshable token
+file triggers one refresh and retry; other 4xx return `*APIError` (use
+`isStatus`). Logging of every request is DEBUG level. The release checker
 reads tags (`/repos/{repo}/tags`), compares a tag with the default branch
 (`/repos/{repo}/compare/{base}...{head}`) or lists the branch’s commits when
 there is no tag yet, and publishes with `POST /repos/{repo}/releases`
@@ -447,7 +457,7 @@ version source; a repo without one publishes `v0.1.0` first (the bump rule only
 applies afterwards). Older files may still carry `bugBump`/`featureBump`; the
 decoder ignores them and a dashboard save drops them. Publishing creates the tag
 and the release in one call (`target_commitish` = default branch), so the token
-needs `contents: write`, which the push-capable gh-agent token already has.
+needs `contents: write`, which the push-capable bot token already has.
 
 The dashboard's settings panel edits the same block: `/api/config` sends the
 one-day default as `defaults.release` and renders one row per repo with the
@@ -467,7 +477,9 @@ and starts it again.
 
 Loopback only. Routes: `/`, `/api/state`, `/api/issue`, `/api/logs`,
 `/api/action` (approve/cancel), `/api/open-url` (open a dashboard link in the
-system browser), `/api/config` (GET raw file + defaults, PUT
+system browser), `/api/auth` (login status), `/api/auth/device` (POST starts
+Device Flow, GET polls), `/api/auth/token` (paste a PAT), `/api/config` (GET raw
+file + defaults, PUT
 validated save), `/api/detect` (installed agents, model list, optional proxy and
 repo-access probes), `/api/restart`, `/api/update` (GET checks
 `releases/latest`, POST installs), `/logo.svg`. The mutating routes require
@@ -499,9 +511,12 @@ The settings button opens a panel over the board: repos (array, array of
 objects or object form, with per-repo overrides preserved), one release row per
 repo (`enabled`, `intervalDays`), coding agent
 (populated from `/api/detect`), model, proxy, `webPort`, `selfUpdate` and
-`updateProxy`, plus the version card and the update buttons. When `/api/state`
-reports `configError` (first run or a broken edit) the panel opens by itself and
-the save button starts the real engine.
+`updateProxy`, plus the version card and the update buttons. The first block is
+the GitHub login: it shows the one-time code and authorization link, polls
+`/api/auth/device`, and keeps a paste-token fallback; a successful login writes
+`~/.gh-issue-killer/token` and restarts into the engine. When `/api/state`
+reports `configError` (first run, missing token or a broken edit) the panel
+opens by itself and the save button starts the real engine.
 
 ## 16. Reload and self-update
 
@@ -572,6 +587,7 @@ keeps tests quiet. Notable coverage:
 | `watch_test.go` | config reload fires on valid edits, ignores invalid ones |
 | `watcher_test.go` | `Store` round-trip |
 | `web_test.go` | dashboard snapshot only lists tracked tasks, `/api/open-url` validation and browser handoff |
+| `oauth_test.go` | Device Flow pending/slow_down/expired, token file 0600, refresh success/failure, credential precedence, 401 retry, login/paste endpoints, login panel markup |
 | `openurl_test.go` | per-platform browser command, no shell, injected runner |
 | `webconfig_test.go` | `/api/config` validation/round-trip/origin check, `release` defaults and rejection, `/api/detect` degradation, `/api/update` payload, snapshot without a router |
 | `selfupdate_test.go` | version ordering, asset selection, mirror/digest parsing, archive extraction, checksum mismatch keeps the binary |
@@ -633,9 +649,11 @@ must stay clean; `gofmt -l .` must print nothing.
 | the periodic release checker, version bumps, release notes | §7, §14 and §17 |
 | a user-facing comment string | §18 (goes through `app.text` and `messages.go`) |
 | web routes or API payloads | §15 |
+| the login flow, token file or credential precedence | §3, §11, §15 and DEPLOY.md §2 |
 | reload/self-update behaviour | §16 |
 | new or renamed test files | §17 |
 | startup order, flags, daemonizing, `-embedded`, platform process helpers | §3 and §1 |
 | web routes or API payloads | §15 |
+| the login flow, token file or credential precedence | §3, §11, §15 and DEPLOY.md §2 |
 | the desktop shell, packaging, release assets | §1, §4, §15 and §16 |
 | the file map itself | §4 |

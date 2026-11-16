@@ -19,7 +19,8 @@ gofmt -l .                     # must print nothing
 go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 ```
 
-End-to-end: `scripts/smoke-test.sh owner/repo` (needs `gh` and `gh-agent`).
+End-to-end: `scripts/smoke-test.sh owner/repo` (needs `gh` and a bot token:
+dashboard login, `~/.gh-issue-killer/token`, or `GH_AGENT_TOKEN`).
 Never start two daemons: they share `~/.gh-issue-killer/state.json`.
 
 ## Documentation must move with the code

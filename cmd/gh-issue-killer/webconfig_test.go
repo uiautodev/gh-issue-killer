@@ -279,7 +279,7 @@ func TestWebDetectDegradesToEmptyLists(t *testing.T) {
 	wizardModelList = func(string) []string { return nil }
 	wizardDetectProxy = func() string { return "" }
 	wizardRepoCheck = func(*Proxy, []string) ([]repoAccessInfo, error) {
-		return nil, errors.New("gh-agent is not logged in")
+		return nil, errors.New("GitHub token is missing")
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "/api/detect?proxy=1&repos=o/r", nil)
@@ -298,7 +298,7 @@ func TestWebDetectDegradesToEmptyLists(t *testing.T) {
 	if len(payload.Agents) != 0 || len(payload.Repos) != 0 {
 		t.Fatalf("payload = %+v", payload)
 	}
-	if !strings.Contains(payload.Error, "gh-agent") {
+	if !strings.Contains(payload.Error, "GitHub token") {
 		t.Fatalf("probe error = %q", payload.Error)
 	}
 }

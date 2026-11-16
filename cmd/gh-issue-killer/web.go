@@ -44,6 +44,10 @@ type webServer struct {
 	// latestRelease is replaced in tests so /api/update never hits GitHub.
 	latestRelease func(ctx context.Context) (*releaseInfo, error)
 	updateMu      sync.Mutex
+	// authMu guards the in-flight Device Flow session; the token file itself is
+	// written atomically by saveTokenRecord.
+	authMu     sync.Mutex
+	deviceAuth *deviceSession
 }
 
 type webPool struct {
@@ -126,6 +130,9 @@ func startWeb(cfg *Config, router *Router, store *Store, log *Logger, opts webOp
 	mux.HandleFunc("/api/action", web.handleAction)
 	mux.HandleFunc("/api/open-url", web.handleOpenURL)
 	mux.HandleFunc("/api/config", web.handleConfig)
+	mux.HandleFunc("/api/auth", web.handleAuth)
+	mux.HandleFunc("/api/auth/device", web.handleAuthDevice)
+	mux.HandleFunc("/api/auth/token", web.handleAuthToken)
 	mux.HandleFunc("/api/detect", web.handleDetect)
 	mux.HandleFunc("/api/restart", web.handleRestart)
 	mux.HandleFunc("/api/update", web.handleUpdate)

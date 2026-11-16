@@ -24,7 +24,7 @@ inbound port), one instance per state directory, and the workflow commands are
 
 Set these once in the shell that runs every step. Fill them from §0.1; ask the
 human only for `REPOS` when the current checkout has no GitHub origin and for
-`AGENT_LOGIN` when no gh-agent credential exists yet.
+`AGENT_LOGIN` when no bot token exists yet.
 
 ```bash
 AGENT_LOGIN=yourname-agent                       # dedicated bot account
@@ -41,7 +41,7 @@ HB="gh-issue-killer"                             # binary name on PATH
 | value | default |
 | --- | --- |
 | `REPOS` | `git remote get-url origin` of the current checkout, if it is a GitHub repo |
-| `AGENT_LOGIN` | `gh-agent api user --jq .login` |
+| `AGENT_LOGIN` | the bot login from the dashboard (`~/.gh-issue-killer/token`), `GH_AGENT_TOKEN`, or the legacy `gh-agent` hosts file |
 | approver | the human's login from `gh api user --jq .login` |
 | `codingAgent` | first of `opencode`, `claude`, `codex` on `PATH` |
 | model | empty (CLI default) |
@@ -58,14 +58,15 @@ uname -s
 go version                                   # need go1.27+
 git --version                                # need 2.5+
 command -v opencode claude codex             # at least one
-[ -n "$GH_AGENT_TOKEN" ] && echo token:env || echo token:unset
+[ -n "$GH_AGENT_TOKEN" ] && echo token:env
+[ -f "$HOME/.gh-issue-killer/token" ] && echo token:file || echo token:file-missing
 ```
 
 | result | action |
 | --- | --- |
 | Go or git missing | install with the platform package manager; if that needs sudo, **ASK** once and include the exact command |
 | no coding-agent CLI | install `opencode` by default and say so; **ASK** only if the human has a stated preference |
-| token unset | check `~/.config/gh-agent/hosts.yml`; if absent → step 2 (this is the one allowed question) |
+| token unset | open the desktop app or dashboard and log in with the bot account (step 2); `~/.config/gh-agent/hosts.yml` is still read as a fallback |
 | Windows | supported: the binary builds and runs there (`process_windows.go`), but `scripts/smoke-test.sh` needs a POSIX shell. Prefer the desktop app below |
 
 The coding agent must work unattended on this machine, as the same user
@@ -77,34 +78,35 @@ do not start the daemon until one of them exists.
 The daemon acts only as the bot account. The bot must not be the human's own
 account, and it must not create its own trigger issues.
 
-```bash
-# token source 1: environment (survives into the background process)
-export GH_AGENT_TOKEN=...            # NEVER write this into the repo
-
-# token source 2: gh CLI config dir (hosts.yml or OS keyring)
-GH_CONFIG_DIR="$HOME/.config/gh-agent" gh auth login
-GH_CONFIG_DIR="$HOME/.config/gh-agent" gh auth refresh -h github.com -s admin:repo_hook
-```
-
-Required scopes: `repo`, `read:org`; `admin:repo_hook` only for real-time
-webhooks (without it the daemon polls every 30 s — acceptable).
-
-The daemon (and `-init`) creates a two-line wrapper at `~/.local/bin/gh-agent`
-when none is on `PATH`:
-
-```sh
-#!/bin/sh
-GH_CONFIG_DIR="$HOME/.config/gh-agent" exec gh "$@"
-```
-
-It never overwrites an existing file and never falls back to the human's
-`gh auth token`; a missing bot credential is a hard error.
-
-Verify identity and per-repo permission:
+The built-in login is a GitHub Device Flow, the same idea as `gh auth login`:
+the dashboard shows a one-time code and a link, and the daemon stores the token
+in `~/.gh-issue-killer/token` (mode 0600) with its expiry and refresh token.
+When the token is close to expiry it refreshes automatically, so a token-expiry
+policy on the OAuth app does not interrupt the daemon. The desktop app opens
+the login panel on first run; for a headless daemon, set `webPort`, open
+`http://127.0.0.1:<port>/`, click **Settings → Log in with GitHub**, and use the
+bot account (not your main account).
 
 ```bash
-gh-agent api user --jq .login                # must print $AGENT_LOGIN
-for r in $REPOS; do gh-agent api "repos/$r" --jq '{repo:.full_name,push:.permissions.push,admin:.permissions.admin}'; done
+# optional: bypass the login UI for automation (never write it into the repo)
+export GH_AGENT_TOKEN=...             # still accepted, no refresh support
+
+# optional: paste-token fallback in the dashboard for a PAT with repo +
+# admin:repo_hook scopes; the OAuth Device Flow requests repo,
+# admin:repo_hook and read:user itself.
+```
+
+`GHIK_OAUTH_CLIENT_ID` overrides the built-in OAuth app client ID for forks.
+The legacy `~/.config/gh-agent/hosts.yml` is read if neither the token file nor
+`GH_AGENT_TOKEN` exists, but nothing creates or rewrites it any more and the
+daemon never falls back to the human's `gh auth token`.
+
+Verify identity and per-repo permission (the token file is JSON):
+
+```bash
+AGENT_TOKEN="${GH_AGENT_TOKEN:-$(jq -r .access_token "$HOME/.gh-issue-killer/token" 2>/dev/null || true)}"
+GH_TOKEN="$AGENT_TOKEN" gh api user --jq .login                # must print $AGENT_LOGIN
+for r in $REPOS; do GH_TOKEN="$AGENT_TOKEN" gh api "repos/$r" --jq '{repo:.full_name,push:.permissions.push,admin:.permissions.admin}'; done
 ```
 
 `push:true` is mandatory. If `push:false`, run the grant yourself with the
@@ -157,9 +159,11 @@ daemon, no terminal wizard. Download the bundle for the platform:
 
 Open the DMG and drag the app onto `/Applications`, or unzip the archive and
 launch it. On first run there is no config, so the window opens on the
-settings panel: fill in repos, coding agent, model, proxy (and optionally the
-update mirror `gh-proxy.com`), save, and the engine restarts with it. Closing
-the window stops the engine — nothing is left in the background.
+settings panel with the GitHub login on top: use **Log in with GitHub** with a
+bot account (the device code and authorization link are shown in the panel),
+then fill in repos, coding agent, model, proxy (and optionally the update
+mirror `gh-proxy.com`), save, and the engine restarts with it. Closing the
+window stops the engine — nothing is left in the background.
 Links in the dashboard open in the system browser, including when the window
 is the embedded desktop one.
 
@@ -301,7 +305,7 @@ request is logged and retried on the next tick without moving the timestamp.
 `-once` does not run release checks. This is opt-in because it creates public
 tags and releases: the first run of a repository covers every commit since its
 newest version tag, or the whole history when there is none, and publishes
-`v0.1.0`. The token needs `contents: write`, which a push-capable gh-agent
+`v0.1.0`. The token needs `contents: write`, which a push-capable bot
 token already has.
 
 ### 4.2 Coding agents
@@ -359,7 +363,7 @@ Restart=on-failure
 RestartSec=10
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # include the coding agent's directory too (e.g. nvm's node bin)
-# Environment=GH_AGENT_TOKEN=...
+# Environment=GH_AGENT_TOKEN=...   # optional; the dashboard login is preferred
 
 [Install]
 WantedBy=default.target
@@ -418,8 +422,10 @@ Interrupted implementations resume from their worktree on the next start.
 
 | symptom (log or command) | action |
 | --- | --- |
-| `no gh-agent token found` | set `GH_AGENT_TOKEN`, or `GH_CONFIG_DIR=~/.config/gh-agent gh auth login` |
-| `gh-agent has no push access` | grant collaborator push/admin (step 2) |
+| `no GitHub token` | log in from the dashboard with the bot account, set `GH_AGENT_TOKEN`, or run `gh-issue-killer -init` |
+| `the GitHub token has no push access` | grant collaborator push/admin (step 2) |
+| login code expired or `access_denied` | click **Log in with GitHub** again; the code is single-use and short-lived |
+| token refresh fails repeatedly | log in again from the dashboard; the refresh token expired or was revoked |
 | `unsupported codingAgent` / `runnerBinary` error | install that CLI and make sure it is on PATH of the daemon |
 | `create webhook: 403/404` | expected on personal repos; polling continues. Do not retry blindly |
 | `-status` says `polling only` | no webhook; still functional, 30 s latency |
@@ -451,7 +457,7 @@ Interrupted implementations resume from their worktree on the next start.
 ```bash
 gh-issue-killer -config "$CONFIG" -status | tee /tmp/ghik-status.txt
 grep -q 'daemon: running' /tmp/ghik-status.txt && echo "STATUS ok"
-for r in $REPOS; do gh-agent api "repos/$r" --jq '.permissions.push' | grep -q true && echo "ACCESS $r ok"; done
+for r in $REPOS; do GH_TOKEN="$AGENT_TOKEN" gh api "repos/$r" --jq '.permissions.push' | grep -q true && echo "ACCESS $r ok"; done
 grep -q 'repo ready' "$LOG" && echo "REPOS ok"
 grep -Eq 'smee stream connected|polling only' "$LOG" && echo "TRANSPORT ok"
 ```

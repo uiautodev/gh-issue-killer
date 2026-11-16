@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -175,88 +174,9 @@ type GH struct {
 	Upload     *http.Client
 	Log        *Logger
 	Agent      User
-}
-
-func loadAgentToken() (string, error) {
-	if value := strings.TrimSpace(os.Getenv("GH_AGENT_TOKEN")); value != "" {
-		return value, nil
-	}
-	configDir := strings.TrimSpace(os.Getenv("GH_CONFIG_DIR"))
-	if configDir == "" {
-		configDir = filepath.Join(homeDir(), ".config", "gh-agent")
-	}
-	file := filepath.Join(configDir, "hosts.yml")
-	if data, err := os.ReadFile(file); err == nil {
-		host := firstNonEmpty(strings.TrimSpace(os.Getenv("GH_HOST")), "github.com")
-		inHost := false
-		for _, rawLine := range strings.Split(string(data), "\n") {
-			line := strings.TrimRight(rawLine, "\r")
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-				continue
-			}
-			if !strings.HasPrefix(line, " ") && strings.HasSuffix(trimmed, ":") {
-				inHost = strings.TrimSuffix(trimmed, ":") == host
-				continue
-			}
-			if !inHost {
-				continue
-			}
-			key, value, ok := strings.Cut(trimmed, ":")
-			if !ok {
-				continue
-			}
-			switch strings.TrimSpace(key) {
-			case "oauth_token", "token":
-				token := strings.Trim(strings.TrimSpace(value), `"'`)
-				if token != "" {
-					return token, nil
-				}
-			}
-		}
-	}
-
-	// Newer gh versions keep the OAuth token in the system keyring and only
-	// leave the account name in hosts.yml. Ask gh-agent for the token in that
-	// case. Never fall back to plain gh: that would silently use the human's
-	// account.
-	if token, err := tokenFromCLI(configDir); err == nil && token != "" {
-		return token, nil
-	}
-	return "", fmt.Errorf("no gh-agent token found: set GH_AGENT_TOKEN, or run `GH_CONFIG_DIR=%s gh auth login`", configDir)
-}
-
-func tokenFromCLI(configDir string) (string, error) {
-	env := mergeEnv(os.Environ(), map[string]string{"GH_CONFIG_DIR": configDir}, "GH_TOKEN", "GITHUB_TOKEN")
-	type candidate struct {
-		binary string
-		args   []string
-	}
-	candidates := make([]candidate, 0, 2)
-	seen := map[string]bool{}
-	if path, err := exec.LookPath("gh-agent"); err == nil {
-		candidates = append(candidates, candidate{binary: path, args: []string{"auth", "token"}})
-		seen[filepath.Clean(path)] = true
-	}
-	// ~/.local/bin is not always on PATH of a background process.
-	local := filepath.Join(homeDir(), ".local", "bin", "gh-agent")
-	if info, statErr := os.Stat(local); statErr == nil && !info.IsDir() && !seen[filepath.Clean(local)] {
-		candidates = append(candidates, candidate{binary: local, args: []string{"auth", "token"}})
-	}
-	for _, item := range candidates {
-		result, err := runCmd(context.Background(), item.binary, item.args, CmdOptions{
-			Env:          env,
-			Timeout:      15 * time.Second,
-			AllowFailure: true,
-		})
-		if err != nil || result.Code != 0 {
-			continue
-		}
-		if token := strings.TrimSpace(result.Stdout); token != "" {
-			return token, nil
-		}
-	}
-	return "", fmt.Errorf("gh-agent auth token unavailable")
+	// refresh replaces an expired token file credential. nil for env and
+	// legacy hosts.yml tokens, which have no refresh token.
+	refresh func(ctx context.Context) (string, error)
 }
 
 func NewGH(proxy *Proxy, log *Logger) (*GH, error) {
@@ -267,21 +187,22 @@ func NewGH(proxy *Proxy, log *Logger) (*GH, error) {
 }
 
 func NewGHWithTimeout(proxy *Proxy, log *Logger, timeout time.Duration) (*GH, error) {
-	token, err := loadAgentToken()
+	source, err := loadAgentTokenSource(proxy)
 	if err != nil {
 		return nil, err
 	}
 	gh := &GH{
-		Token:      token,
+		Token:      source.Token,
 		APIBase:    firstNonEmpty(strings.TrimSpace(os.Getenv("GITHUB_API_URL")), "https://api.github.com"),
 		UploadBase: "https://uploads.github.com",
 		Client:     newHTTPClient(proxy, timeout),
 		Upload:     newHTTPClient(proxy, 300*time.Second),
 		Log:        log,
+		refresh:    source.Refresh,
 	}
 	user, err := gh.GetUser(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("verify gh-agent token: %w", err)
+		return nil, fmt.Errorf("verify GitHub token: %w", err)
 	}
 	gh.Agent = user
 	return gh, nil
@@ -342,6 +263,21 @@ func (g *GH) do(ctx context.Context, method, path string, body, out any) error {
 		}
 		if g.Log != nil {
 			g.Log.Debug("github %s %s -> %d", method, path, response.StatusCode)
+		}
+		if response.StatusCode == http.StatusUnauthorized && attempt < 3 && g.refresh != nil {
+			// An expired OAuth token answers 401. Refresh once and retry the
+			// same request; the refresh is stored so the next poll uses it.
+			token, refreshErr := g.refresh(ctx)
+			if refreshErr == nil && token != "" {
+				g.Token = token
+				if g.Log != nil {
+					g.Log.Info("github token refreshed")
+				}
+				continue
+			}
+			if g.Log != nil {
+				g.Log.Warn("github token refresh failed: %v", refreshErr)
+			}
 		}
 		if response.StatusCode >= 400 {
 			return &APIError{Status: response.StatusCode, Message: tailString(string(data), 20)}

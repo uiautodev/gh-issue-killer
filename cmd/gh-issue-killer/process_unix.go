@@ -4,7 +4,6 @@ package main
 
 import (
 	"errors"
-	"path/filepath"
 	"syscall"
 )
 
@@ -54,11 +53,4 @@ const canExecInPlace = true
 
 func execInPlace(exe string, args, env []string) error {
 	return syscall.Exec(exe, args, env)
-}
-
-// ghAgentWrapperFile is the two-line wrapper around gh with the bot config
-// dir. Windows uses a .cmd file instead of a shell script.
-func ghAgentWrapperFile() (string, string) {
-	return filepath.Join(homeDir(), ".local", "bin", "gh-agent"),
-		"#!/bin/sh\nGH_CONFIG_DIR=\"$HOME/.config/gh-agent\" exec gh \"$@\"\n"
 }

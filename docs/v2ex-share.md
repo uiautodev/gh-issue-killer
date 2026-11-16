@@ -49,8 +49,8 @@ issue 堆着没人动，PR 的检查又要一直盯——这两件事占掉的�
 - Go 1.27+ 和 `git`，也可以直接用 [Releases](https://github.com/uiautodev/gh-issue-killer/releases)
   里的二进制
 - 一个编码 agent CLI：opencode、Claude Code 或 Codex
-- 一个独立的 GitHub bot 账号和它的 token（`GH_AGENT_TOKEN` 或
-  `~/.config/gh-agent/hosts.yml`）
+- 一个独立的 GitHub bot 账号：在桌面版/看板里用内置 Device Flow 登录，或设置
+  `GH_AGENT_TOKEN`（旧的 `~/.config/gh-agent/hosts.yml` 仍可读）
 - 只支持 GitHub；运行时只发起出站 HTTPS，不需要开任何入站端口
 
 边界也说清楚：计划和合并默认要人批准，不是“全自动写代码然后自己合”；daemon 不会去用
@@ -76,15 +76,15 @@ issue 堆着没人动，PR 的检查又要一直盯——这两件事占掉的�
 - 配置：~/.config/gh-issue-killer/config.json
 
 不要创建 GitHub 账号或 token。允许用我的 gh 把上面这些仓库的权限授给这个 bot
-（DEPLOY.md 第 2 节）。如果没有 gh-agent 凭据（~/.config/gh-agent 或
-$GH_AGENT_TOKEN），打印出我需要执行的那一条命令后停下，然后从第 2 节继续。
+（DEPLOY.md 第 2 节）。如果还没有 bot 凭据，就用内置 GitHub 登录（桌面版/看板，
+~/.gh-issue-killer/token），或者提示我用小号登录；不要让我去装 gh-agent。
 
 最后执行第 10 节的检查，把状态行贴出来。不要让我确认你能自己验证的步骤。
 ```
 
 agent 会按 [DEPLOY.md](https://github.com/uiautodev/gh-issue-killer/blob/master/DEPLOY.md)
-安装二进制、按需创建 `gh-agent` wrapper、写配置、跑冒烟测试、启动 daemon，并回报状态。
-它只会停在需要 bot token 的那一步，因为那一步只能你本人登录。
+安装二进制、写配置、跑冒烟测试、启动 daemon，并回报状态。它只会停在需要用
+GitHub 小号登录的那一步，因为那一步只能你本人操作。
 
 代码是 MIT 协议。用着有问题、或者你的流程跟它不一样，欢迎直接开 issue @ 它自己——
 这个项目现在就是这么被开发出来的。

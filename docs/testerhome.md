@@ -67,8 +67,8 @@ worktree 里的 agent 处理。
 
 最省事的办法是把仓库交给 Claude Code、Codex 或 opencode，让它按 `DEPLOY.md` 自己
 部署。仓库里有一段现成的 prompt，大意是"按第 0–5 节装好、自己推断默认值、最多问
-一个问题"，agent 会装二进制、按需创建 bot 的 `gh-agent` wrapper、写配置、跑冒烟
-测试、起 daemon，只在需要 bot token 时停下来——那一步只能你本人登录。
+一个问题"，agent 会装二进制、写配置、跑冒烟测试、起 daemon，只在需要你用 GitHub 小号
+登录（内置 Device Flow）时停下来——那一步只能你本人操作。
 
 手动安装也就四行：
 

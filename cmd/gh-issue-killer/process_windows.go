@@ -5,7 +5,6 @@ package main
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"syscall"
 )
@@ -84,9 +83,4 @@ const canExecInPlace = false
 
 func execInPlace(exe string, args, env []string) error {
 	return os.ErrInvalid
-}
-
-func ghAgentWrapperFile() (string, string) {
-	return filepath.Join(homeDir(), ".local", "bin", "gh-agent.cmd"),
-		"@echo off\r\nset \"GH_CONFIG_DIR=%USERPROFILE%\\.config\\gh-agent\"\r\ngh %*\r\n"
 }

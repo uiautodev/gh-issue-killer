@@ -2,8 +2,9 @@
 # End-to-end smoke test for gh-issue-killer.
 #
 # IMPORTANT: this script intentionally uses the HUMAN `gh` account to simulate
-# the repo owner (create issue, approve, request merge). The daemon itself only
-# ever uses gh-agent.
+# the repo owner (create issue, approve, request merge). The daemon uses the
+# built-in bot token: ~/.gh-issue-killer/token, GH_AGENT_TOKEN, or the legacy
+# gh-agent hosts file.
 #
 # Usage:
 #   scripts/smoke-test.sh <owner/repo> [issue-title]
@@ -22,7 +23,15 @@ TIMEOUT_SECONDS="${SMOKE_TIMEOUT_SECONDS:-900}"
 : "${SMOKE_APPROVE:=yes}"
 : "${SMOKE_MERGE:=yes}"
 
-AGENT_LOGIN="$(GH_CONFIG_DIR="$HOME/.config/gh-agent" gh api user --jq .login)"
+TOKEN="${GH_AGENT_TOKEN:-}"
+if [ -z "$TOKEN" ] && [ -f "$HOME/.gh-issue-killer/token" ]; then
+  TOKEN="$(sed -n 's/.*"access_token": *"\([^"]*\)".*/\1/p' "$HOME/.gh-issue-killer/token" | head -1)"
+fi
+if [ -n "$TOKEN" ]; then
+  AGENT_LOGIN="$(GH_TOKEN="$TOKEN" gh api user --jq .login)"
+else
+  AGENT_LOGIN="$(GH_CONFIG_DIR="$HOME/.config/gh-agent" gh api user --jq .login)"
+fi
 
 elapsed=0
 wait_for() {

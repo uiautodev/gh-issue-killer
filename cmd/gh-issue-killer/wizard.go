@@ -173,6 +173,7 @@ var wizardDetectProxy = detectLocalProxy
 var wizardRepoCheck = checkRepoAccess
 var wizardModelList = listCodingAgentModels
 var wizardProxyCheck = verifyProxyReachable
+var wizardLogin = loginDeviceFlowInteractive
 
 func findDetectedAgent(detected []DetectedCodingAgent, id string) (int, bool) {
 	for index, agent := range detected {
@@ -421,7 +422,7 @@ func listCodingAgentModels(codingAgent string) []string {
 	return nil
 }
 
-// checkRepoAccess verifies gh-agent's role and webhook capability per repo.
+// checkRepoAccess verifies the token's role and webhook capability per repo.
 func checkRepoAccess(proxy *Proxy, repos []string) ([]repoAccessInfo, error) {
 	gh, err := NewGHWithTimeout(proxy, NewSilentLogger(), 20*time.Second)
 	if err != nil {
@@ -466,7 +467,7 @@ type repoAccessInfo struct {
 }
 
 func (w *wizardUI) printAccess(results []repoAccessInfo) bool {
-	w.printf("\n%s\n", w.heading("Checking gh-agent access / 检查权限…"))
+	w.printf("\n%s\n", w.heading("Checking GitHub access / 检查权限…"))
 	problem := false
 	for _, result := range results {
 		icon := w.ok("✓")
@@ -876,10 +877,6 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 	ui := newWizardUI(in, out)
 	answers := loadWizardDefaults(file)
 
-	if path, created, err := ensureGhAgentWrapper(); err == nil && created {
-		ui.printf("Created gh-agent wrapper: %s\n", path)
-	}
-
 	ui.printf("gh-issue-killer · config wizard\n\n")
 	ui.printf("Config file / 配置文件: %s\n", file)
 	if answers.fromFile {
@@ -917,11 +914,24 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 		return err
 	}
 
+	if _, tokenErr := loadAgentToken(); tokenErr != nil {
+		// With a real terminal this runs the same Device Flow as the dashboard;
+		// with piped input the wizard keeps going and prints where to log in.
+		if file, ok := in.(*os.File); ok && isTerminal(file) {
+			if _, loginErr := wizardLogin(context.Background(), proxyObject, out); loginErr != nil {
+				ui.printf("\n! GitHub login failed: %v\n", loginErr)
+			}
+		} else {
+			ui.printf("\n! No GitHub token yet: open the dashboard and log in with the bot account,\n")
+			ui.printf("  or set GH_AGENT_TOKEN, or run `gh-issue-killer -init` from a terminal.\n")
+		}
+	}
+
 	var access []repoAccessInfo
 	access, err = wizardRepoCheck(proxyObject, answers.Repos)
 	if err != nil {
-		ui.printf("\n! Could not check gh-agent access: %v\n", err)
-		ui.printf("  Set GH_AGENT_TOKEN or run: GH_CONFIG_DIR=~/.config/gh-agent gh auth login\n")
+		ui.printf("\n! Could not check GitHub access: %v\n", err)
+		ui.printf("  Log in from the dashboard (bot account) or run `gh-issue-killer -init`, or set GH_AGENT_TOKEN.\n")
 	} else if !ui.printAccess(access) {
 		ui.printf("Nothing written.\n")
 		return nil

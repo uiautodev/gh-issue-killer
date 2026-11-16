@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -324,14 +323,18 @@ func main() {
 		log.Debug("repo config: %s codingAgent=%s model=%s approvers=%s", repo.FullName, repo.CodingAgent, firstNonEmpty(repo.Model, "(default)"), strings.Join(repo.Approvers, ","))
 	}
 
-	if path, created, err := ensureGhAgentWrapper(); err != nil {
-		log.Warn("gh-agent wrapper: %v", err)
-	} else if created {
-		log.Info("created gh-agent wrapper at %s", path)
-	}
-
 	gh, err := NewGH(proxy, log)
 	if err != nil {
+		if *embedded {
+			// The desktop shell has no terminal: serve the dashboard so the
+			// login panel can mint a token, then restart into the engine.
+			port := *webPort
+			if port <= 0 || port > 65535 {
+				port = cfg.WebPort
+			}
+			serveSetup(configFile, port, err.Error())
+			return
+		}
 		log.Error("github client: %v", err)
 		os.Exit(1)
 	}
@@ -373,7 +376,7 @@ func main() {
 			os.Exit(1)
 		}
 		if !info.Permissions.Push {
-			log.Warn("%s: gh-agent has no push access; PRs/merges will fail", repo.FullName)
+			log.Warn("%s: the GitHub token has no push access; PRs/merges will fail", repo.FullName)
 		}
 		local, err := resolveRepo(ctx, repo, info, identity, token, proxy)
 		if err != nil {
@@ -384,8 +387,12 @@ func main() {
 		gh.EnsureLabels(ctx, repo.FullName)
 
 		envOverrides := goProxyEnv(proxy)
-		envOverrides["GH_CONFIG_DIR"] = filepath.Join(homeDir(), ".config", "gh-agent")
-		childEnv := mergeEnv(buildGitEnv(proxy, token, identity), envOverrides, "GH_TOKEN", "GITHUB_TOKEN")
+		// Agents and their tools may call gh directly. Give them the bot token
+		// instead of a separate config directory, so they can never fall back to
+		// the human account.
+		envOverrides["GH_TOKEN"] = token
+		envOverrides["GITHUB_TOKEN"] = token
+		childEnv := mergeEnv(buildGitEnv(proxy, token, identity), envOverrides)
 
 		contexts[repo.FullName] = &AppContext{
 			Cfg:        cfg,

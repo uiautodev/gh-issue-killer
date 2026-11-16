@@ -250,45 +250,6 @@ func TestChecksSummary(t *testing.T) {
 	}
 }
 
-func TestEnsureGhAgentWrapper(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("PATH", filepath.Join(home, "empty"))
-
-	path, created, err := ensureGhAgentWrapper()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !created {
-		t.Fatal("wrapper should be created on a clean machine")
-	}
-	want, content := ghAgentWrapperFile()
-	if path != want {
-		t.Fatalf("path = %q, want %q", path, want)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != content {
-		t.Fatalf("wrapper content = %q", data)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o755 {
-		t.Fatalf("mode = %v, want 0755", info.Mode().Perm())
-	}
-
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, created, err := ensureGhAgentWrapper(); err != nil || created {
-		t.Fatalf("existing wrapper must be kept (created=%v err=%v)", created, err)
-	}
-}
-
 func TestRouterSeparatesPlanAndWorkPools(t *testing.T) {
 	cfg := &Config{PlanParallel: 1, ImplementParallel: 1}
 	contexts := map[string]*AppContext{"repo": {}}

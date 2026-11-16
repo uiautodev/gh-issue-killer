@@ -47,6 +47,9 @@ flowchart LR
 - **可选定时发版。** 仓库可以开启自动发版：默认分支有新提交时，`feat:` 提交升
   第二位版本号、其余提交升第三位，按每天或每隔几天检查一次。重大版本（major）
   由人工打 tag。默认关闭，按项目单独配置。
+- **内置 GitHub 登录。** 不用装 `gh` 或 wrapper：桌面版/看板里点一下就用
+  GitHub Device Flow 登录小号，token 存在 `~/.gh-issue-killer/token`（0600），
+  快过期时自动续期；也支持粘贴 token。
 - **单个静态二进制。** 只发起出站 HTTPS，运行时只需要 `git`、一个编码 agent
   CLI 和一个 shell（`/bin/sh`，Windows 上是 `cmd`）。发布产物覆盖 macOS、
   Linux 和 Windows。
@@ -65,7 +68,8 @@ flowchart LR
 Linux 用 tar 包、Windows 用 zip）双击运行即可。窗口里就是同一套看板，带
 **设置** 面板（仓库、编码代理、模型、代理、各项目的定时发版、更新镜像），
 以及显示当前版本、可检查并一键升级的更新卡片。首次运行没有配置时会直接停在
-设置页；关窗口即停引擎，不会在后台留进程。看板里的链接会在系统默认浏览器中
+设置页，顶部就是 GitHub 登录（请用 GitHub 小号，不要用主账号）；关窗口即停
+引擎，不会在后台留进程。看板里的链接会在系统默认浏览器中
 打开，桌面窗口内也一样。细节见
 [DEPLOY.md](DEPLOY.md#31-desktop-app--optional)。
 
@@ -87,22 +91,21 @@ Linux 用 tar 包、Windows 用 zip）双击运行即可。窗口里就是同一
 - 配置：~/.config/gh-issue-killer/config.json
 
 不要创建 GitHub 账号或 token。允许用我的 gh 把上面这些仓库的权限授给这个 bot
-（DEPLOY.md 第 2 节）。如果没有 gh-agent 凭据（~/.config/gh-agent 或
-$GH_AGENT_TOKEN），打印出我需要执行的那一条命令后停下，然后从第 2 节继续。
+（DEPLOY.md 第 2 节）。如果还没有 bot 凭据，就用内置的 GitHub 登录（桌面版或
+看板，~/.gh-issue-killer/token），或者提示我用小号登录；不要让我去装 gh-agent。
 
 最后执行第 10 节的检查，把状态行贴出来。不要让我确认你能自己验证的步骤。
 ```
 
-agent 会按 [DEPLOY.md](DEPLOY.md) 安装二进制、按需创建 `gh-agent`
-wrapper、写配置、跑冒烟测试、启动 daemon，并回报状态。它只会在需要 bot token
-（这一步只能你本人登录）时停下来。
+agent 会按 [DEPLOY.md](DEPLOY.md) 安装二进制、写配置、跑冒烟测试、启动 daemon，
+并回报状态。它只会在需要你用 GitHub 小号登录（内置 Device Flow）时停下来。
 
-**手动安装。** 依赖：Go 1.27+、`git`、一个编码 agent CLI，以及一个有 token 的
-GitHub bot 账号（`GH_AGENT_TOKEN` 或 `~/.config/gh-agent/hosts.yml`）。
+**手动安装。** 依赖：Go 1.27+、`git`、一个编码 agent CLI，以及一个 GitHub bot
+账号（在桌面版/看板里用内置登录，或设置 `GH_AGENT_TOKEN`）。
 
 ```bash
 go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
-./bin/gh-issue-killer -init      # 向导：仓库、agent、approvers、代理
+./bin/gh-issue-killer -init      # 向导：GitHub 登录、仓库、agent、approvers、代理
 ./bin/gh-issue-killer            # 后台 daemon
 ./bin/gh-issue-killer -status    # pid、配置、日志和状态路径
 ```
@@ -133,7 +136,7 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 ## 配置
 
 ```bash
-./bin/gh-issue-killer -init      # 向导：仓库、agent、approvers、代理
+./bin/gh-issue-killer -init      # 向导：GitHub 登录、仓库、agent、approvers、代理
 ```
 
 `-init` 会写好配置；手写就是同样的 `repos` / `codingAgent` / `approvers` /

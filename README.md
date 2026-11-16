@@ -58,6 +58,10 @@ resumes it.
   version number, any other commit the third, checked once a day (or every few
   days). Major versions stay a manual decision. Off by default and configured per
   repository.
+- **Built-in GitHub login.** No `gh` or wrapper to install: the desktop app and
+  dashboard use GitHub Device Flow to log in a bot account, store the token in
+  `~/.gh-issue-killer/token` (0600) and refresh it before expiry; a pasted
+  token still works as a fallback.
 - **One static binary.** Outbound HTTPS only; at runtime it needs `git`, one
   coding-agent CLI and a shell (`/bin/sh`, `cmd` on Windows). Releases ship
   macOS, Linux and Windows builds.
@@ -80,8 +84,9 @@ or `.app`, Linux tarball, Windows zip) and launch it. The window is the same
 dashboard, with a **Settings** panel for repos, coding agent, model, proxy, each
 project's release schedule and the release mirror, plus a version card that
 checks and installs updates. Links open in your default browser, including from
-the desktop window. On first run it opens on the settings panel;
-closing the window stops the engine, so nothing is left in the background.
+the desktop window. On first run it opens on the settings panel with the
+GitHub login on top (use a bot account, not your main account); closing the
+window stops the engine, so nothing is left in the background.
 Details: [DEPLOY.md](DEPLOY.md#31-desktop-app--optional).
 
 ## Install with a coding agent
@@ -102,26 +107,27 @@ Defaults, use them without confirming:
 - binary: ~/.local/bin/gh-issue-killer, config: ~/.config/gh-issue-killer/config.json
 
 Do not create GitHub accounts or tokens. Granting this bot push/admin on the
-repos above with my gh is allowed (DEPLOY.md §2). If no gh-agent credential
-exists (~/.config/gh-agent or $GH_AGENT_TOKEN), stop after printing the exact
-single command I must run, then continue from §2.
+repos above with my gh is allowed (DEPLOY.md §2). If there is no bot credential
+yet, use the built-in GitHub login (desktop/dashboard, token file at
+~/.gh-issue-killer/token) or prompt me to log in with a bot account; do not ask
+me to install gh-agent.
 
 Finish with the §10 checks and paste the status lines. Do not ask me to confirm
 steps you can verify yourself.
 ```
 
-The agent follows [DEPLOY.md](DEPLOY.md): it installs the binary, creates the
-dedicated `gh-agent` wrapper if needed, writes the config, runs the smoke test,
-starts the daemon and reports the status lines. It stops only when it needs a
-bot token, which only you can log in for.
+The agent follows [DEPLOY.md](DEPLOY.md): it installs the binary, writes the
+config, runs the smoke test, starts the daemon and reports the status lines. It
+stops only when it needs you to log in with the GitHub bot account (the
+built-in Device Flow).
 
 **Manual install.** Requirements: Go 1.27+, `git`, one coding-agent CLI, and a
-GitHub bot account with a token (`GH_AGENT_TOKEN` or
-`~/.config/gh-agent/hosts.yml`).
+GitHub bot account (log in from the desktop app/dashboard, or set
+`GH_AGENT_TOKEN`).
 
 ```bash
 go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
-./bin/gh-issue-killer -init      # wizard: repos, agent, approvers, proxy
+./bin/gh-issue-killer -init      # wizard: GitHub login, repos, agent, approvers, proxy
 ./bin/gh-issue-killer            # background daemon
 ./bin/gh-issue-killer -status    # pid, config, log and state paths
 ```
@@ -154,7 +160,7 @@ comment**. Approval words, status labels and review rules live in
 ## Configuration
 
 ```bash
-./bin/gh-issue-killer -init      # wizard: repos, agent, approvers, proxy
+./bin/gh-issue-killer -init      # wizard: GitHub login, repos, agent, approvers, proxy
 ```
 
 `-init` writes the config for you; a hand-written JSON uses the same `repos` /

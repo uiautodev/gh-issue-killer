@@ -438,6 +438,33 @@
     border-left: 2px solid var(--work); background: rgba(240, 165, 63, .08);
     padding: 8px 11px; font-size: 11.5px; white-space: pre-wrap;
   }
+  .auth-panel {
+    border: 1px solid var(--rule); background: rgba(240, 165, 63, .05);
+    padding: 12px 13px; display: flex; flex-direction: column; gap: 9px;
+  }
+  .auth-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .auth-title { color: var(--text); font-size: 12px; letter-spacing: .04em; }
+  .auth-state { color: var(--muted); font-size: 11px; }
+  .auth-state.ok { color: var(--done); }
+  .auth-state.fail { color: var(--blocked); }
+  .auth-hint { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+  .auth-device {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 8px 10px; background: var(--ink-2); border: 1px solid var(--rule);
+  }
+  .auth-code-label { color: var(--dim); font-size: 10px; letter-spacing: .06em; }
+  .auth-code { font-size: 18px; letter-spacing: .16em; color: var(--wait); font-weight: 600; }
+  .auth-link {
+    border: 1px solid var(--rule); padding: 4px 9px; font-size: 11px; color: var(--text);
+  }
+  .auth-link:hover { background: var(--rule-soft); }
+  .auth-paste summary { color: var(--muted); font-size: 11px; cursor: pointer; }
+  .auth-paste .field-row { margin-top: 8px; align-items: flex-end; }
+  .auth-paste button {
+    border: 1px solid var(--rule); padding: 6px 13px; color: var(--text); font-size: 11px;
+  }
+  .auth-paste button:hover { background: var(--rule-soft); }
+  .auth-paste button:disabled { opacity: .5; cursor: default; }
   .detect-grid { display: flex; flex-direction: column; gap: 5px; font-size: 10.5px; color: var(--muted); }
   .detect-grid .detect-row { display: flex; gap: 12px; flex-wrap: wrap; }
   .detect-grid .ok { color: var(--done); }
@@ -533,6 +560,32 @@
       <button class="drawer-close" id="settings-close" type="button" data-i18n-aria="settings.close">×</button>
     </div>
     <div class="settings-body">
+      <section class="auth-panel" id="auth-panel">
+        <div class="auth-head">
+          <span class="auth-title" data-i18n="auth.title">GitHub 登录</span>
+          <span class="auth-state" id="auth-state">–</span>
+        </div>
+        <p class="auth-hint" id="auth-hint" data-i18n="auth.hint">请用 GitHub 小号（不要用主账号）登录。</p>
+        <div class="auth-device" id="auth-device" hidden>
+          <span class="auth-code-label" data-i18n="auth.code">一次性代码</span>
+          <code class="auth-code" id="auth-code">----</code>
+          <button type="button" class="auth-link" id="auth-link" data-i18n="auth.open">打开 GitHub 授权页</button>
+        </div>
+        <div class="settings-actions">
+          <button type="button" id="auth-login" data-i18n="auth.login">登录 GitHub</button>
+          <span class="result" id="auth-result" role="status"></span>
+        </div>
+        <details class="auth-paste">
+          <summary data-i18n="auth.pasteToggle">用 token 登录（兜底）</summary>
+          <div class="field-row">
+            <label class="field">
+              <span data-i18n="auth.pasteLabel">Personal access token</span>
+              <input id="auth-token" type="password" spellcheck="false" autocomplete="off" data-i18n-ph="auth.pastePlaceholder" placeholder="ghp_…">
+            </label>
+            <button type="button" id="auth-paste" data-i18n="auth.pasteSave">保存 token</button>
+          </div>
+        </details>
+      </section>
       <div class="setup-note" id="settings-note" hidden></div>
       <form class="settings-form" id="settings-form" autocomplete="off">
         <label class="field">
@@ -662,7 +715,7 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const state = { data: null, filter: "all", hideFinished: false, repo: "", search: "", selected: null, logPaused: false, logOpen: true, failures: 0, down: false, live: false, drawerSig: "", lang: "zh", configDoc: null, configDefaults: {}, settingsOpen: false, setupShown: false, agents: [], update: null };
+  const state = { data: null, filter: "all", hideFinished: false, repo: "", search: "", selected: null, logPaused: false, logOpen: true, failures: 0, down: false, live: false, drawerSig: "", lang: "zh", configDoc: null, configDefaults: {}, settingsOpen: false, setupShown: false, agents: [], update: null, auth: null, authDevice: null, authTimer: null };
 
   // The desktop shell appends ?surface=desktop. Its WKWebView drops
   // target="_blank" clicks, so a link is posted to the engine, which opens the
@@ -757,6 +810,28 @@
       "settings.detectedRepos": "仓库权限",
       "settings.noAgents": "PATH 上没有受支持的编码代理",
       "settings.noProxy": "未检测到可用的本地代理",
+      "auth.title": "GitHub 登录",
+      "auth.hint": "请用 GitHub 小号（不要用主账号）登录：桌面版首次启动就需要它来提交代码、开 PR。",
+      "auth.hintBot": "请用 GitHub 小号（不要用主账号）登录。",
+      "auth.hintRefresh": "token 快过期时会自动续期；续期失败再回来重新登录。",
+      "auth.code": "一次性代码",
+      "auth.open": "打开 GitHub 授权页",
+      "auth.login": "登录 GitHub",
+      "auth.relogin": "重新登录",
+      "auth.starting": "正在申请登录代码…",
+      "auth.waiting": "等待你在浏览器里授权…",
+      "auth.success": "已登录 {login}，引擎正在重启",
+      "auth.failed": "登录失败：{msg}",
+      "auth.loggedIn": "已登录",
+      "auth.loggedInAs": "已登录 {login}",
+      "auth.loggedOut": "未登录",
+      "auth.pasteToggle": "用 token 登录（兜底）",
+      "auth.pasteLabel": "Personal access token",
+      "auth.pastePlaceholder": "ghp_…",
+      "auth.pasteSave": "保存 token",
+      "auth.pasting": "验证 token…",
+      "auth.pasted": "已保存 {login} 的 token，引擎正在重启",
+      "auth.pasteFailed": "保存失败：{msg}",
     },
     en: {
       "document.title": "gh-issue-killer · Dashboard",
@@ -829,6 +904,28 @@
       "settings.detectedRepos": "Repo access",
       "settings.noAgents": "No supported coding agent on PATH",
       "settings.noProxy": "No working local proxy detected",
+      "auth.title": "GitHub login",
+      "auth.hint": "Log in with a GitHub bot account (not your main account): the desktop app needs it to push commits and open PRs.",
+      "auth.hintBot": "Log in with a GitHub bot account (not your main account).",
+      "auth.hintRefresh": "The token is refreshed before it expires; log in again if refreshing fails.",
+      "auth.code": "One-time code",
+      "auth.open": "Open GitHub authorization",
+      "auth.login": "Log in with GitHub",
+      "auth.relogin": "Log in again",
+      "auth.starting": "Requesting a login code…",
+      "auth.waiting": "Waiting for you to authorize in the browser…",
+      "auth.success": "Logged in as {login}, restarting the engine",
+      "auth.failed": "Login failed: {msg}",
+      "auth.loggedIn": "Logged in",
+      "auth.loggedInAs": "Logged in as {login}",
+      "auth.loggedOut": "Not logged in",
+      "auth.pasteToggle": "Use a pasted token instead",
+      "auth.pasteLabel": "Personal access token",
+      "auth.pastePlaceholder": "ghp_…",
+      "auth.pasteSave": "Save token",
+      "auth.pasting": "Verifying token…",
+      "auth.pasted": "Saved {login}'s token, restarting the engine",
+      "auth.pasteFailed": "Could not save: {msg}",
     },
   };
 
@@ -1884,6 +1981,133 @@
     holder.hidden = holder.childElementCount === 0;
   }
 
+  function updateAuthHint(authenticated, refreshable) {
+    const hint = $("auth-hint");
+    hint.textContent = authenticated
+      ? t(refreshable ? "auth.hintRefresh" : "auth.hintBot")
+      : t("auth.hint");
+  }
+
+  function renderAuth(data) {
+    state.auth = data;
+    const status = $("auth-state");
+    status.className = "auth-state";
+    if (data.authenticated) {
+      const login = data.login ? "@" + data.login : "";
+      status.classList.add("ok");
+      status.textContent = login ? t("auth.loggedInAs", { login }) : t("auth.loggedIn");
+      $("auth-login").textContent = t("auth.relogin");
+    } else {
+      status.classList.add("fail");
+      status.textContent = t("auth.loggedOut");
+      $("auth-login").textContent = t("auth.login");
+      $("auth-token").value = "";
+    }
+    updateAuthHint(data.authenticated, data.refreshable);
+    if (data.pending && data.device) openAuthDevice(data.device);
+  }
+
+  function openAuthDevice(device) {
+    state.authDevice = device || null;
+    if (state.authTimer) {
+      clearTimeout(state.authTimer);
+      state.authTimer = null;
+    }
+    $("auth-device").hidden = !device;
+    if (!device) return;
+    $("auth-code").textContent = device.userCode || "----";
+    $("auth-result").textContent = t("auth.waiting");
+    $("auth-result").className = "result";
+    const delay = Math.max(2, Math.min(10, device.interval || 5)) * 1000;
+    state.authTimer = setTimeout(pollAuthDevice, delay);
+  }
+
+  async function pollAuthDevice() {
+    state.authTimer = null;
+    try {
+      const response = await fetch("/api/auth/device", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "HTTP " + response.status);
+      if (data.pending) {
+        openAuthDevice(data.device);
+        return;
+      }
+      $("auth-device").hidden = true;
+      $("auth-result").textContent = t("auth.success", { login: data.login ? "@" + data.login : "" });
+      $("auth-result").className = "result ok";
+      renderAuth(data);
+    } catch (err) {
+      $("auth-device").hidden = true;
+      $("auth-result").textContent = t("auth.failed", { msg: err.message });
+      $("auth-result").className = "result fail";
+    }
+  }
+
+  async function startAuthLogin() {
+    const button = $("auth-login");
+    button.disabled = true;
+    $("auth-result").textContent = t("auth.starting");
+    $("auth-result").className = "result";
+    try {
+      const response = await fetch("/api/auth/device", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "HTTP " + response.status);
+      // renderAuth starts the poll timer when the payload carries a device code.
+      renderAuth(data);
+    } catch (err) {
+      $("auth-result").textContent = t("auth.failed", { msg: err.message });
+      $("auth-result").className = "result fail";
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function pasteAuthToken() {
+    const token = $("auth-token").value.trim();
+    if (!token) {
+      $("auth-result").textContent = t("auth.failed", { msg: "token is required" });
+      $("auth-result").className = "result fail";
+      return;
+    }
+    const button = $("auth-paste");
+    button.disabled = true;
+    $("auth-result").textContent = t("auth.pasting");
+    $("auth-result").className = "result";
+    try {
+      const response = await fetch("/api/auth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "HTTP " + response.status);
+      $("auth-token").value = "";
+      $("auth-result").textContent = t("auth.pasted", { login: data.login ? "@" + data.login : "" });
+      $("auth-result").className = "result ok";
+      renderAuth({ authenticated: true, login: data.login, source: "token" });
+    } catch (err) {
+      $("auth-result").textContent = t("auth.pasteFailed", { msg: err.message });
+      $("auth-result").className = "result fail";
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function loadAuth() {
+    try {
+      const response = await fetch("/api/auth", { cache: "no-store" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      renderAuth(await response.json());
+    } catch (err) {
+      $("auth-state").textContent = t("auth.failed", { msg: err.message });
+      $("auth-state").className = "auth-state fail";
+    }
+  }
+
   function applyConfigPayload(data) {
     state.configDoc = data.config || {};
     state.configDefaults = data.defaults || {};
@@ -1926,6 +2150,7 @@
     state.settingsOpen = true;
     state.setupShown = true;
     loadConfig();
+    loadAuth();
   }
 
   function closeSettings() {
@@ -2158,6 +2383,11 @@
       // for repos that stay in the list.
       renderReleases(state.configDoc || {}, parseRepoNames($("cfg-repos").value), true);
     });
+    $("auth-login").addEventListener("click", startAuthLogin);
+    $("auth-link").addEventListener("click", () => {
+      if (state.authDevice) openExternal(state.authDevice.verificationUri);
+    });
+    $("auth-paste").addEventListener("click", pasteAuthToken);
     $("settings-detect").addEventListener("click", runDetect);
     $("settings-restart").addEventListener("click", restartEngine);
     $("settings-reload").addEventListener("click", loadConfig);
