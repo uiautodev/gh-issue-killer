@@ -105,6 +105,7 @@ Verify identity and per-repo permission (the token file is JSON):
 
 ```bash
 AGENT_TOKEN="${GH_AGENT_TOKEN:-$(jq -r .access_token "$HOME/.gh-issue-killer/token" 2>/dev/null || true)}"
+[ -n "$AGENT_TOKEN" ] || { echo "no bot token: log in from the dashboard first" >&2; exit 1; }
 GH_TOKEN="$AGENT_TOKEN" gh api user --jq .login                # must print $AGENT_LOGIN
 for r in $REPOS; do GH_TOKEN="$AGENT_TOKEN" gh api "repos/$r" --jq '{repo:.full_name,push:.permissions.push,admin:.permissions.admin}'; done
 ```
