@@ -537,7 +537,8 @@ empty states, lives in the `zh`/`en` tables in `$lib/i18n.svelte.ts`;
 the browser. `planParallel` and `implementParallel` size each repository's own
 pool, so the PLAN/WORK meters are rendered per repository line rather than
 globally. A board toggle hides `done` and `cancelled` tasks on top of the other
-filters; it is off by default.
+filters; it is on by default, so the board opens on active work. The console
+starts collapsed for the same reason and only polls `/api/logs` once expanded.
 
 The settings button opens a panel over the board: repos (array, array of
 objects or object form, with per-repo overrides preserved), one release row per

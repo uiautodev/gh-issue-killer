@@ -55,6 +55,7 @@
 				dashboard.hideFinished && 'border-phase-wait/60 text-phase-wait'
 			)}
 			aria-pressed={dashboard.hideFinished}
+			data-testid="hide-finished"
 			onclick={() => (dashboard.hideFinished = !dashboard.hideFinished)}
 		>
 			{t('filter.hideDone')}

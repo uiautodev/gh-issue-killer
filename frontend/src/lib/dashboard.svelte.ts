@@ -26,7 +26,9 @@ interface Feedback {
 class DashboardStore {
 	data = $state<Snapshot | null>(null);
 	filter = $state<Filter>('all');
-	hideFinished = $state(false);
+	// Finished work stays out of the way until the toggle is pressed: the
+	// board is for what needs attention, not the archive.
+	hideFinished = $state(true);
 	repo = $state('');
 	search = $state('');
 
@@ -43,7 +45,9 @@ class DashboardStore {
 
 	logText = $state('');
 	logPaused = $state(false);
-	logOpen = $state(true);
+	// The console is a diagnostic surface, so it starts collapsed and only
+	// polls /api/logs after the user expands it.
+	logOpen = $state(false);
 
 	settingsOpen = $state(false);
 	setupShown = $state(false);
