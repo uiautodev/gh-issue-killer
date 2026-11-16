@@ -1,3 +1,5 @@
+<p align="center"><img src="cmd/gh-issue-killer/web/logo.svg" width="88" height="88" alt="gh-issue-killer"></p>
+
 # gh-issue-killer
 
 [简体中文](README.zh-CN.md)
