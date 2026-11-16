@@ -64,11 +64,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14 # arm64
+          # macos-14 was retired on 2026-11-02; macos-15 is the arm64 image.
+          - runner: macos-15 # arm64
             os: darwin
           - runner: macos-15-intel # amd64
             os: darwin
-          - runner: ubuntu-22.04
+          # Wails v3 links GTK4 + webkitgtk-6.0, which Ubuntu 22.04 does not
+          # package; 24.04 has both.
+          - runner: ubuntu-24.04
             os: linux
           - runner: windows-latest
             os: windows
@@ -84,7 +87,7 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 
       - name: build bundle (macOS/Linux)
         if: matrix.os != 'windows'
@@ -95,47 +98,12 @@ jobs:
         shell: pwsh
         run: ./desktop/build/package.ps1 -Version $env:GITHUB_REF_NAME
 
-      - name: build AppImage (Linux)
-        if: matrix.os == 'linux'
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME}"
-          name="gh-issue-killer-desktop_${version}_linux_amd64"
-          dist="desktop/build/dist"
-          appdir="${dist}/AppDir"
-          rm -rf "$appdir"
-          tar -C "$dist" -xzf "${dist}/${name}.tar.gz"
-          mkdir -p "$appdir/usr/bin" "$appdir/usr/share/icons/hicolor/256x256/apps"
-          cp "${dist}/${name}/gh-issue-killer" "${dist}/${name}/gh-issue-killer-desktop" "$appdir/usr/bin/"
-          cp desktop/build/appicon.png "$appdir/gh-issue-killer.png"
-          cp desktop/build/appicon.png "$appdir/usr/share/icons/hicolor/256x256/apps/gh-issue-killer.png"
-          cat >"$appdir/gh-issue-killer.desktop" <<'EOF'
-          [Desktop Entry]
-          Type=Application
-          Name=gh-issue-killer
-          Exec=gh-issue-killer-desktop
-          Icon=gh-issue-killer
-          Categories=Development;
-          EOF
-          cat >"$appdir/AppRun" <<'EOF'
-          #!/bin/sh
-          exec "$APPDIR/usr/bin/gh-issue-killer-desktop" "$@"
-          EOF
-          chmod +x "$appdir/AppRun"
-          curl -fsSL -o /tmp/appimagetool \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x /tmp/appimagetool
-          ARCH=x86_64 /tmp/appimagetool --appimage-extract-and-run --no-appstream \
-            "$appdir" "${dist}/${name}.AppImage"
-
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.runner }}
           path: |
             desktop/build/dist/*.zip
             desktop/build/dist/*.tar.gz
-            desktop/build/dist/*.AppImage
           if-no-files-found: error
 
   publish:
@@ -151,11 +119,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          files=$(ls *.tar.gz *.zip 2>/dev/null || true)
-          if ls *.AppImage >/dev/null 2>&1; then
-            files="$files $(ls *.AppImage)"
-          fi
-          sha256sum $files > checksums.txt
+          sha256sum *.tar.gz *.zip > checksums.txt
           cat checksums.txt
 
       - name: publish

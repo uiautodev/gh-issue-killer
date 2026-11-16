@@ -4,8 +4,8 @@
 //
 // It is an independent Go module so the daemon's dependency set stays at
 // fsnotify. Build it from this directory with `go build .`; the release
-// workflow packages the macOS .app, a Linux tarball/AppImage and a Windows zip
-// with desktop/build/package.sh.
+// workflow packages the macOS .app, a Linux tarball and a Windows zip with
+// desktop/build/package.sh.
 package main
 
 import (

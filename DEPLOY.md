@@ -152,7 +152,7 @@ daemon, no terminal wizard. Download the bundle for the platform:
 | platform | asset | contents |
 | --- | --- | --- |
 | macOS | `gh-issue-killer-desktop_<version>_darwin_<arch>.zip` | `gh-issue-killer.app` (shell + engine inside `Contents/MacOS/`) |
-| Linux | `gh-issue-killer-desktop_<version>_linux_<arch>.tar.gz` (or `.AppImage`) | `gh-issue-killer-desktop` + `gh-issue-killer` |
+| Linux | `gh-issue-killer-desktop_<version>_linux_<arch>.tar.gz` | `gh-issue-killer-desktop` + `gh-issue-killer` |
 | Windows | `gh-issue-killer-desktop_<version>_windows_amd64.zip` | `gh-issue-killer-desktop.exe` + `gh-issue-killer.exe` |
 
 Unzip and launch. On first run there is no config, so the window opens on the

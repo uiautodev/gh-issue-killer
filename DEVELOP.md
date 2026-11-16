@@ -529,8 +529,11 @@ locally modified bundle.
 
 The release workflow (`v*` tag) builds the daemon archives for Linux, macOS and
 Windows, the desktop bundles per runner, and publishes `checksums.txt` with
-everything. A failed build in the desktop matrix blocks the release, but the
-AppImage step is best-effort so the tarball still ships.
+everything. A failed build in the desktop matrix blocks the release. The macOS
+arm64 bundle comes from `macos-15` (the `macos-14` image was retired); the Linux
+leg runs on `ubuntu-24.04` because Wails v3 links GTK4 and webkitgtk-6.0, which
+Ubuntu 22.04 does not package. Linux ships only the tarball — the AppImage step
+was best-effort and added a second toolchain for no extra coverage.
 
 ## 17. Testing
 

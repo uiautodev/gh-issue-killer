@@ -76,7 +76,7 @@ update mirror and each project's release schedule.
 
 No terminal needed: download the desktop bundle from
 [Releases](https://github.com/uiautodev/gh-issue-killer/releases) (macOS `.app`,
-Linux tarball/AppImage, Windows zip) and launch it. The window is the same
+Linux tarball, Windows zip) and launch it. The window is the same
 dashboard, with a **Settings** panel for repos, coding agent, model, proxy, each
 project's release schedule and the release mirror, plus a version card that
 checks and installs updates. On first run it opens on the settings panel;

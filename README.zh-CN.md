@@ -61,7 +61,7 @@ flowchart LR
 ### 桌面版
 
 不用开终端：从 [Releases](https://github.com/uiautodev/gh-issue-killer/releases)
-下载对应平台的桌面包（macOS `.app`、Linux tar 包/AppImage、Windows zip）双击
+下载对应平台的桌面包（macOS `.app`、Linux tar 包、Windows zip）双击
 运行即可。窗口里就是同一套看板，带 **设置** 面板（仓库、编码代理、模型、代理、
 各项目的定时发版、更新镜像），以及显示当前版本、可检查并一键升级的更新卡片。
 首次运行没有配置时会直接停在设置页；关窗口即停引擎，不会在后台留进程。细节见
