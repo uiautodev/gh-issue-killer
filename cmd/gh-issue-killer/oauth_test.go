@@ -514,3 +514,22 @@ func TestGHRefreshIsSerializedAcrossPollers(t *testing.T) {
 		t.Fatalf("refresh calls = %d, want 1", refreshCalls)
 	}
 }
+
+func TestAuthStatusExpiredTokenAsksForLogin(t *testing.T) {
+	web, _ := newAuthTestWeb(t)
+	if err := saveTokenRecord(tokenRecord{
+		AccessToken:  "expired",
+		RefreshToken: "refresh",
+		ExpiresAt:    time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+		Login:        "bot",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	payload := web.authStatus()
+	if payload.Authenticated {
+		t.Fatalf("expired token reported as authenticated: %+v", payload)
+	}
+	if !payload.Refreshable || payload.Login != "bot" {
+		t.Fatalf("payload = %+v", payload)
+	}
+}

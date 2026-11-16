@@ -74,7 +74,10 @@ func (w *webServer) authStatus() authPayload {
 		payload.Authenticated = true
 		payload.Source = "env"
 	} else if record, err := loadTokenRecord(); err == nil && record.AccessToken != "" {
-		payload.Authenticated = true
+		expires := parseTokenTime(record.ExpiresAt)
+		// A token that is already past its expiry only means the startup refresh
+		// failed (network, revoked refresh token): ask the user to log in again.
+		payload.Authenticated = expires.IsZero() || time.Now().Before(expires)
 		payload.Source = "token"
 		payload.Login = record.Login
 		payload.ExpiresAt = record.ExpiresAt
