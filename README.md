@@ -199,5 +199,15 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 Internals and releases (a `v*` tag drives the workflow) are in
 [DEVELOP.md](DEVELOP.md); contributor rules are in [AGENTS.md](AGENTS.md).
 
+## Contributors
+
+Found a bug or have an idea? [Open an issue](https://github.com/uiautodev/gh-issue-killer/issues/new)
+or send a pull request — the contributor rules are in [AGENTS.md](AGENTS.md).
+Thanks to everyone who has contributed!
+
+<a href="https://github.com/uiautodev/gh-issue-killer/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=uiautodev/gh-issue-killer" alt="Contributors of gh-issue-killer" />
+</a>
+
 ## License
 [MIT](LICENSE)

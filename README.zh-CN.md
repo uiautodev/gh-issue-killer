@@ -179,5 +179,14 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 
 <img src="assets/sponsor.png" alt="打赏二维码" width="240">
 
+## 贡献者
+
+发现 bug 或者有好点子？欢迎[提 issue](https://github.com/uiautodev/gh-issue-killer/issues/new)
+或直接提 PR，贡献规则见 [AGENTS.md](AGENTS.md)。感谢每一位贡献者！
+
+<a href="https://github.com/uiautodev/gh-issue-killer/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=uiautodev/gh-issue-killer" alt="gh-issue-killer 的贡献者" />
+</a>
+
 ## License
 [MIT](LICENSE)
