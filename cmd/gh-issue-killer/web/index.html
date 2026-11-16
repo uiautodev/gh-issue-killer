@@ -664,6 +664,23 @@
   const $ = (id) => document.getElementById(id);
   const state = { data: null, filter: "all", hideFinished: false, repo: "", search: "", selected: null, logPaused: false, logOpen: true, failures: 0, down: false, live: false, drawerSig: "", lang: "zh", configDoc: null, configDefaults: {}, settingsOpen: false, setupShown: false, agents: [], update: null };
 
+  // The desktop shell appends ?surface=desktop. Its WKWebView drops
+  // target="_blank" clicks, so a link is posted to the engine, which opens the
+  // system browser. A normal browser keeps window.open.
+  const desktopSurface = new URLSearchParams(location.search).get("surface") === "desktop";
+  function openExternal(url) {
+    if (!/^https?:\/\//i.test(url)) return;
+    if (!desktopSurface) {
+      window.open(url, "_blank", "noopener");
+      return;
+    }
+    fetch("/api/open-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    }).catch(() => {});
+  }
+
   const LANG_KEY = "ghik-lang";
   // Every user-visible string lives here. Chinese keeps the dashboard's
   // existing mixed labels (LINES, DAEMON, ...) so switching to English only
@@ -960,6 +977,10 @@
           a.target = "_blank";
           a.rel = "noreferrer";
           a.textContent = link[1];
+          a.addEventListener("click", (event) => {
+            event.preventDefault();
+            openExternal(link[2]);
+          });
           frag.appendChild(a);
         } else {
           frag.appendChild(document.createTextNode(token));
@@ -1329,7 +1350,11 @@
         link.rel = "noreferrer";
         link.textContent = "#" + task.prNumber;
         link.className = "pr";
-        link.addEventListener("click", (event) => event.stopPropagation());
+        link.addEventListener("click", (event) => {
+          event.stopPropagation();
+          event.preventDefault();
+          openExternal(link.href);
+        });
         prCell.appendChild(link);
       } else {
         prCell.appendChild(text("span", "–", "time"));
@@ -1392,11 +1417,13 @@
     if (task.url) {
       const a = document.createElement("a");
       a.href = task.url; a.target = "_blank"; a.rel = "noreferrer"; a.textContent = t("drawer.openIssue");
+      a.addEventListener("click", (event) => { event.preventDefault(); openExternal(a.href); });
       links.appendChild(a);
     }
     if (task.prUrl) {
       const a = document.createElement("a");
       a.href = task.prUrl; a.target = "_blank"; a.rel = "noreferrer"; a.textContent = t("drawer.openPR", { n: task.prNumber });
+      a.addEventListener("click", (event) => { event.preventDefault(); openExternal(a.href); });
       links.appendChild(a);
     }
     if (links.childNodes.length) body.appendChild(links);
@@ -2119,6 +2146,10 @@
       if (state.data) renderTasks(state.data);
     });
     $("d-close").addEventListener("click", closeDrawer);
+    $("gh-link").addEventListener("click", (event) => {
+      event.preventDefault();
+      openExternal($("gh-link").href);
+    });
     $("settings-open").addEventListener("click", () => (state.settingsOpen ? closeSettings() : openSettings()));
     $("settings-close").addEventListener("click", closeSettings);
     $("settings-form").addEventListener("submit", saveSettings);

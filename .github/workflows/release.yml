@@ -104,6 +104,7 @@ jobs:
           path: |
             desktop/build/dist/*.zip
             desktop/build/dist/*.tar.gz
+            desktop/build/dist/*.dmg
           if-no-files-found: error
 
   publish:
@@ -119,7 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum *.tar.gz *.zip > checksums.txt
+          sha256sum *.tar.gz *.zip *.dmg > checksums.txt
           cat checksums.txt
 
       - name: publish

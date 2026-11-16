@@ -6,6 +6,8 @@
 	<string>en</string>
 	<key>CFBundleExecutable</key>
 	<string>gh-issue-killer-desktop</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.uiautodev.gh-issue-killer</string>
 	<key>CFBundleInfoDictionaryVersion</key>

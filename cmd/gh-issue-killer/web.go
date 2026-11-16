@@ -124,6 +124,7 @@ func startWeb(cfg *Config, router *Router, store *Store, log *Logger, opts webOp
 	mux.HandleFunc("/api/issue", web.handleIssue)
 	mux.HandleFunc("/api/logs", web.handleLogs)
 	mux.HandleFunc("/api/action", web.handleAction)
+	mux.HandleFunc("/api/open-url", web.handleOpenURL)
 	mux.HandleFunc("/api/config", web.handleConfig)
 	mux.HandleFunc("/api/detect", web.handleDetect)
 	mux.HandleFunc("/api/restart", web.handleRestart)
@@ -173,26 +174,16 @@ func (w *webServer) handleLogo(rw http.ResponseWriter, req *http.Request) {
 // only, but browsers can still be tricked into cross-origin POSTs, so require
 // a JSON content type and a loopback Origin.
 func (w *webServer) handleAction(rw http.ResponseWriter, req *http.Request) {
-	writeJSON := func(status int, ok bool, message string) {
-		rw.Header().Set("Content-Type", "application/json; charset=utf-8")
-		rw.Header().Set("Cache-Control", "no-store")
-		rw.WriteHeader(status)
-		payload := map[string]any{"ok": ok}
-		if message != "" {
-			payload["error"] = message
-		}
-		_ = json.NewEncoder(rw).Encode(payload)
-	}
 	if req.Method != http.MethodPost {
-		writeJSON(http.StatusMethodNotAllowed, false, "POST required")
+		writeWebJSON(rw, http.StatusMethodNotAllowed, false, "POST required")
 		return
 	}
 	if !strings.HasPrefix(req.Header.Get("Content-Type"), "application/json") {
-		writeJSON(http.StatusUnsupportedMediaType, false, "application/json required")
+		writeWebJSON(rw, http.StatusUnsupportedMediaType, false, "application/json required")
 		return
 	}
 	if !w.loopbackOrigin(req) {
-		writeJSON(http.StatusForbidden, false, "forbidden origin")
+		writeWebJSON(rw, http.StatusForbidden, false, "forbidden origin")
 		return
 	}
 	var body struct {
@@ -201,33 +192,83 @@ func (w *webServer) handleAction(rw http.ResponseWriter, req *http.Request) {
 		Action string `json:"action"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(rw, req.Body, 4096)).Decode(&body); err != nil {
-		writeJSON(http.StatusBadRequest, false, "bad request")
+		writeWebJSON(rw, http.StatusBadRequest, false, "bad request")
 		return
 	}
 	var err error
 	switch body.Action {
 	case "approve":
 		if w.router == nil {
-			writeJSON(http.StatusConflict, false, "setup mode: save a config first")
+			writeWebJSON(rw, http.StatusConflict, false, "setup mode: save a config first")
 			return
 		}
 		err = w.router.WebApprove(body.Repo, body.Number)
 	case "cancel":
 		if w.router == nil {
-			writeJSON(http.StatusConflict, false, "setup mode: save a config first")
+			writeWebJSON(rw, http.StatusConflict, false, "setup mode: save a config first")
 			return
 		}
 		err = w.router.WebCancel(body.Repo, body.Number)
 	default:
-		writeJSON(http.StatusBadRequest, false, "unknown action")
+		writeWebJSON(rw, http.StatusBadRequest, false, "unknown action")
 		return
 	}
 	if err != nil {
-		writeJSON(http.StatusConflict, false, err.Error())
+		writeWebJSON(rw, http.StatusConflict, false, err.Error())
 		return
 	}
 	w.log.Info("web action %s on %s#%d", body.Action, body.Repo, body.Number)
-	writeJSON(http.StatusOK, true, "")
+	writeWebJSON(rw, http.StatusOK, true, "")
+}
+
+// handleOpenURL opens an external link from the dashboard in the system
+// browser. The desktop window is a WKWebView, which ignores target="_blank"
+// and cannot start a browser itself, so the page posts the click here. The
+// same JSON + loopback Origin checks as /api/action apply: a hostile page must
+// not be able to spray windows at the user.
+func (w *webServer) handleOpenURL(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		writeWebJSON(rw, http.StatusMethodNotAllowed, false, "POST required")
+		return
+	}
+	if !strings.HasPrefix(req.Header.Get("Content-Type"), "application/json") {
+		writeWebJSON(rw, http.StatusUnsupportedMediaType, false, "application/json required")
+		return
+	}
+	if !w.loopbackOrigin(req) {
+		writeWebJSON(rw, http.StatusForbidden, false, "forbidden origin")
+		return
+	}
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(rw, req.Body, 4096)).Decode(&body); err != nil {
+		writeWebJSON(rw, http.StatusBadRequest, false, "bad request")
+		return
+	}
+	target, err := url.Parse(strings.TrimSpace(body.URL))
+	if err != nil || (target.Scheme != "http" && target.Scheme != "https") || target.Host == "" {
+		writeWebJSON(rw, http.StatusBadRequest, false, "only http(s) URLs can be opened")
+		return
+	}
+	if err := openExternalURL(target.String()); err != nil {
+		writeWebJSON(rw, http.StatusInternalServerError, false, "open browser: "+err.Error())
+		return
+	}
+	w.log.Info("web open external link on %s", target.Host)
+	writeWebJSON(rw, http.StatusOK, true, "")
+}
+
+// writeWebJSON keeps API errors in one shape: {"ok":false,"error":"..."}.
+func writeWebJSON(rw http.ResponseWriter, status int, ok bool, message string) {
+	rw.Header().Set("Content-Type", "application/json; charset=utf-8")
+	rw.Header().Set("Cache-Control", "no-store")
+	rw.WriteHeader(status)
+	payload := map[string]any{"ok": ok}
+	if message != "" {
+		payload["error"] = message
+	}
+	_ = json.NewEncoder(rw).Encode(payload)
 }
 
 func (w *webServer) loopbackOrigin(req *http.Request) bool {

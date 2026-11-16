@@ -47,7 +47,7 @@ func main() {
 		Height:    900,
 		MinWidth:  900,
 		MinHeight: 600,
-		URL:       url,
+		URL:       url + "?surface=desktop",
 	})
 	app.OnShutdown(supervisor.Stop)
 	if err := app.Run(); err != nil {

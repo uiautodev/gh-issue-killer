@@ -151,14 +151,17 @@ daemon, no terminal wizard. Download the bundle for the platform:
 
 | platform | asset | contents |
 | --- | --- | --- |
-| macOS | `gh-issue-killer-desktop_<version>_darwin_<arch>.zip` | `gh-issue-killer.app` (shell + engine inside `Contents/MacOS/`) |
+| macOS | `gh-issue-killer-desktop_<version>_darwin_<arch>.zip` or `.dmg` | `gh-issue-killer.app` with `AppIcon.icns` (shell + engine inside `Contents/MacOS/`); the DMG adds an `/Applications` shortcut |
 | Linux | `gh-issue-killer-desktop_<version>_linux_<arch>.tar.gz` | `gh-issue-killer-desktop` + `gh-issue-killer` |
 | Windows | `gh-issue-killer-desktop_<version>_windows_amd64.zip` | `gh-issue-killer-desktop.exe` + `gh-issue-killer.exe` |
 
-Unzip and launch. On first run there is no config, so the window opens on the
+Open the DMG and drag the app onto `/Applications`, or unzip the archive and
+launch it. On first run there is no config, so the window opens on the
 settings panel: fill in repos, coding agent, model, proxy (and optionally the
 update mirror `gh-proxy.com`), save, and the engine restarts with it. Closing
 the window stops the engine — nothing is left in the background.
+Links in the dashboard open in the system browser, including when the window
+is the embedded desktop one.
 
 - Config file: `~/.config/gh-issue-killer/config.json` (`GHIK_CONFIG` overrides).
 - State/logs: `~/.gh-issue-killer` — the same as the daemon.
@@ -169,9 +172,12 @@ the window stops the engine — nothing is left in the background.
   download and checksum succeed, and the old binary stays on any failure.
 - `GHIK_ENGINE` points the shell at a different engine binary (development).
 - Build from source: `cd desktop && go build .`, then
-  `desktop/build/package.sh vX.Y.Z` (macOS/Linux) or
+  `desktop/build/package.sh vX.Y.Z` (macOS/Linux; macOS also gets a DMG) or
   `desktop/build/package.ps1 -Version vX.Y.Z` (Windows). `wails3` is not needed:
   there is no frontend build, the window loads the engine's dashboard.
+- The macOS bundle is not signed or notarised. If Gatekeeper refuses the first
+  launch, use Open from the Finder context menu or
+  `xattr -dr com.apple.quarantine gh-issue-killer.app`.
 
 ## 4. Configure — do not use `-init` in automation
 

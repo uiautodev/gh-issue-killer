@@ -26,7 +26,7 @@ dependency (`fsnotify`):
 
 ```bash
 cd desktop && go build .        # Wails 3 window; needs the wails v3 module
-desktop/build/package.sh v1.2.3 # macOS .app / Linux tarball; .ps1 on Windows
+desktop/build/package.sh v1.2.3 # macOS .app + .dmg / Linux tarball; .ps1 on Windows
 ```
 
 Go 1.27 (see `go.mod`). The only direct dependency is `github.com/fsnotify/fsnotify`;
@@ -136,7 +136,8 @@ dependencies.
 | `shots.go` | screenshot collection, before/after composition, upload |
 | `proxy.go` | SOCKS5/HTTP proxies for HTTP clients, git and child processes |
 | `wizard.go` | `-init` interactive setup |
-| `web.go`, `web/` | loopback dashboard, `/api/state`, `/api/issue`, `/api/logs`, `/api/action` |
+| `web.go`, `web/` | loopback dashboard, `/api/state`, `/api/issue`, `/api/logs`, `/api/action`, `/api/open-url` |
+| `openurl.go` | opens an external http(s) link in the platform browser (`open`/`xdg-open`/`rundll32`) |
 | `webconfig.go` | settings API: `/api/config`, `/api/detect`, `/api/restart`, `/api/update` |
 | `messages.go` | scaffolding text (headings, hints, footers) in Chinese/English, `app.text`, language detection |
 | `util.go` | paths, logger, atomic writes, `tailString`, small helpers |
@@ -145,7 +146,7 @@ dependencies.
 | `docs/v2ex-share.md` | Chinese V2EX sharing draft plus a manual publishing checklist (not part of the build) |
 | `docs/images/dashboard-*.png` | dashboard screenshots referenced by the V2EX draft, captured with sample data (not part of the build) |
 | `assets/sponsor.png` | WeChat reward QR code shown at the end of `README.zh-CN.md` (not part of the build) |
-| `desktop/` | separate Go module: Wails 3 shell (`main.go`, `engine.go`, `process_*.go`) and `build/` packaging |
+| `desktop/` | separate Go module: Wails 3 shell (`main.go`, `engine.go`, `process_*.go`) and `build/` packaging (icon, `.app`, DMG) |
 
 ## 5. State model and phases
 
@@ -465,14 +466,16 @@ and starts it again.
 ## 15. Web dashboard
 
 Loopback only. Routes: `/`, `/api/state`, `/api/issue`, `/api/logs`,
-`/api/action` (approve/cancel), `/api/config` (GET raw file + defaults, PUT
+`/api/action` (approve/cancel), `/api/open-url` (open a dashboard link in the
+system browser), `/api/config` (GET raw file + defaults, PUT
 validated save), `/api/detect` (installed agents, model list, optional proxy and
 repo-access probes), `/api/restart`, `/api/update` (GET checks
-`releases/latest`, POST installs), `/logo.svg`. The four mutating routes require
+`releases/latest`, POST installs), `/logo.svg`. The mutating routes require
 a JSON content type and a loopback `Origin`; `/api/config` runs
 `loadConfig` against a temp file before it writes, so an invalid agent, repo,
 port, proxy, mirror, release interval or bump returns 400 and nothing is saved.
-Queue depth in
+`/api/open-url` accepts only absolute http(s) URLs and starts the platform
+helper (`open`/`xdg-open`/`rundll32`) without a shell. Queue depth in
 `/api/state` includes `plan`, `work` and `ci`. `waiting` counts tasks whose phase
 needs the approver (`awaiting_approval`, `pr_open`, `blocked`, see
 `phaseNeedsUser`); the board can be filtered by phase, by project (the repo
@@ -480,7 +483,11 @@ dropdown) and by free text.
 
 `web/index.html` is self-contained: no build step, no dependencies. The masthead
 switches between Chinese (default) and English (`localStorage` key `ghik-lang`)
-and links to the project on GitHub. Every string, including phases, filters,
+and links to the project on GitHub. Every external link goes through
+`openExternal`: a normal browser gets `window.open`, while the desktop shell
+loads the page with `?surface=desktop` and the click is posted to
+`/api/open-url`, because Wails' WKWebView drops `target="_blank"`. Every string,
+including phases, filters,
 the drawer, the settings panel and the empty states, comes from the `zh`/`en`
 tables in the script; `/api/logs` stays plain text and the console colours
 INFO/WARN/ERROR/DEBUG in the browser. `planParallel` and `implementParallel`
@@ -528,7 +535,8 @@ invalidates a macOS signature, so a
 locally modified bundle.
 
 The release workflow (`v*` tag) builds the daemon archives for Linux, macOS and
-Windows, the desktop bundles per runner, and publishes `checksums.txt` with
+Windows, the desktop bundles per runner (macOS ships both a zip and a DMG, both
+listed in `checksums.txt`), and publishes `checksums.txt` with
 everything. A failed build in the desktop matrix blocks the release. The macOS
 arm64 bundle comes from `macos-15` (the `macos-14` image was retired); the Linux
 leg runs on `ubuntu-24.04` because Wails v3 links GTK4 and webkitgtk-6.0, which
@@ -563,7 +571,8 @@ keeps tests quiet. Notable coverage:
 | `plan_test.go` | plan text trimming |
 | `watch_test.go` | config reload fires on valid edits, ignores invalid ones |
 | `watcher_test.go` | `Store` round-trip |
-| `web_test.go` | dashboard snapshot only lists tracked tasks |
+| `web_test.go` | dashboard snapshot only lists tracked tasks, `/api/open-url` validation and browser handoff |
+| `openurl_test.go` | per-platform browser command, no shell, injected runner |
 | `webconfig_test.go` | `/api/config` validation/round-trip/origin check, `release` defaults and rejection, `/api/detect` degradation, `/api/update` payload, snapshot without a router |
 | `selfupdate_test.go` | version ordering, asset selection, mirror/digest parsing, archive extraction, checksum mismatch keeps the binary |
 | `wizard_test.go` | `-init` setup wizard flows |
