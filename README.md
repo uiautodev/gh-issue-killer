@@ -11,14 +11,29 @@ entirely from issue comments.
 ## Workflow
 
 ```mermaid
-%%{init: {"themeVariables": {"fontSize": "14px"}, "flowchart": {"nodeSpacing": 20, "rankSpacing": 34}}}%%
+%%{init: {"themeVariables": {"fontSize": "15px"}, "flowchart": {"nodeSpacing": 64, "rankSpacing": 56}}}%%
 flowchart LR
-    A(["Issue @agent"]) --> B["Plan comment"]
-    B -- "lgtm / 👍" --> C["Implement + checks"]
-    C --> D["PR open"]
+    A(["Issue @agent"]) --> B("Plan comment")
+    B -- "lgtm / 👍" --> C("Implement + checks")
+    C --> D("PR open")
     D -. "feedback" .-> C
-    D -- "合并 / 👍" --> E{"CI"}
-    E -- "green" --> F["Squash merge"]
+    D -- "merge / 👍" --> E{"CI"}
+    E -- "green" --> F("Squash merge")
+
+    classDef trigger fill:#1d4ed8,stroke:#1e40af,color:#ffffff
+    classDef plan fill:#6d28d9,stroke:#5b21b6,color:#ffffff
+    classDef work fill:#0e7490,stroke:#155e75,color:#ffffff
+    classDef ci fill:#b45309,stroke:#92400e,color:#ffffff
+    classDef done fill:#15803d,stroke:#166534,color:#ffffff
+
+    class A trigger
+    class B plan
+    class C,D work
+    class E ci
+    class F done
+
+    %% the dashed back edge (4th declared link) is the feedback loop
+    linkStyle 3 stroke:#e11d48,stroke-width:1.5px
 ```
 
 Failing checks are repaired automatically; only an exhausted budget parks the

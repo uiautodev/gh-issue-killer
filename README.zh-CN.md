@@ -10,14 +10,29 @@
 ## 工作流程
 
 ```mermaid
-%%{init: {"themeVariables": {"fontSize": "14px"}, "flowchart": {"nodeSpacing": 20, "rankSpacing": 34}}}%%
+%%{init: {"themeVariables": {"fontSize": "15px"}, "flowchart": {"nodeSpacing": 64, "rankSpacing": 56}}}%%
 flowchart LR
-    A(["Issue @agent"]) --> B["计划评论"]
-    B -- "lgtm / 👍" --> C["实现 + 检查"]
-    C --> D["开 PR"]
+    A(["Issue @agent"]) --> B("计划评论")
+    B -- "lgtm / 👍" --> C("实现 + 检查")
+    C --> D("开 PR")
     D -. "反馈" .-> C
     D -- "合并 / 👍" --> E{"CI"}
-    E -- "通过" --> F["Squash merge"]
+    E -- "通过" --> F("Squash merge")
+
+    classDef trigger fill:#1d4ed8,stroke:#1e40af,color:#ffffff
+    classDef plan fill:#6d28d9,stroke:#5b21b6,color:#ffffff
+    classDef work fill:#0e7490,stroke:#155e75,color:#ffffff
+    classDef ci fill:#b45309,stroke:#92400e,color:#ffffff
+    classDef done fill:#15803d,stroke:#166534,color:#ffffff
+
+    class A trigger
+    class B plan
+    class C,D work
+    class E ci
+    class F done
+
+    %% the dashed back edge (4th declared link) is the feedback loop
+    linkStyle 3 stroke:#e11d48,stroke-width:1.5px
 ```
 
 本地检查和 PR 上的 CI 检查失败会自动修，轮次用完才停在 `blocked`；关闭 issue 会
