@@ -30,6 +30,18 @@ func TestImplementPromptIncludesOwnerNotes(t *testing.T) {
 	}
 }
 
+func TestImplementPromptRequiresRealBrowserUITest(t *testing.T) {
+	text, err := loadPrompt("implement")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Playwright", "cua-driver", "Never skip the UI test"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("implement prompt is missing %q", want)
+		}
+	}
+}
+
 func TestRenderPromptReplacesPlaceholders(t *testing.T) {
 	text, err := renderPrompt("fix", map[string]string{"WORKTREE": "/tmp/worktree"})
 	if err != nil {

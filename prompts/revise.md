@@ -24,6 +24,10 @@ The repo owner reviewed the pull request and asked for changes:
 Apply that feedback on top of the current worktree. Hard rules:
 - Work only inside the worktree. Never touch other clones, ~/.config, or user data.
 - Follow AGENTS.md in the repo root if present, especially its version-bump rules.
+- Any change that touches the dashboard (`frontend/`, `cmd/gh-issue-killer/web`)
+  must be verified in a real browser with Playwright or cua-driver. Exercise the
+  changed component, check the browser console and do not skip the UI test
+  because the unit checks pass.
 - Keep the change small; do not revert earlier work unless the feedback asks for it.
 - Commit your work with clear, conventional commit messages (you may make several commits).
 - Do NOT push, do NOT create a PR, do NOT merge, do NOT change git remotes or config.

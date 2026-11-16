@@ -30,6 +30,12 @@ part of the task:
 Hard rules:
 - Work only inside the worktree. Never touch other clones, ~/.config, or user data.
 - Follow AGENTS.md in the repo root if present, especially its testing requirements.
+- Any change that touches the dashboard (`frontend/`, `cmd/gh-issue-killer/web`)
+  must be verified in a real browser with Playwright or cua-driver before you
+  finish. Never skip the UI test: open the dashboard against a real engine,
+  exercise the changed component in both themes when colours changed, check the
+  browser console, and record what you saw. Unit tests are not a substitute.
+  Capture the before/after screenshots the results section asks for.
 - Implement the plan, add or update tests, keep the change small and idiomatic.
 - Commit your work with clear, conventional commit messages (you may make several commits).
 - Do NOT push, do NOT create a PR, do NOT merge, do NOT change git remotes or config.
