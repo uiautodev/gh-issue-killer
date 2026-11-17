@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,14 @@ const (
 	stdoutRecordLimit = 8 << 20 // a single stdout record, not the whole stream
 	stderrRecordLimit = 2 << 20
 	runnerDrainGrace  = 5 * time.Second
+
+	// runnerStallTimeout is how long a streaming agent CLI may stay silent
+	// before it is treated as wedged. A tool call can hang forever (a browser
+	// click that never resolves), and the stage timeout alone would keep the
+	// issue at agent:working for the whole implementTimeoutMin. claude and
+	// codex do not stream: they write their result once at exit, so a long
+	// generation looks exactly like a hang and they stay exempt.
+	runnerStallTimeout = 15 * time.Minute
 )
 
 // CodingAgentInfo describes a supported coding-agent CLI.
@@ -76,15 +85,16 @@ func detectCodingAgents() []DetectedCodingAgent {
 }
 
 type RunnerOptions struct {
-	Cwd       string
-	Prompt    string
-	SessionID string
-	Model     string
-	RunDir    string
-	Env       []string
-	Timeout   time.Duration
-	LogFile   string
-	Log       *Logger
+	Cwd          string
+	Prompt       string
+	SessionID    string
+	Model        string
+	RunDir       string
+	Env          []string
+	Timeout      time.Duration
+	StallTimeout time.Duration
+	LogFile      string
+	Log          *Logger
 }
 
 type RunnerResult struct {
@@ -129,17 +139,64 @@ type processResult struct {
 	TimedOut bool
 }
 
+// stallWatchdog tracks when the agent last printed a line and cancels the run
+// when that was too long ago.
+type stallWatchdog struct {
+	timeout time.Duration
+	last    atomic.Int64 // UnixNano of the newest line on either stream
+	hit     atomic.Bool
+}
+
+func newStallWatchdog(timeout time.Duration) *stallWatchdog {
+	w := &stallWatchdog{timeout: timeout}
+	w.beat()
+	return w
+}
+
+// beat records output. stderr counts as liveness too: a CLI that is about to
+// die often says so there before it goes quiet.
+func (w *stallWatchdog) beat() { w.last.Store(time.Now().UnixNano()) }
+
+// stalled reports whether the watchdog fired.
+func (w *stallWatchdog) stalled() bool { return w.hit.Load() }
+
+// watch polls until done is closed and cancels the run once no output arrived
+// for timeout. Polling at a quarter of the threshold keeps the kill within a
+// few minutes of the deadline without a timer per line.
+func (w *stallWatchdog) watch(cancel context.CancelFunc, done <-chan struct{}) {
+	poll := min(max(w.timeout/4, time.Millisecond), 15*time.Second)
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			if time.Since(time.Unix(0, w.last.Load())) < w.timeout {
+				continue
+			}
+			w.hit.Store(true)
+			cancel()
+			return
+		}
+	}
+}
+
 // runProcess runs one coding-agent CLI. stdout is scanned line by line so a
 // runner can parse its event stream, and both streams are appended to LogFile.
 func runProcess(ctx context.Context, binary string, args []string, opts RunnerOptions, onStdout func(string)) (processResult, error) {
 	started := time.Now()
 	if opts.Log != nil {
-		opts.Log.Debug("runner start: %s cwd=%s timeout=%s", binary, opts.Cwd, opts.Timeout)
+		opts.Log.Debug("runner start: %s cwd=%s timeout=%s stall=%s", binary, opts.Cwd, opts.Timeout, opts.StallTimeout)
 	}
 	runCtx := ctx
 	var cancel context.CancelFunc
 	if opts.Timeout > 0 {
 		runCtx, cancel = context.WithTimeout(ctx, opts.Timeout)
+	} else if opts.StallTimeout > 0 {
+		runCtx, cancel = context.WithCancel(ctx)
+	}
+	if cancel != nil {
 		defer cancel()
 	}
 
@@ -175,6 +232,14 @@ func runProcess(ctx context.Context, binary string, args []string, opts RunnerOp
 	stdoutWrite.Close()
 	stderrWrite.Close()
 
+	var watchdog *stallWatchdog
+	if opts.StallTimeout > 0 {
+		watchdog = newStallWatchdog(opts.StallTimeout)
+		watchdogDone := make(chan struct{})
+		defer close(watchdogDone)
+		go watchdog.watch(cancel, watchdogDone)
+	}
+
 	var logFile *os.File
 	if opts.LogFile != "" {
 		_ = os.MkdirAll(filepath.Dir(opts.LogFile), 0o755)
@@ -200,6 +265,9 @@ func runProcess(ctx context.Context, binary string, args []string, opts RunnerOp
 	go func() {
 		warned := false
 		stdoutScanErr = scanLines(stdoutRead, stdoutRecordLimit, func(line string, truncated bool) {
+			if watchdog != nil {
+				watchdog.beat()
+			}
 			if truncated && !warned {
 				warned = true
 				if opts.Log != nil {
@@ -217,6 +285,9 @@ func runProcess(ctx context.Context, binary string, args []string, opts RunnerOp
 	go func() {
 		warned := false
 		stderrScanErr = scanLines(stderrRead, stderrRecordLimit, func(line string, truncated bool) {
+			if watchdog != nil {
+				watchdog.beat()
+			}
 			if truncated && !warned {
 				warned = true
 				if opts.Log != nil {
@@ -231,10 +302,16 @@ func runProcess(ctx context.Context, binary string, args []string, opts RunnerOp
 
 	waitErr := cmd.Wait()
 	timedOut := runCtx.Err() == context.DeadlineExceeded
-	if timedOut && cmd.Process != nil {
+	// A watchdog that fires while the CLI is already exiting cleanly is a race,
+	// not a hang: only a kill makes Wait fail.
+	stalled := watchdog != nil && watchdog.stalled() && waitErr != nil
+	if (timedOut || stalled) && cmd.Process != nil {
 		// Kill descendants before draining: one of them may be the only
 		// holder of the write end.
 		killChildTree(cmd.Process.Pid)
+	}
+	if stalled && opts.Log != nil {
+		opts.Log.Warn("coding agent produced no output for %s; killed the process tree", opts.StallTimeout)
 	}
 	// A CLI can leave a grandchild holding stdout (a detached shell command),
 	// so EOF is not guaranteed once the CLI exits. Give the readers a grace
@@ -265,6 +342,9 @@ func runProcess(ctx context.Context, binary string, args []string, opts RunnerOp
 	}
 	if result.TimedOut {
 		return result, fmt.Errorf("coding agent timed out after %s", opts.Timeout)
+	}
+	if stalled {
+		return result, fmt.Errorf("coding agent stalled: no output for %s, killed the process tree", opts.StallTimeout)
 	}
 	if waitErr != nil {
 		return result, fmt.Errorf("coding agent exited %d: %s", result.Code, tailString(result.Stderr, 20))
@@ -387,6 +467,7 @@ func (r *opencodeRunner) Run(ctx context.Context, opts RunnerOptions) (RunnerRes
 	if opts.Log != nil {
 		opts.Log.Debug("opencode run: session=%s model=%s cwd=%s", firstNonEmpty(opts.SessionID, "(new)"), firstNonEmpty(opts.Model, "(default)"), opts.Cwd)
 	}
+	opts.StallTimeout = runnerStallTimeout // opencode streams events; silence means a stuck tool call
 
 	proc, runErr := runProcess(ctx, binary, opencodeArgs(opts), opts, func(line string) {
 		var event opencodeEvent
@@ -717,6 +798,7 @@ func (r *piRunner) Run(ctx context.Context, opts RunnerOptions) (RunnerResult, e
 	if opts.Log != nil {
 		opts.Log.Debug("pi run: session=%s model=%s cwd=%s", sessionID, firstNonEmpty(opts.Model, "(default)"), opts.Cwd)
 	}
+	opts.StallTimeout = runnerStallTimeout // pi streams JSON events; silence means a stuck tool call
 	acc := &piJSONAccumulator{sessionID: sessionID}
 	proc, runErr := runProcess(ctx, binary, piArgs(opts, sessionID), opts, acc.feed)
 	result := RunnerResult{
@@ -761,6 +843,7 @@ func (r *ompRunner) Run(ctx context.Context, opts RunnerOptions) (RunnerResult, 
 	if opts.Log != nil {
 		opts.Log.Debug("omp run: session=%s model=%s cwd=%s", firstNonEmpty(opts.SessionID, "(new)"), firstNonEmpty(opts.Model, "(default)"), opts.Cwd)
 	}
+	opts.StallTimeout = runnerStallTimeout // omp streams JSON events; silence means a stuck tool call
 	acc := &piJSONAccumulator{sessionID: opts.SessionID}
 	proc, runErr := runProcess(ctx, binary, ompArgs(opts), opts, acc.feed)
 	result := RunnerResult{

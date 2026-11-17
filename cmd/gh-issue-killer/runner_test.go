@@ -326,6 +326,49 @@ func TestRunProcessTimeoutKillsTheTree(t *testing.T) {
 	}
 }
 
+// A CLI that goes silent must be killed well before implementTimeoutMin: the
+// stage should block with a stall message instead of sitting at agent:working.
+func TestRunProcessStall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	t.Run("silent run is killed", func(t *testing.T) {
+		started := time.Now()
+		_, err := runProcess(context.Background(), "sh", []string{"-c", "sleep 30 & wait"}, RunnerOptions{
+			Timeout:      60 * time.Second,
+			StallTimeout: 300 * time.Millisecond,
+		}, nil)
+		if err == nil || !strings.Contains(err.Error(), "no output for") {
+			t.Fatalf("err = %v, want a stall error", err)
+		}
+		if strings.Contains(err.Error(), "timed out") {
+			t.Fatalf("stall was reported as the total timeout: %v", err)
+		}
+		if elapsed := time.Since(started); elapsed > 3*time.Second {
+			t.Fatalf("stall took %s: the drain must not wait for a killed grandchild", elapsed)
+		}
+	})
+	t.Run("steady output is not a stall", func(t *testing.T) {
+		script := "for i in 1 2 3 4 5 6 7 8 9 10; do echo tick; sleep 0.1; done"
+		var lines []string
+		proc, err := runProcess(context.Background(), "sh", []string{"-c", script}, RunnerOptions{
+			Timeout:      30 * time.Second,
+			StallTimeout: 300 * time.Millisecond,
+		}, func(line string) {
+			lines = append(lines, line)
+		})
+		if err != nil {
+			t.Fatalf("runProcess: %v", err)
+		}
+		if proc.Code != 0 {
+			t.Fatalf("exit code = %d", proc.Code)
+		}
+		if len(lines) != 10 {
+			t.Fatalf("records = %d, want 10", len(lines))
+		}
+	})
+}
+
 func TestNewCodingRunner(t *testing.T) {
 	for _, id := range []string{"opencode", "claude", "codex", "pi", "omp"} {
 		runner, err := newCodingRunner(id)

@@ -487,6 +487,19 @@ the CLI exited 0 (`piStreamError`), because `omp --resume` can fall back to the
 interactive session picker; text is not required, so a terse agent still
 passes.
 
+The streaming runners (opencode, pi, omp) also arm a stall watchdog:
+`runProcess` records when the newest stdout or stderr line arrived and cancels
+the run when none arrives for `runnerStallTimeout` (15 minutes), then kills the
+process group before draining. That is the fix for an agent stuck in a tool
+call (a Playwright click that never resolves): the total stage timeout alone
+would leave the issue at `agent:working` for the whole `implementTimeoutMin`
+(60 minutes). A stalled run fails with `coding agent stalled: no output for
+15m0s`, which goes through `blockIssue` — phase `blocked`, label
+`agent:awaiting-approval` and the usual error comment whose hint is `continue` —
+so the owner sees the hang and can resume. The threshold is a constant, not a
+config key. claude (`--output-format json` writes one record at exit) and codex
+stay exempt: for them a long generation looks exactly like a hang.
+
 ## 14. Config
 
 Parsed in `config.go`, documented in DEPLOY.md §4.1. Defaults that matter to
@@ -676,7 +689,7 @@ keeps tests quiet. Notable coverage:
 | `main_test.go` | proxy/env parsing, repo normalization (names, objects, object arrays), mentions and commands, closable phases |
 | `prompts_test.go` | every embedded prompt loads and keeps its placeholders |
 | `triage_test.go` | mode normalization, plan/build routing, triage answer parsing, explicit plan requests, direct-build start |
-| `runner_test.go` | per-agent argv construction |
+| `runner_test.go` | per-agent argv construction, overlong-record draining, stage timeout and stall kill |
 | `shots_test.go` | before/after composition and screenshot markdown |
 | `plan_test.go` | plan text trimming |
 | `watch_test.go` | config reload fires on valid edits, ignores invalid ones |
