@@ -38,6 +38,9 @@ flowchart LR
 本地检查和 PR 上的 CI 检查失败会自动修，轮次用完才停在 `blocked`；关闭 issue 会
 取消任务并关掉 PR，重新打开会接着做。
 
+默认的 `mode: auto` 会让 agent 先判断需求：写得很清楚就直接实现、跳过计划评论；
+`mode: plan` 总是先发计划，`mode: build` 总是不发计划。详见[完整配置项](DEPLOY.md#41-configuration-reference)。
+
 ## 解决什么问题
 
 - **issue 堆着没人动。** 读需求、写计划、实现、验证占掉整块时间，PR 一直挂着。
@@ -48,8 +51,10 @@ flowchart LR
 
 ## 它能做什么
 
-- **先计划，再动手。** 先发一条计划评论，批准前不写代码；带 `bug` 标签的 issue
-  直接复现、修复并补回归测试。
+- **该计划时才计划。** 默认 `mode: auto` 由 agent 判断每个 issue：需求写得很详细、
+  改动简单就直接编码；描述含糊、有好几种差不多的合理实现，或提问人明确要求先 plan，
+  就先发计划评论等你批准。`mode: plan` 总是先计划，`mode: build` 总是直接编码。
+  带 `bug` 标签的 issue 仍然直接复现、修复并补回归测试。
 - **每个 issue 一个 worktree。** 独立分支、bot 提交作者，永远不碰你的工作区，
   重启后自动续跑。
 - **自己验证、自己修 CI。** 编码 agent 写下 `checks.json`，daemon 负责跑；失败、
@@ -161,7 +166,7 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 ```
 
 `-init` 会写好配置；手写就是同样的 `repos` / `codingAgent` / `approvers` /
-`proxy` 字段。完整配置项（`language`、`webPort`、`updateProxy`、每仓库覆盖
+`proxy` 字段。完整配置项（`language`、`mode`、`webPort`、`updateProxy`、每仓库覆盖
 （含可选的定时发版）、保存即重载）见
 [DEPLOY.md](DEPLOY.md#41-configuration-reference)。打开
 `selfUpdate` 后 daemon 会自己安装新版本（校验 checksums，直连失败时走

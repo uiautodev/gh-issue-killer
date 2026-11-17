@@ -294,19 +294,23 @@ func (r *Router) enqueue(fullName, key string, stage jobStage, fn func(context.C
 }
 
 func (r *Router) cancelActive(fullName string, number int) {
+	// Every key that can hold an agent for the issue: the plan/work job, its
+	// CI settle, and the plan-skipping bug/build starts.
+	for _, key := range issueJobKeys(fullName, number) {
+		r.mu.Lock()
+		cancel := r.cancels[key]
+		r.mu.Unlock()
+		if cancel != nil {
+			r.log.Debug("cancel active job %s", key)
+			cancel()
+		}
+	}
+}
+
+// issueJobKeys lists every job key that may hold an agent for one issue.
+func issueJobKeys(fullName string, number int) []string {
 	key := fmt.Sprintf("%s#%d", fullName, number)
-	r.mu.Lock()
-	cancel := r.cancels[key]
-	ciCancel := r.cancels[key+"#ci"]
-	r.mu.Unlock()
-	if cancel != nil {
-		r.log.Debug("cancel active job %s", key)
-		cancel()
-	}
-	if ciCancel != nil {
-		r.log.Debug("cancel active job %s#ci", key)
-		ciCancel()
-	}
+	return []string{key, key + "#ci", key + "#bug", key + "#build"}
 }
 
 // waitCISettle makes a merge wait for the issue's background CI job, so two
@@ -650,11 +654,71 @@ func (r *Router) startBugFix(app *AppContext, fullName string, number int, trigg
 	})
 }
 
+// routeFirstStage maps a repository's mode and the triage answer to the first
+// stage of a non-bug issue. An absent or unknown mode behaves like auto, so a
+// hand-written config keeps the triage instead of failing to start.
+func routeFirstStage(mode string, buildDirect bool) jobStage {
+	switch effectiveIssueMode(mode) {
+	case modeBuild:
+		return stageWork
+	case modePlan:
+		return stagePlan
+	}
+	if buildDirect {
+		return stageWork
+	}
+	return stagePlan
+}
+
+// startPlanOrBuild chooses the first stage for a non-bug issue. In auto mode
+// the coding agent triages; a failed or unreadable triage falls back to the
+// plan, which keeps the approval gate as the safe default.
+func (r *Router) startPlanOrBuild(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) {
+	buildDirect := false
+	if effectiveIssueMode(app.Repo.Mode) == modeAuto {
+		buildDirect = shouldBuildDirectly(ctx, app, trigger, issue)
+	}
+	if routeFirstStage(app.Repo.Mode, buildDirect) == stageWork {
+		r.startBuild(ctx, app, app.Repo.FullName, issue.Number, trigger)
+		return
+	}
+	doPlan(ctx, app, trigger, issue)
+}
+
+// startBuild queues an issue straight to the work pool, skipping the plan and
+// its approval comment. The phase moves before the job waits for a worker so a
+// poller cannot start a second first stage in the meantime.
+func (r *Router) startBuild(ctx context.Context, app *AppContext, fullName string, number int, trigger Trigger) {
+	if issueCancelled(app, number) {
+		return
+	}
+	app.Log.Info("issue %s#%d builds without a plan (mode=%s)", fullName, number, effectiveIssueMode(app.Repo.Mode))
+	app.Store.UpdateIssue(fullName, number, func(state *IssueState) {
+		state.Phase = "implementing"
+	})
+	app.GH.SetAgentState(ctx, fullName, number, workingLabel)
+	key := fmt.Sprintf("%s#%d", fullName, number)
+	r.enqueue(fullName, key+"#build", stageWork, func(jobCtx context.Context) {
+		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
+		if err != nil {
+			blockIssue(jobCtx, app, number, err)
+			return
+		}
+		if issue.State != "open" {
+			return
+		}
+		current := r.store.Issue(fullName, number)
+		if current.Phase != "implementing" {
+			return
+		}
+		doImplement(jobCtx, app, trigger, issue, current)
+	})
+}
+
 // requestCancel stops the issue's job (if any) and cleans up once it is gone.
 // Cancel cannot go through the queue: the running job holds the same key and
 // would make the enqueue a duplicate.
 func (r *Router) requestCancel(ctx context.Context, app *AppContext, fullName string, number int, trigger Trigger) {
-	key := fmt.Sprintf("%s#%d", fullName, number)
 	r.log.Info("cancel requested for %s#%d; stopping the active job", fullName, number)
 	app.Store.UpdateIssue(fullName, number, func(state *IssueState) {
 		state.Phase = "cancelled"
@@ -666,8 +730,9 @@ func (r *Router) requestCancel(ctx context.Context, app *AppContext, fullName st
 	go func() {
 		jobCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		r.waitInactive(jobCtx, key, 60*time.Second)
-		r.waitInactive(jobCtx, key+"#ci", 60*time.Second)
+		for _, jobKey := range issueJobKeys(fullName, number) {
+			r.waitInactive(jobCtx, jobKey, 60*time.Second)
+		}
 		issue, err := app.GH.GetIssue(jobCtx, fullName, number)
 		if err != nil {
 			app.Log.Warn("cancel %s#%d: %v", fullName, number, err)
@@ -1068,7 +1133,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 						r.startBugFix(app, fullName, trigger.IssueNumber, trigger)
 						return
 					}
-					doPlan(jobCtx, app, trigger, issue)
+					r.startPlanOrBuild(jobCtx, app, trigger, issue)
 				}
 			})
 			return
@@ -1187,7 +1252,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 				r.startBugFix(app, fullName, trigger.IssueNumber, trigger)
 				return
 			}
-			doPlan(jobCtx, app, trigger, issue)
+			r.startPlanOrBuild(jobCtx, app, trigger, issue)
 		})
 	}
 }
@@ -1212,7 +1277,6 @@ func (r *Router) HandleClosed(ctx context.Context, fullName string, issue Issue)
 	if app == nil {
 		return
 	}
-	key := fmt.Sprintf("%s#%d", fullName, issue.Number)
 	r.log.Info("issue %s#%d closed; cancelling task", fullName, issue.Number)
 	app.Store.UpdateIssue(fullName, issue.Number, func(state *IssueState) {
 		state.Phase = "cancelled"
@@ -1224,8 +1288,9 @@ func (r *Router) HandleClosed(ctx context.Context, fullName string, issue Issue)
 	go func() {
 		jobCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		r.waitInactive(jobCtx, key, 60*time.Second)
-		r.waitInactive(jobCtx, key+"#ci", 60*time.Second)
+		for _, jobKey := range issueJobKeys(fullName, issue.Number) {
+			r.waitInactive(jobCtx, jobKey, 60*time.Second)
+		}
 		current := r.store.Issue(fullName, issue.Number)
 		if current.Phase == "done" || current.Phase == "merging" {
 			return

@@ -41,6 +41,7 @@ type wizardConfig struct {
 	PlanTimeoutMin      int      `json:"planTimeoutMin,omitempty"`
 	ImplementTimeoutMin int      `json:"implementTimeoutMin,omitempty"`
 	WorktreeRoot        string   `json:"worktreeRoot,omitempty"`
+	Mode                string   `json:"mode,omitempty"`
 
 	fromFile      bool
 	hasAdvanced   bool
@@ -567,10 +568,11 @@ type repoOverride struct {
 	Model        string   `json:"model,omitempty"`
 	Approvers    []string `json:"approvers,omitempty"`
 	WorktreeRoot string   `json:"worktreeRoot,omitempty"`
+	Mode         string   `json:"mode,omitempty"`
 }
 
 func hasRepoOverride(options repoOptions) bool {
-	return firstNonEmpty(options.CodingAgent, options.Model, options.WorktreeRoot) != "" || len(options.Approvers) > 0
+	return firstNonEmpty(options.CodingAgent, options.Model, options.WorktreeRoot, options.Mode) != "" || len(options.Approvers) > 0
 }
 
 func buildRepoOutput(names []string, original map[string]repoOptions) any {
@@ -586,6 +588,7 @@ func buildRepoOutput(names []string, original map[string]repoOptions) any {
 				Model:        options.Model,
 				Approvers:    options.Approvers,
 				WorktreeRoot: options.WorktreeRoot,
+				Mode:         options.Mode,
 			}
 			hasOverrides = true
 		} else {
@@ -652,6 +655,9 @@ func buildWizardJSON(answers wizardConfig) ([]byte, error) {
 	}
 	if answers.WorktreeRoot != "" {
 		output["worktreeRoot"] = answers.WorktreeRoot
+	}
+	if answers.Mode != "" && answers.Mode != modeAuto {
+		output["mode"] = answers.Mode
 	}
 	data, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
@@ -795,6 +801,7 @@ func loadWizardDefaults(file string) wizardConfig {
 		defaults.ImplementTimeoutMin = raw.ImplementTimeoutMin
 	}
 	defaults.WorktreeRoot = strings.TrimSpace(raw.WorktreeRoot)
+	defaults.Mode = strings.TrimSpace(raw.Mode)
 	defaults.hasAdvanced = raw.PollIntervalSec != 0 || raw.Webhook != nil ||
 		raw.MaxFixRounds != 0 || raw.PlanParallel != 0 || raw.ImplementParallel != 0 || raw.MaxParallel != 0 || raw.PlanTimeoutMin != 0 ||
 		raw.ImplementTimeoutMin != 0 || defaults.WorktreeRoot != ""

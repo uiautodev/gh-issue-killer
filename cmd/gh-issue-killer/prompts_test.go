@@ -6,7 +6,7 @@ import (
 )
 
 func TestEmbeddedPrompts(t *testing.T) {
-	for _, name := range []string{"plan", "implement", "fix", "revise", "ci_fix", "conflict_fix", "review", "modify_pr"} {
+	for _, name := range []string{"plan", "triage", "implement", "fix", "revise", "ci_fix", "conflict_fix", "review", "modify_pr"} {
 		text, err := loadPrompt(name)
 		if err != nil {
 			t.Fatalf("loadPrompt(%s): %v", name, err)
@@ -64,6 +64,19 @@ func TestPromptsRequireUIAutomationWithoutPinningATool(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(strings.Fields(modify), " "), "browser or desktop automation") {
 		t.Error("modify_pr prompt does not ask for UI automation verification")
+	}
+}
+
+func TestTriagePromptAsksForOneWord(t *testing.T) {
+	text, err := loadPrompt("triage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(text), " ")
+	for _, want := range []string{"READ ONLY", "`plan` or `build`", "exactly one word"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("triage prompt is missing %q", want)
+		}
 	}
 }
 

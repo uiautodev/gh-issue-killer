@@ -40,6 +40,11 @@ Failing checks are repaired automatically; only an exhausted budget parks the
 issue as `blocked`. Closing it cancels the task and closes the PR; reopening
 resumes it.
 
+With the default `mode: auto`, the agent triages each issue and a clear request
+skips the plan comment and goes straight to implementation; `mode: plan` always
+posts the plan, `mode: build` always skips it. See the
+[configuration reference](DEPLOY.md#41-configuration-reference).
+
 ## What it solves
 
 - **Issues pile up untouched.** Reading each one, planning, implementing and
@@ -53,9 +58,12 @@ resumes it.
 
 ## What it does
 
-- **Plan first.** A mention or assignment posts a plan comment; nothing is
-  written until you approve. Issues labelled `bug` skip the plan: reproduce,
-  fix, add a regression test.
+- **Plan when it helps.** With the default `mode: auto` the agent triages each
+  issue: a clear or simple request goes straight to implementation, while a
+  vague one, one with several reasonable implementations, or one that explicitly
+  asks to plan first gets a plan comment you approve. `mode: plan` always
+  plans, `mode: build` always implements. Issues labelled `bug` always skip the
+  plan: reproduce, fix, add a regression test.
 - **One worktree per issue.** Its own branch and bot-authored commits, so your
   working clone is never touched; a restart resumes it.
 - **Verifies and repairs CI itself.** The coding agent writes the commands that
@@ -186,7 +194,7 @@ comment**. Approval words, status labels and review rules live in
 ```
 
 `-init` writes the config for you; a hand-written JSON uses the same `repos` /
-`codingAgent` / `approvers` / `proxy` keys. Full reference (`language`,
+`codingAgent` / `approvers` / `proxy` keys. Full reference (`language`, `mode`,
 `webPort`, `updateProxy`, per-repo overrides including the opt-in `release`
 schedule, live reload):
 [DEPLOY.md](DEPLOY.md#41-configuration-reference). With `selfUpdate` on, the

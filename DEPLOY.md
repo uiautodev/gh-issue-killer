@@ -240,7 +240,8 @@ Optional: `pollIntervalSec` (30), `webhook` (true), `maxFixRounds` (3),
 `planParallel` (5) and `implementParallel` (1), both **per repository**,
 `selfUpdate` (false), `followMaster` (false), `updateProxy` (empty = direct only), `webPort` (0 = off;
 `8787` serves the dashboard on 127.0.0.1), `planTimeoutMin` (15),
-`implementTimeoutMin` (60), `worktreeRoot` (state dir), `language` (`auto`).
+`implementTimeoutMin` (60), `worktreeRoot` (state dir), `language` (`auto`),
+`mode` (`auto`).
 
 `updateProxy` is a download mirror prefix for release assets, not an HTTP
 proxy: when the direct download from github.com fails, the daemon retries
@@ -254,8 +255,21 @@ issue or pull request. Set it to a language name or tag (`en`, `zh-CN`, `ja`, �
 to force one. Scaffolding has Chinese and English catalogs; other languages fall
 back to English while the agent still writes in the chosen language.
 
+`mode` decides how a non-`bug` issue starts:
+
+| value | behaviour |
+| --- | --- |
+| `plan` | always post a plan comment and wait for approval |
+| `build` | implement immediately, without a plan comment |
+| `auto` (default) | the coding agent triages the issue: a detailed or simple request goes straight to implementation, a vague one, one with several reasonable implementations, or one that explicitly asks to plan first gets a plan comment |
+
+Triage is read-only and uses `planTimeoutMin`. A failed or unreadable triage
+falls back to the plan, so an issue never gets stuck; in `auto` an explicit
+“先 plan” / “plan first” comment also forces the plan. Unknown values are
+rejected when the config loads. `bug`-labelled issues always skip the plan.
+
 Per-repo overrides: the `repos` object form can set `codingAgent`, `model`,
-`approvers`, `worktreeRoot`, `language`, or a `release` block for one
+`approvers`, `worktreeRoot`, `language`, `mode`, or a `release` block for one
 repository.
 
 The running daemon watches the config file with the OS notification API

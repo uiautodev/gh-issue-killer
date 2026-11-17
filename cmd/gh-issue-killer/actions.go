@@ -317,6 +317,123 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 	app.Log.Info("plan posted for %s#%d (comment %d)", app.Repo.FullName, number, posted.ID)
 }
 
+// Triage answers are the only words the auto mode accepts.
+const (
+	triagePlan  = "plan"
+	triageBuild = "build"
+)
+
+// planFirstRe matches an explicit request to plan before coding. Only human
+// comments are checked: the triage prompt already weighs the issue body, and
+// matching the body would also catch phrases like "no need to plan first".
+var planFirstRe = regexp.MustCompile(`(?i)(先\s*(做|出|写|给|看|过)?\s*(一个|一份|个)?\s*(计划|规划|方案|plan)|(计划|方案)\s*先行|plan\s+(first|before\s+(code|coding|implementing))|first\s+(?:\w+\s+){0,3}plan)`)
+
+// explicitPlanRequest reports whether a human comment asks for a plan first.
+// It keeps auto mode deterministic when the requester already said what they
+// want instead of spending an agent run on triage.
+func explicitPlanRequest(comments []Comment) bool {
+	for _, comment := range comments {
+		if isAgentComment(comment.Body) {
+			continue
+		}
+		if planFirstRe.MatchString(comment.Body) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseTriageVerdict normalizes the agent's answer. The prompt demands one word
+// on the first line; Markdown decoration and trailing punctuation are tolerated
+// so a chatty reply still routes, while anything unexpected stays unknown and
+// falls back to planning.
+func parseTriageVerdict(text string) (string, bool) {
+	for _, line := range strings.Split(stripFences(text), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		line = strings.ToLower(strings.Trim(line, "`*_#>-.:：。!！ \t"))
+		switch line {
+		case triagePlan:
+			return triagePlan, true
+		case triageBuild:
+			return triageBuild, true
+		}
+		return "", false
+	}
+	return "", false
+}
+
+// shouldBuildDirectly runs the read-only auto-mode triage: true means the issue
+// is clear enough to implement without a plan comment. Every failure returns
+// false so a broken or unreadable triage falls back to the approval gate
+// instead of parking the issue.
+func shouldBuildDirectly(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) bool {
+	number := issue.Number
+	if issueCancelled(app, number) {
+		return false
+	}
+	comments, err := app.GH.ListComments(ctx, app.Repo.FullName, number)
+	if err != nil {
+		app.Log.Warn("triage %s#%d: list comments: %v", app.Repo.FullName, number, err)
+		return false
+	}
+	if explicitPlanRequest(comments) {
+		app.Log.Info("triage %s#%d: a comment asks for a plan first", app.Repo.FullName, number)
+		return false
+	}
+	prompt, err := renderPrompt("triage", map[string]string{
+		"REPO":     app.Repo.FullName,
+		"NUMBER":   itoa(number),
+		"TITLE":    issue.Title,
+		"BODY":     firstNonEmpty(issue.Body, "(no description)"),
+		"COMMENTS": commentsBlock(comments),
+	})
+	if err != nil {
+		app.Log.Warn("triage %s#%d: render prompt: %v", app.Repo.FullName, number, err)
+		return false
+	}
+	if err := fetchBase(ctx, app.Local); err != nil {
+		app.Log.Warn("triage %s#%d: fetch base: %v", app.Repo.FullName, number, err)
+		return false
+	}
+	dir, err := createDetachedWorktree(ctx, app.Local, fmt.Sprintf("%s-%d-%s", app.Repo.Name, number, shortID(trigger.Key)))
+	if err != nil {
+		app.Log.Warn("triage %s#%d: create worktree: %v", app.Repo.FullName, number, err)
+		return false
+	}
+	defer removeWorktree(ctx, app.Local, dir, true)
+
+	runDir := runDirFor(app, number)
+	runner, err := runnerFor(app.Repo.CodingAgent)
+	if err != nil {
+		app.Log.Warn("triage %s#%d: %v", app.Repo.FullName, number, err)
+		return false
+	}
+	result, err := runner.Run(ctx, RunnerOptions{
+		Cwd:     dir,
+		Prompt:  prompt,
+		Model:   app.Repo.Model,
+		RunDir:  runDir,
+		Env:     app.Env,
+		Timeout: app.Cfg.PlanTimeout,
+		LogFile: filepath.Join(runDir, fmt.Sprintf("triage-%s.log", app.Repo.CodingAgent)),
+		Log:     app.Log,
+	})
+	if err != nil {
+		app.Log.Warn("triage %s#%d failed: %v", app.Repo.FullName, number, err)
+		return false
+	}
+	verdict, ok := parseTriageVerdict(result.Text)
+	if !ok {
+		app.Log.Warn("triage %s#%d: unreadable answer %q; planning", app.Repo.FullName, number, sanitize(tailString(result.Text, 2)))
+		return false
+	}
+	app.Log.Info("triage %s#%d: %s", app.Repo.FullName, number, verdict)
+	return verdict == triageBuild
+}
+
 func runChecksWithFixes(ctx context.Context, app *AppContext, runner CodingRunner, sessionID, worktree, runDir string) ([]CheckResult, bool) {
 	checks := loadChecks(worktree, runDir, app.Log)
 	checkResults, ok := runChecks(ctx, checks, worktree, runDir, app.Env, app.Log)

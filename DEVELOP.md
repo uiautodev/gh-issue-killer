@@ -220,6 +220,12 @@ Other rules:
 - A mention on an issue in phase `new`/empty starts planning; `bug`-labelled
   issues skip the plan and go straight to implementation with reproduction
   instructions (`bugInstructions`). A mention on a pull request never plans.
+- The repo's `mode` decides the first stage for a non-bug issue: `plan` always
+  posts the plan comment, `build` goes straight to implementation, and the
+  default `auto` asks the coding agent (`triage.md`) whether the request needs
+  a plan. In `auto`, an explicit "plan first" comment also forces the plan, and
+  a failed triage falls back to it. A build start sets `implementing` before the
+  job is queued, so the poller cannot start a second first stage.
 - `review` is the only command that targets a PR directly. It works for any PR
   in a watched repo, not only the daemon's own, and runs on the plan queue with
   its own job key (`<repo>#<pr>#review`).
@@ -266,9 +272,12 @@ Per repository there are three queues, each with its own worker goroutines:
 Rules that keep it safe:
 
 - A job key is `<repo>#<issue>` (dedupe: a second command for a busy issue is
-  skipped). CI jobs use `<repo>#<issue>#ci`.
-- `cancelActive` cancels both keys; `HandleClosed` waits for both before the
-  worktree is removed, so cleanup never races a running agent.
+  skipped). CI jobs use `<repo>#<issue>#ci`; the plan-skipping starts use
+  `<repo>#<issue>#bug` and `<repo>#<issue>#build`, so they still run on the
+  work queue under the implementation slot.
+- `cancelActive` cancels every key from `issueJobKeys` (plan/work, CI and the
+  plan-skipping `#bug`/`#build` starts); `HandleClosed` waits for all of them
+  before the worktree is removed, so cleanup never races a running agent.
 - A merge waits for the issue's CI job (`waitCISettle`) before touching the
   worktree. Two agents never edit one worktree at the same time.
 - The CI queue exists so a slow gate never occupies the implementation slot;
@@ -286,6 +295,13 @@ and never touches an issue worktree.
 
 Each stage gets `jobCtx` from the scheduler and writes `RunDir` artifacts under
 `runs/<repo>/issue-<n>/`.
+
+**Triage** (`shouldBuildDirectly`) — only in `mode=auto`. Prompt `triage.md`,
+detached read-only worktree from the base branch, `planTimeoutMin`. The first
+line of the answer must be `plan` or `build`; decorations and trailing
+punctuation are tolerated, anything else falls back to the plan. A human
+comment that asks to plan first (`planFirstRe`) skips the agent run entirely.
+The triage worktree is removed afterwards. `mode=plan`/`build` skip this stage.
 
 **Plan** (`doPlan`) — prompt `plan.md`, detached worktree from the base branch,
 posts the plan comment, stores `Plan`, `PlanCommentID`, `SessionID`, sets
@@ -480,8 +496,11 @@ the code: `pollIntervalSec` 30, `webhook` true, `maxFixRounds` 3 (local checks
 false, `updateProxy` empty (direct downloads only; a wrong or unreachable
 mirror is ignored), `worktreeRoot` = state dir, `language` `auto` (the coding
 agent writes in the issue's or PR's language; a language tag forces one and is
-passed to the prompts as `{{LANGUAGE}}`). `repos` also accepts an object for
-per-repo `codingAgent`/`model`/`approvers`/`worktreeRoot`/`language`/`release`.
+passed to the prompts as `{{LANGUAGE}}`), `mode` `auto` (`plan` always posts a
+plan comment, `build` implements directly, `auto` lets the coding agent triage;
+an unknown mode is rejected at load time). `repos` also accepts an object for
+per-repo `codingAgent`/`model`/`approvers`/`worktreeRoot`/`language`/`mode`/
+`release`.
 
 `release` is an optional per-repo block — `enabled` (false) and `intervalDays`
 (1). The bump part is not a config key: `release.go` bumps minor when the batch
@@ -656,6 +675,7 @@ keeps tests quiet. Notable coverage:
 | `release_test.go` | version tag parsing, bump rules, commit classification, due check, release request body, disabled/not-due/no-commit skips |
 | `main_test.go` | proxy/env parsing, repo normalization (names, objects, object arrays), mentions and commands, closable phases |
 | `prompts_test.go` | every embedded prompt loads and keeps its placeholders |
+| `triage_test.go` | mode normalization, plan/build routing, triage answer parsing, explicit plan requests, direct-build start |
 | `runner_test.go` | per-agent argv construction |
 | `shots_test.go` | before/after composition and screenshot markdown |
 | `plan_test.go` | plan text trimming |
@@ -722,6 +742,7 @@ green unit check does not cover the UI; skipping this step is not allowed.
 | when you change… | update |
 | --- | --- |
 | a phase, its transitions, or `IssueState` fields | §5 |
+| issue routing (`mode`, auto triage, plan vs build) | §5, §8, §14 and DEPLOY.md §4.1 |
 | a command keyword, 👍 handling, lifecycle rules | §6 |
 | the PR review command, `review.md`, review posting | §6, §8 and §17 |
 | the PR modify flow, `modify_pr.md`, push-to-head rules | §6, §8 and §17 |

@@ -87,7 +87,7 @@ them to Svelte rather than adding a UI library.
 
 - One writer for `state.json`: the `Store`, through `UpdateIssue`.
 - One agent per worktree. A merge waits for the issue's CI job; cancel/close
-  cancels and waits for both job keys before the worktree is removed.
+  cancels and waits for every issue job key before the worktree is removed.
 - Job keys: `<repo>#<issue>` for plan/work, `<repo>#<issue>#ci` for the CI
   settle. Do not run long waits on the `work` queue.
 - GitHub check runs ≠ workflow runs: check runs by sha, job logs by job id

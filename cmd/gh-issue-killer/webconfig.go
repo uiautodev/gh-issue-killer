@@ -124,6 +124,7 @@ func (w *webServer) configDefaults() map[string]any {
 		"selfUpdate":          cfg.SelfUpdate,
 		"followMaster":        cfg.FollowMaster,
 		"language":            cfg.Language,
+		"mode":                cfg.Mode,
 		// The dashboard renders one release row per repo, so it needs the
 		// per-repo defaults even when config.json has no repos entry yet.
 		"release": map[string]any{

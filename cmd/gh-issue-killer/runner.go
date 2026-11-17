@@ -101,6 +101,10 @@ type CodingRunner interface {
 	Run(ctx context.Context, opts RunnerOptions) (RunnerResult, error)
 }
 
+// runnerFor is replaced in tests so a triage or stage can run without starting
+// a real coding-agent CLI.
+var runnerFor = newCodingRunner
+
 func newCodingRunner(id string) (CodingRunner, error) {
 	switch strings.ToLower(strings.TrimSpace(id)) {
 	case "", "opencode":

@@ -30,6 +30,40 @@ func supportedCodingAgentList() string {
 	return strings.Join(codingAgentIDs, ", ")
 }
 
+// Issue modes decide how a non-bug issue starts. `plan` always posts a plan
+// comment and waits for approval, `build` implements immediately, and `auto`
+// lets the coding agent triage each issue.
+const (
+	modePlan  = "plan"
+	modeBuild = "build"
+	modeAuto  = "auto"
+)
+
+var issueModes = []string{modePlan, modeBuild, modeAuto}
+
+func isSupportedIssueMode(mode string) bool {
+	for _, candidate := range issueModes {
+		if mode == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func supportedIssueModeList() string {
+	return strings.Join(issueModes, ", ")
+}
+
+// effectiveIssueMode treats an absent mode as auto, so hand-written configs
+// from older versions keep working.
+func effectiveIssueMode(value string) string {
+	mode := strings.ToLower(strings.TrimSpace(value))
+	if mode == "" {
+		return modeAuto
+	}
+	return mode
+}
+
 type RepoConfig struct {
 	FullName     string
 	Owner        string
@@ -39,6 +73,7 @@ type RepoConfig struct {
 	Approvers    []string
 	WorktreeRoot string
 	Language     string
+	Mode         string
 	Release      ReleaseConfig
 }
 
@@ -73,6 +108,7 @@ type Config struct {
 	Approvers             []string
 	DeprecatedAgent       string
 	Language              string
+	Mode                  string
 }
 
 type repoOptions struct {
@@ -82,6 +118,7 @@ type repoOptions struct {
 	Approvers    []string       `json:"approvers"`
 	WorktreeRoot string         `json:"worktreeRoot"`
 	Language     string         `json:"language"`
+	Mode         string         `json:"mode"`
 	Release      releaseOptions `json:"release"`
 }
 
@@ -123,6 +160,9 @@ type rawConfig struct {
 	// Language is the language the agent and the daemon's scaffolding write in.
 	// Empty or "auto" follows the language of the issue or pull request.
 	Language string `json:"language"`
+	// Mode decides whether a non-bug issue starts with a plan comment. Empty
+	// means auto: the coding agent triages each issue.
+	Mode string `json:"mode"`
 }
 
 func defaultConfigPath() string {
@@ -195,6 +235,10 @@ func normalizeRepos(raw json.RawMessage, defaults repoOptions) ([]RepoConfig, er
 		if len(approvers) == 0 {
 			approvers = []string{parts[0]}
 		}
+		mode, err := normalizeIssueMode(firstNonEmpty(entry.Mode, defaults.Mode))
+		if err != nil {
+			return nil, fmt.Errorf("repo %s: %w", fullName, err)
+		}
 		release := normalizeRelease(entry.Release)
 		repos = append(repos, RepoConfig{
 			FullName:     fullName,
@@ -205,10 +249,21 @@ func normalizeRepos(raw json.RawMessage, defaults repoOptions) ([]RepoConfig, er
 			Approvers:    approvers,
 			WorktreeRoot: firstNonEmpty(expandHome(entry.WorktreeRoot), defaults.WorktreeRoot),
 			Language:     firstNonEmpty(entry.Language, defaults.Language, "auto"),
+			Mode:         mode,
 			Release:      release,
 		})
 	}
 	return repos, nil
+}
+
+// normalizeIssueMode lowercases a mode and rejects values the router would not
+// understand. Empty means auto.
+func normalizeIssueMode(value string) (string, error) {
+	mode := effectiveIssueMode(value)
+	if !isSupportedIssueMode(mode) {
+		return "", fmt.Errorf("unsupported mode %q (supported: %s)", value, supportedIssueModeList())
+	}
+	return mode, nil
 }
 
 // normalizeRelease fills in the optional per-repo release block. One day
@@ -268,6 +323,10 @@ func loadConfig(file string) (*Config, error) {
 	if !isSupportedCodingAgent(agentID) {
 		return nil, fmt.Errorf("unsupported codingAgent %q (supported: %s)", raw.CodingAgent, supportedCodingAgentList())
 	}
+	mode, err := normalizeIssueMode(raw.Mode)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		File:              file,
@@ -288,6 +347,7 @@ func loadConfig(file string) (*Config, error) {
 		Approvers:         raw.Approvers,
 		DeprecatedAgent:   strings.TrimSpace(raw.Agent),
 		Language:          firstNonEmpty(raw.Language, "auto"),
+		Mode:              mode,
 	}
 	if raw.Webhook != nil {
 		cfg.Webhook = *raw.Webhook
@@ -324,6 +384,7 @@ func loadConfig(file string) (*Config, error) {
 		Approvers:    cfg.Approvers,
 		WorktreeRoot: expandHome(raw.WorktreeRoot),
 		Language:     cfg.Language,
+		Mode:         cfg.Mode,
 	})
 	if err != nil {
 		return nil, err
