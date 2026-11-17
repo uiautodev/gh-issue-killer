@@ -11,7 +11,7 @@
 	import { applyLanguage, i18n, t } from '#lib/i18n.svelte.ts';
 	import { layout, toggleLayout } from '#lib/layout.svelte.ts';
 	import { applyTheme, theme, type ThemeMode } from '#lib/theme.svelte.ts';
-	import { cn, formatStars, humanAge } from '#lib/utils.ts';
+	import { cn, formatStars, humanAge, waitingNeedsAttention } from '#lib/utils.ts';
 	import Button from '#lib/components/ui/button.svelte';
 
 	let { onOpenSettings }: { onOpenSettings: () => void } = $props();
@@ -91,7 +91,12 @@
 	});
 
 	function stat(key: string, value: string | number, label: string) {
-		return { key, value: String(value), label };
+		return {
+			key,
+			value: String(value),
+			label,
+			attention: key === 'waiting' && waitingNeedsAttention(Number(value))
+		};
 	}
 
 	let stats = $derived.by(() => {
@@ -253,7 +258,18 @@
 								data-testid="daemon-lamp"
 							></span>
 						{/if}
-						<span class="truncate text-sm font-medium sm:text-base">{item.value}</span>
+						<span
+							class={cn(
+								'truncate text-sm font-medium sm:text-base',
+								item.attention &&
+									'rounded-md bg-phase-work/15 px-1.5 text-base font-bold text-phase-work sm:text-lg',
+								item.key === 'waiting' && !item.attention && 'font-normal text-muted-foreground/70'
+							)}
+							data-testid={`stat-${item.key}`}
+							data-highlight={item.attention}
+						>
+							{item.value}
+						</span>
 					</dd>
 				</div>
 			{/each}

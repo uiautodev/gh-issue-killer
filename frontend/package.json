@@ -14,7 +14,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"test": "node --test src/lib/utils.test.ts",
+		"test": "node --test src/lib/utils.test.ts src/lib/repos.test.ts",
 		"prebuild": "node scripts/clean-dist.mjs",
 		"postbuild": "node scripts/touch-placeholder.mjs"
 	},

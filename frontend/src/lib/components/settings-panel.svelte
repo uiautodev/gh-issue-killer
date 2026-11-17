@@ -1,5 +1,6 @@
 <script lang="ts">
 	import X from '@lucide/svelte/icons/x';
+	import Plus from '@lucide/svelte/icons/plus';
 	import { onDestroy, onMount } from 'svelte';
 	import {
 		getAuth,
@@ -17,6 +18,7 @@
 	import { dashboard } from '#lib/dashboard.svelte.ts';
 	import { showModalDialog } from '#lib/dialog.ts';
 	import { t } from '#lib/i18n.svelte.ts';
+	import { addRepoNames, parseRepoNames, removeRepoName } from '#lib/repos.ts';
 	import type {
 		AuthPayload,
 		ConfigPayload,
@@ -27,7 +29,7 @@
 	import { cn } from '#lib/utils.ts';
 	import Button from '#lib/components/ui/button.svelte';
 	import Input from '#lib/components/ui/input.svelte';
-	import Textarea from '#lib/components/ui/textarea.svelte';
+	import Select from '#lib/components/ui/select.svelte';
 
 	interface Feedback {
 		text: string;
@@ -65,6 +67,7 @@
 	let configProblem = $state('');
 
 	let repoText = $state('');
+	let repoDraft = $state('');
 	let rows = $state<ReleaseRow[]>([]);
 	let form = $state({ agent: 'opencode', model: '', proxy: '', webPort: '0', updateProxy: '', selfUpdate: false, followMaster: false });
 
@@ -100,24 +103,18 @@
 	let agentOptions = $derived.by<{ id: string; version?: string }[]>(() =>
 		agents.length ? agents : AGENT_FALLBACK
 	);
-
-	function parseRepoNames(text: string): string[] {
-		return [
-			...new Set(
-				text
-					.split(/[\s,;]+/)
-					.map((value) => value.trim())
-					.filter(Boolean)
-					.map((value) =>
-						value
-							.replace(/^https?:\/\/github\.com\//i, '')
-							.replace(/\.git$/i, '')
-							.replace(/^\/+|\/+$/g, '')
-					)
-					.filter(Boolean)
-			)
-		];
-	}
+	let agentSelectOptions = $derived.by(() => {
+		const options = agentOptions.map((agent) => ({
+			value: agent.id,
+			label: agent.version ? agent.id + ' · ' + agent.version : agent.id
+		}));
+		// A config may name an agent that is not installed here; keep it
+		// selectable instead of silently switching the saved value.
+		if (form.agent && !agentOptions.some((agent) => agent.id === form.agent)) {
+			options.push({ value: form.agent, label: form.agent });
+		}
+		return options;
+	});
 
 	function parseRepos(text: string): string[] {
 		const names = parseRepoNames(text);
@@ -320,6 +317,21 @@
 			const value = releaseValue(configDoc, name);
 			return { name, enabled: value.enabled, interval: String(value.intervalDays), time: value.time };
 		});
+	}
+
+	// The list and the text field share repoText; adding or removing a name
+	// rebuilds it so saving keeps using the same parser and order.
+	function addRepo(): void {
+		const next = addRepoNames(repoText, repoDraft);
+		repoDraft = '';
+		if (next === repoNames.join('\n')) return;
+		repoText = next;
+		syncRows();
+	}
+
+	function removeRepo(name: string): void {
+		repoText = removeRepoName(repoText, name);
+		syncRows();
 	}
 
 	function setFeedback(message: string, kind: Feedback['kind'] = 'idle'): void {
@@ -719,16 +731,52 @@
 				<section id="settings-config" class="mt-6 scroll-mt-4">
 					<h3 class="band-title mb-2">{t('settings.navConfig')}</h3>
 					<form id="settings-form" class="flex flex-col gap-4" autocomplete="off" onsubmit={saveSettings}>
-					<label class="flex flex-col gap-1">
+					<div class="flex flex-col gap-1" data-testid="repo-settings">
 						<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('settings.repos')}</span>
-						<Textarea
-							rows={3}
-							spellcheck="false"
-							placeholder="uiautodev/issuekiller"
-							bind:value={repoText}
-							oninput={syncRows}
-						/>
-					</label>
+						<ul
+							class="flex flex-col divide-y divide-border/60 overflow-hidden rounded-md border"
+							data-testid="repo-list"
+						>
+							{#each repoNames as name (name)}
+								<li class="flex min-w-0 items-center gap-2 px-2.5 py-1" data-repo={name}>
+									<span class="min-w-0 flex-1 truncate text-sm">{name}</span>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										class="size-7 flex-none text-muted-foreground hover:text-destructive"
+										aria-label={t('settings.repoRemove', { repo: name })}
+										data-testid="repo-remove"
+										onclick={() => removeRepo(name)}
+									>
+										<X class="size-3.5" aria-hidden="true" />
+									</Button>
+								</li>
+							{:else}
+								<li class="px-2.5 py-2 text-sm text-muted-foreground">
+									{t('settings.reposEmpty')}
+								</li>
+							{/each}
+						</ul>
+						<div class="mt-1 flex items-center gap-2">
+							<Input
+								spellcheck="false"
+								placeholder={t('settings.repoAddPlaceholder')}
+								aria-label={t('settings.repoAdd')}
+								data-testid="repo-add-input"
+								bind:value={repoDraft}
+								onkeydown={(event) => {
+									if (event.key !== 'Enter') return;
+									event.preventDefault();
+									addRepo();
+								}}
+							/>
+							<Button type="button" variant="outline" onclick={addRepo} data-testid="repo-add">
+								<Plus class="size-4" aria-hidden="true" />
+								{t('settings.repoAdd')}
+							</Button>
+						</div>
+					</div>
 
 					{#if repoNames.length}
 						<div class="flex flex-col gap-2 border-t pt-3" data-testid="release-rows">
@@ -767,22 +815,15 @@
 					{/if}
 
 					<div class="flex flex-wrap gap-3">
-						<label class="flex min-w-[150px] flex-1 flex-col gap-1">
+						<div class="flex min-w-[150px] flex-1 flex-col gap-1">
 							<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('settings.agent')}</span>
-							<select
-								class="h-9 rounded-md border border-input bg-transparent px-2.5 text-sm"
+							<Select
+								options={agentSelectOptions}
+								label={t('settings.agent')}
+								testid="agent-select"
 								bind:value={form.agent}
-							>
-								{#each agentOptions as agent (agent.id)}
-									<option value={agent.id}>
-										{agent.version ? agent.id + ' · ' + agent.version : agent.id}
-									</option>
-								{/each}
-								{#if form.agent && !agentOptions.some((agent) => agent.id === form.agent)}
-									<option value={form.agent}>{form.agent}</option>
-								{/if}
-							</select>
-						</label>
+							/>
+						</div>
 						<label class="flex min-w-[150px] flex-1 flex-col gap-1">
 							<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('settings.model')}</span>
 							<Input list="cfg-models" placeholder={t('settings.modelHint')} bind:value={form.model} />

@@ -93,16 +93,19 @@ Set `webPort` for the live dashboard: a sticky header with the live counters,
 per-repo queues and parallel meters (the PLAN/WORK limits apply per project),
 stage progress, PRs, checks, screenshots and the daemon log, with plans rendered
 as markdown. The task board keeps its columns on desktop and turns into labelled
-cards on narrow screens; the repo overview and console are collapsible cards, and
-the task/settings panels are native dialogs with keyboard focus handling. The
+cards on narrow screens; the repo overview and console are collapsible cards
+that start collapsed, and the task/settings panels are native dialogs with
+keyboard focus handling. The
 board follows the system theme or can be pinned to light/dark, the interface
 switches between Chinese and English, and the header's icon toolbar links back
 to this repository, shows its star count and switches the board between the wide
-and narrow layout; tasks can be filtered by project
-or free text or hide finished/cancelled work, the console
+and narrow layout; tasks can be filtered by project (a keyboard-friendly
+dropdown) or free text or hide finished/cancelled work, the console
 colours the log by level, and the header counts the tasks waiting for you
-(approval, merge or unblock). The settings panel edits the repos, coding agent,
-model, proxy, update mirror and each project's release schedule, and shows the
+(approval, merge or unblock), highlighting that number only when it is above
+zero. The settings panel edits the repos (a list with per-row removal and an
+add field), coding agent, model, proxy, update mirror and each project's release
+schedule, and shows the
 daemon's version, pid, identity, transport and config path. The board is a
 SvelteKit app in `frontend/` (Tailwind + shadcn-svelte theme); release binaries
 embed its build output, and a source build needs

@@ -41,7 +41,7 @@
 	class="page-shell px-4 pt-4 sm:px-6"
 	data-testid="lines"
 >
-	<details class="card group overflow-hidden" open>
+	<details class="card group overflow-hidden">
 		<summary
 			class="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 [&::-webkit-details-marker]:hidden"
 		>

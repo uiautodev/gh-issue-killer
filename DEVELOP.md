@@ -179,7 +179,7 @@ dependencies.
 | `assets/sponsor.png` | WeChat reward QR code shown at the end of `README.zh-CN.md` (not part of the build) |
 | `desktop/` | separate Go module: Wails 3 shell (`main.go`, `engine.go`, `engine_test.go`, `process_*.go`) and `build/` packaging (icon rendered from `frontend/static/logo.svg`, `.app`, DMG) |
 | `.agents/skills/modern-web-guidance/`, `skills-lock.json` | vendored GoogleChrome modern-web-guidance skill (SKILL.md + `guides/`) and its pinned commit, Apache-2.0 / CC-BY-4.0; search it before changing dashboard CSS, layout, tables, dialogs or theme handling |
-| `frontend/` | SvelteKit SPA for the dashboard: Tailwind v4 + shadcn-svelte tokens, zh/en strings, routes and `$lib` API/i18n/theme/layout modules (`dialog.ts` wraps native dialogs and the light-dismiss fallback); `npm run build` writes `cmd/issuekiller/web/dist` |
+| `frontend/` | SvelteKit SPA for the dashboard: Tailwind v4 + shadcn-svelte tokens, zh/en strings, routes and `$lib` API/i18n/theme/layout modules (`dialog.ts` wraps native dialogs and the light-dismiss fallback, `repos.ts` normalises the watched-repo list, `components/ui/select.svelte` is the dependency-free listbox select); `npm run build` writes `cmd/issuekiller/web/dist` |
 
 ## 5. State model and phases
 
@@ -637,17 +637,25 @@ and the click is posted to `/api/open-url`, because Wails' WKWebView drops
 `target="_blank"`. Every string, including phases, filters, the drawer, the
 settings panel and the empty states, lives in the `zh`/`en` tables in
 `$lib/i18n.svelte.ts`; `/api/logs` stays plain text and the console colours
-INFO/WARN/ERROR/DEBUG in the browser.
+INFO/WARN/ERROR/DEBUG in the browser. The live counter strip gives the waiting
+count a phase-work badge and a larger type only while it is above zero; at zero
+it drops back to the muted size so an idle daemon stays quiet.
 
 The board toolbar merges the phase filters, the hide-finished toggle, the repo
 dropdown, the search field and the visible task count into one wrapping row.
+The repo filter and the settings' coding-agent picker are the local
+`components/ui/select.svelte`: a shadcn-style button trigger with a listbox
+popup (arrow keys, Home/End, Esc, outside-click dismissal and focus return),
+because the dashboard stays free of a UI dependency. It binds the same values
+the native `<select>` did.
 The task table keeps semantic `<table>`/`<thead>`/`<th scope="row">` markup and
 a sticky header inside its scroll region; the scroll region is a named
 container, so below 760 px the same table becomes stacked cards with the
 column labels injected from CSS variables (translated by the current language)
 instead of shrinking the columns. Repo overview (LINES) and the console are
-collapsible cards: the first screen keeps only the counters and the board, and
-the console still polls `/api/logs` only after it is expanded.
+collapsible cards that both start collapsed: the first screen keeps only the
+counters and the board, and the console still polls `/api/logs` only after it is
+expanded.
 `planParallel` and `implementParallel` size each repository's own pool, so the
 PLAN/WORK meters are rendered per repository line rather than globally. A board
 toggle hides `done` and `cancelled` tasks on top of the other filters; it is on
@@ -659,10 +667,13 @@ the top layer, and `dialog.ts` only adds the outside-click fallback where
 `closedby="any"` is missing (WebKit in the desktop shell). `app.css` also
 contains scroll chaining for the top layer. The settings button opens the
 dialog with a section nav (login / config / updates), a scrolling body and a
-sticky action bar: repos (array, array of objects or object form, with per-repo
-overrides preserved), one release row per repo (`enabled`, `intervalDays`,
-`time`, a native `<input type="time">`),
-coding agent (populated from `/api/detect`), model, proxy, `webPort`,
+sticky action bar: repos as a list with a per-row remove button and an
+owner/repo input plus Add button below it (array, array of objects or object
+form, with per-repo overrides preserved; adding normalises pasted URLs, drops
+duplicates and keeps the visible order), one release row per repo (`enabled`,
+`intervalDays`, `time`, a native `<input type="time">`),
+coding agent (the same select, populated from `/api/detect`, keeping a configured
+agent that is not installed), model, proxy, `webPort`,
 `selfUpdate` and `updateProxy`, plus the version card, the update buttons and
 the System card. The first block is the GitHub login: it shows the one-time
 code and authorization link, polls `/api/auth/device`, and keeps a paste-token
@@ -768,7 +779,8 @@ has its own tests for the directory migration and env fallback
 
 The dashboard is tested with its own toolchain: `npm --prefix frontend run check`
 (svelte-check), `npm --prefix frontend run test` (Node's test runner against
-`frontend/src/lib/utils.test.ts` for the pure helpers such as `formatStars`) and
+`frontend/src/lib/utils.test.ts` for the pure helpers such as `formatStars`,
+plus `frontend/src/lib/repos.test.ts` for the repo-list normaliser) and
 `npm --prefix frontend run build`. Before changing styles,
 layout, tables, dialogs or theme handling, search the vendored
 `.agents/skills/modern-web-guidance/` skill (for example

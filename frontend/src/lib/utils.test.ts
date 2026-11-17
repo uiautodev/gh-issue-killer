@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatStars } from './utils.ts';
+import { formatStars, waitingNeedsAttention } from './utils.ts';
 
 test('formatStars keeps counts below 1000 exact', () => {
 	assert.equal(formatStars(0), '0');
@@ -24,4 +24,14 @@ test('formatStars rejects unusable values', () => {
 	assert.equal(formatStars(-1), '0');
 	assert.equal(formatStars(Number.NaN), '0');
 	assert.equal(formatStars(Number.POSITIVE_INFINITY), '0');
+});
+
+test('waitingNeedsAttention only highlights a positive count', () => {
+	assert.equal(waitingNeedsAttention(1), true);
+	assert.equal(waitingNeedsAttention(7), true);
+	assert.equal(waitingNeedsAttention(0), false);
+	assert.equal(waitingNeedsAttention(-2), false);
+	assert.equal(waitingNeedsAttention(Number.NaN), false);
+	assert.equal(waitingNeedsAttention(null), false);
+	assert.equal(waitingNeedsAttention(undefined), false);
 });
