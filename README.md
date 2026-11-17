@@ -88,8 +88,9 @@ as markdown. The task board keeps its columns on desktop and turns into labelled
 cards on narrow screens; the repo overview and console are collapsible cards, and
 the task/settings panels are native dialogs with keyboard focus handling. The
 board follows the system theme or can be pinned to light/dark, the interface
-switches between Chinese and English and links back to this repository, tasks can
-be filtered by project or free text or hide finished/cancelled work, the console
+switches between Chinese and English, and the header's icon toolbar links back
+to this repository and shows its star count; tasks can be filtered by project
+or free text or hide finished/cancelled work, the console
 colours the log by level, and the header counts the tasks waiting for you
 (approval, merge or unblock). The settings panel edits the repos, coding agent,
 model, proxy, update mirror and each project's release schedule, and shows the

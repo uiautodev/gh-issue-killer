@@ -19,6 +19,7 @@ gofmt -l .                     # must print nothing
 go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 npm --prefix frontend ci       # dashboard deps
 npm --prefix frontend run check
+npm --prefix frontend run test
 npm --prefix frontend run build   # writes the embedded web/dist
 ```
 

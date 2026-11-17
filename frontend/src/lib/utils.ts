@@ -14,6 +14,15 @@ export function humanAge(seconds: number | null | undefined): string {
 	return Math.floor(seconds / 86400) + 'd';
 }
 
+/** Compact GitHub star count: exact below 1000, one decimal above ("9.3k"). */
+export function formatStars(count: number): string {
+	if (!Number.isFinite(count) || count <= 0) return '0';
+	if (count < 1000) return String(Math.round(count));
+	const thousands = count / 1000;
+	if (thousands >= 100) return Math.round(thousands) + 'k';
+	return thousands.toFixed(1).replace(/\.0$/, '') + 'k';
+}
+
 export function fmtTime(raw: string | null | undefined, lang: string): string {
 	if (!raw) return '–';
 	const date = new Date(raw);
