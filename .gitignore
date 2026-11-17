@@ -1,13 +1,13 @@
 bin/
-/gh-issue-killer
-/gh-issue-killer.exe
+/issuekiller
+/issuekiller.exe
 config.json
 .state/
 *.log
 .DS_Store
 .playwright-mcp/
 /desktop/desktop
-/desktop/gh-issue-killer-desktop
+/desktop/issuekiller-desktop
 /desktop/*.exe
 /desktop/build/dist/
 
@@ -15,5 +15,5 @@ config.json
 # workflow, never committed
 /frontend/node_modules/
 /frontend/.svelte-kit/
-/cmd/gh-issue-killer/web/dist/*
-!/cmd/gh-issue-killer/web/dist/.gitkeep
+/cmd/issuekiller/web/dist/*
+!/cmd/issuekiller/web/dist/.gitkeep

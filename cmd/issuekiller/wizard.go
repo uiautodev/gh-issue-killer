@@ -867,7 +867,7 @@ func verifyProxyReachable(proxy *Proxy) error {
 	if err != nil {
 		return err
 	}
-	request.Header.Set("User-Agent", "gh-issue-killer-setup")
+	request.Header.Set("User-Agent", "issuekiller-setup")
 	response, err := newHTTPClient(proxy, 10*time.Second).Do(request)
 	if err != nil {
 		return err
@@ -889,7 +889,7 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 	ui := newWizardUI(in, out)
 	answers := loadWizardDefaults(file)
 
-	ui.printf("gh-issue-killer · config wizard\n\n")
+	ui.printf("issuekiller · config wizard\n\n")
 	ui.printf("Config file / 配置文件: %s\n", file)
 	if answers.fromFile {
 		ui.printf("Editing existing config — press Enter to keep the current value.\n")
@@ -935,7 +935,7 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 			}
 		} else {
 			ui.printf("\n! No GitHub token yet: open the dashboard and log in with the bot account,\n")
-			ui.printf("  or set GH_AGENT_TOKEN, or run `gh-issue-killer -init` from a terminal.\n")
+			ui.printf("  or set GH_AGENT_TOKEN, or run `issuekiller -init` from a terminal.\n")
 		}
 	}
 
@@ -943,7 +943,7 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 	access, err = wizardRepoCheck(proxyObject, answers.Repos)
 	if err != nil {
 		ui.printf("\n! Could not check GitHub access: %v\n", err)
-		ui.printf("  Log in from the dashboard (bot account) or run `gh-issue-killer -init`, or set GH_AGENT_TOKEN.\n")
+		ui.printf("  Log in from the dashboard (bot account) or run `issuekiller -init`, or set GH_AGENT_TOKEN.\n")
 	} else if !ui.printAccess(access) {
 		ui.printf("Nothing written.\n")
 		return nil
@@ -988,7 +988,7 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 		if answers.ImplementTimeoutMin, err = ui.integer("Implement timeout, minutes", answers.ImplementTimeoutMin, 1, 1440); err != nil {
 			return err
 		}
-		if answers.WorktreeRoot, err = ui.text("Worktree root (empty = ~/.gh-issue-killer/worktrees)", answers.WorktreeRoot); err != nil {
+		if answers.WorktreeRoot, err = ui.text("Worktree root (empty = ~/.issuekiller/worktrees)", answers.WorktreeRoot); err != nil {
 			return err
 		}
 	} else {
@@ -1024,8 +1024,8 @@ func runSetupWizard(file string, in io.Reader, out io.Writer) error {
 			}
 			ui.printf("\nWrote %s\n\n", file)
 			ui.printf("Next steps / 下一步:\n")
-			ui.printf("  gh-issue-killer -once        # verify the setup and run one poll\n")
-			ui.printf("  gh-issue-killer -foreground  # run the daemon attached to this terminal\n")
+			ui.printf("  issuekiller -once        # verify the setup and run one poll\n")
+			ui.printf("  issuekiller -foreground  # run the daemon attached to this terminal\n")
 			return nil
 		case "d", "json":
 			ui.printf("\n%s\n", string(data))

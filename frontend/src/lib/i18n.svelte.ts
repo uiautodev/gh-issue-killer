@@ -4,10 +4,10 @@
 
 export type Lang = 'zh' | 'en';
 
-const LANG_KEY = 'ghik-lang';
+const LANG_KEY = 'issuekiller-lang';
 
 const zh: Record<string, string> = {
-	'document.title': 'gh-issue-killer · 调度台',
+	'document.title': 'issuekiller · 调度台',
 	tagline: '用评论驱动编码 agent 的 issue 调度台',
 	'stat.daemon': 'DAEMON',
 	'stat.active': 'ACTIVE',
@@ -16,8 +16,8 @@ const zh: Record<string, string> = {
 	'stat.uptime': 'UPTIME',
 	'stat.live': '在线',
 	'stat.down': '离线 · 重试 {n}',
-	'github.aria': '在 GitHub 上打开 gh-issue-killer',
-	'github.ariaStars': '在 GitHub 上打开 gh-issue-killer，{n} 个 Star',
+	'github.aria': '在 GitHub 上打开 issuekiller',
+	'github.ariaStars': '在 GitHub 上打开 issuekiller，{n} 个 Star',
 	'lang.switch': '切换到英文',
 	'theme.toggle': '切换主题（当前：{mode}）',
 	'theme.auto': '跟随系统',
@@ -191,15 +191,15 @@ const zh: Record<string, string> = {
 };
 
 const en: Record<string, string> = {
-	'document.title': 'gh-issue-killer · Dashboard',
+	'document.title': 'issuekiller · Dashboard',
 	tagline: 'An issue dispatch board driven by comments',
 	'stat.daemon': 'DAEMON',
 	'stat.active': 'ACTIVE',
 	'stat.queued': 'QUEUED',
 	'stat.waiting': 'WAITING ON ME',
 	'stat.uptime': 'UPTIME',
-	'github.aria': 'Open gh-issue-killer on GitHub',
-	'github.ariaStars': 'Open gh-issue-killer on GitHub, {n} stars',
+	'github.aria': 'Open issuekiller on GitHub',
+	'github.ariaStars': 'Open issuekiller on GitHub, {n} stars',
 	'lang.switch': 'Switch to Chinese',
 	'theme.toggle': 'Switch theme (current: {mode})',
 	'theme.auto': 'Auto',

@@ -1,4 +1,4 @@
-module gh-issue-killer
+module issuekiller
 
 go 1.27
 

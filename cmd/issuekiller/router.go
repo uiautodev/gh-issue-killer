@@ -92,7 +92,7 @@ func stripMention(text, login string) string {
 // command. Comments written before the marker existed all start with the
 // bot heading.
 func isAgentComment(body string) bool {
-	return strings.Contains(body, agentCommentMarker) ||
+	return hasAgentMarker(body) ||
 		strings.HasPrefix(strings.TrimSpace(body), "### 🤖")
 }
 
@@ -888,7 +888,7 @@ func (r *Router) latestStatusCommentID(ctx context.Context, app *AppContext, num
 		return 0
 	}
 	for i := len(comments) - 1; i >= 0; i-- {
-		if strings.Contains(comments[i].Body, agentCommentMarker) {
+		if hasAgentMarker(comments[i].Body) {
 			return comments[i].ID
 		}
 	}

@@ -16,11 +16,11 @@
 
 	let { onOpenSettings }: { onOpenSettings: () => void } = $props();
 
-	const REPO_URL = 'https://github.com/uiautodev/gh-issue-killer';
+	const REPO_URL = 'https://github.com/uiautodev/issuekiller';
 	// Anonymous api.github.com allows 60 requests per hour and IP, so the count
 	// is refreshed once a day and a failed refresh keeps whatever is cached.
-	const STARS_KEY = 'ghik-stars';
-	const STARS_URL = 'https://api.github.com/repos/uiautodev/gh-issue-killer';
+	const STARS_KEY = 'issuekiller-stars';
+	const STARS_URL = 'https://api.github.com/repos/uiautodev/issuekiller';
 	const STARS_TTL_MS = 24 * 60 * 60 * 1000;
 
 	const themeModes: ThemeMode[] = ['auto', 'light', 'dark'];
@@ -133,7 +133,7 @@
 			/>
 			<div class="min-w-0">
 				<h1 class="font-sans text-2xl leading-none font-bold tracking-tight">
-					gh-issue-killer
+					issuekiller
 				</h1>
 				<p class="mt-1 text-xs font-medium text-muted-foreground">
 					{t('tagline')}

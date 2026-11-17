@@ -262,7 +262,7 @@ func (g *GH) do(ctx context.Context, method, path string, body, out any) error {
 		request.Header.Set("Authorization", "Bearer "+token)
 		request.Header.Set("Accept", "application/vnd.github+json")
 		request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-		request.Header.Set("User-Agent", "gh-issue-killer-go/0.1")
+		request.Header.Set("User-Agent", "issuekiller-go/0.1")
 		if body != nil {
 			request.Header.Set("Content-Type", "application/json")
 		}
@@ -403,8 +403,19 @@ func (g *GH) GetComment(ctx context.Context, fullName string, id int64) (Comment
 
 // agentCommentMarker tags every comment the daemon writes. A comment on the
 // bot account that lacks this marker was written by a human and may carry a
-// command, while the daemon's own status comments are ignored.
-const agentCommentMarker = "<!-- ghik:agent -->"
+// command, while the daemon's own status comments are ignored. Comments from
+// releases before the project rename carry legacyAgentCommentMarker; both are
+// recognised so an upgrade does not treat old daemon output as a command.
+const (
+	agentCommentMarker       = "<!-- issuekiller:agent -->"
+	legacyAgentCommentMarker = "<!-- ghik:agent -->"
+)
+
+// hasAgentMarker reports whether body carries a marker of either generation.
+func hasAgentMarker(body string) bool {
+	return strings.Contains(body, agentCommentMarker) ||
+		strings.Contains(body, legacyAgentCommentMarker)
+}
 
 var hookEvents = []string{"issues", "issue_comment", "reaction", "pull_request_review", "pull_request_review_comment"}
 
@@ -742,7 +753,7 @@ func (g *GH) JobLogTail(ctx context.Context, fullName string, jobID int64, lines
 	request.Header.Set("Authorization", "Bearer "+g.Token)
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	request.Header.Set("User-Agent", "gh-issue-killer-go/0.1")
+	request.Header.Set("User-Agent", "issuekiller-go/0.1")
 	response, err := g.Client.Do(request)
 	if err != nil {
 		return ""
@@ -883,7 +894,7 @@ func (g *GH) UploadAttachment(ctx context.Context, repoID int64, file string) (s
 	request.Header.Set("Authorization", "Bearer "+g.Token)
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Content-Type", "application/octet-stream")
-	request.Header.Set("User-Agent", "gh-issue-killer-go/0.1")
+	request.Header.Set("User-Agent", "issuekiller-go/0.1")
 
 	response, err := g.Upload.Do(request)
 	if err != nil {

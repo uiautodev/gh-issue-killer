@@ -2,7 +2,7 @@
 
 过去半年我大部分代码是让编码 agent 写的，但真正花时间的不是写代码，而是写代码
 前后的那些事：读 issue、拆任务、盯 PR 的检查、解冲突、等 CI 绿了再点合并。于是
-我写了个小工具 [gh-issue-killer](https://github.com/uiautodev/gh-issue-killer)：
+我写了个小工具 [issuekiller](https://github.com/uiautodev/issuekiller)：
 一个 Go 单文件程序，监听 GitHub issue，让 opencode / Claude Code / Codex 在独立
 worktree 里把活干完，你用评论控制节奏。下面按"为什么"和"怎么用"讲一遍。
 
@@ -15,7 +15,7 @@ worktree 里把活干完，你用评论控制节奏。下面按"为什么"和"�
 - **仓库一多就互相堵。** 一个慢 CI 占住所有任务，只能给每个仓库再开一个 daemon。
 
 这些问题本质上是同一件事：**流程的状态没有地方存，所以每推进一步都要人记着。**
-gh-issue-killer 的做法是把状态放进 `state.json`，把每一步变成可恢复的阶段。
+issuekiller 的做法是把状态放进 `state.json`，把每一步变成可恢复的阶段。
 
 ## 一条 issue 的完整生命周期
 
@@ -73,10 +73,10 @@ worktree 里的 agent 处理。
 手动安装也就四行：
 
 ```bash
-go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
-./bin/gh-issue-killer -init      # 向导：仓库、agent、approvers、代理
-./bin/gh-issue-killer            # 后台 daemon
-./bin/gh-issue-killer -status    # pid、配置、日志和状态路径
+go build -o bin/issuekiller ./cmd/issuekiller
+./bin/issuekiller -init      # 向导：仓库、agent、approvers、代理
+./bin/issuekiller            # 后台 daemon
+./bin/issuekiller -status    # pid、配置、日志和状态路径
 ```
 
 配置是 `repos` / `codingAgent` / `approvers` / `proxy` 几个字段，每个仓库可以单独
@@ -106,6 +106,6 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 
 如果想看看它在真实仓库里跑一整条链路，可以先跑 `scripts/smoke-test.sh owner/repo`。
 
-代码是 MIT 协议：[github.com/uiautodev/gh-issue-killer](https://github.com/uiautodev/gh-issue-killer)。
+代码是 MIT 协议：[github.com/uiautodev/issuekiller](https://github.com/uiautodev/issuekiller)。
 用着有问题、或者你的流程跟它不一样，欢迎开 issue 直接 `@` 它自己——它就是这么被
 开发出来的。

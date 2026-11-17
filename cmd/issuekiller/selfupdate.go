@@ -41,7 +41,7 @@ func buildLabel() string {
 }
 
 const (
-	selfRepo     = "uiautodev/gh-issue-killer"
+	selfRepo     = "uiautodev/issuekiller"
 	selfReleases = "https://api.github.com/repos/" + selfRepo + "/releases/latest"
 	// selfCheck is deliberately slow: releases are cut by hand, and the
 	// unauthenticated GitHub API allows 60 requests per hour per IP.
@@ -75,7 +75,7 @@ func lookupLatestRelease(ctx context.Context, proxyRaw string) (*releaseInfo, er
 		return nil, err
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
-	request.Header.Set("User-Agent", "gh-issue-killer")
+	request.Header.Set("User-Agent", "issuekiller")
 	client := newHTTPClient(proxy, 30*time.Second)
 	response, err := client.Do(request)
 	if err != nil {
@@ -171,11 +171,11 @@ func assetNameFor(version, goos, goarch string) string {
 	if goos == "windows" {
 		ext = ".zip"
 	}
-	return fmt.Sprintf("gh-issue-killer_%s_%s_%s%s", version, goos, goarch, ext)
+	return fmt.Sprintf("issuekiller_%s_%s_%s%s", version, goos, goarch, ext)
 }
 
 // pickReleaseAsset finds the daemon archive for one platform. Desktop bundles
-// are named gh-issue-killer-desktop_..., so the "gh-issue-killer_" prefix keeps
+// are named issuekiller-desktop_..., so the "issuekiller_" prefix keeps
 // them out even when the OS/arch suffix matches.
 func pickReleaseAsset(assets []releaseAsset, version, goos, goarch string) (releaseAsset, bool) {
 	exact := assetNameFor(version, goos, goarch)
@@ -191,7 +191,7 @@ func pickReleaseAsset(assets []releaseAsset, version, goos, goarch string) (rele
 		suffix += ".tar.gz"
 	}
 	for _, asset := range assets {
-		if strings.HasPrefix(asset.Name, "gh-issue-killer_") && strings.HasSuffix(asset.Name, suffix) {
+		if strings.HasPrefix(asset.Name, "issuekiller_") && strings.HasSuffix(asset.Name, suffix) {
 			return asset, true
 		}
 	}
@@ -328,7 +328,7 @@ func fetchToFile(ctx context.Context, client *http.Client, rawURL, dest string) 
 	if err != nil {
 		return "", err
 	}
-	request.Header.Set("User-Agent", "gh-issue-killer")
+	request.Header.Set("User-Agent", "issuekiller")
 	response, err := client.Do(request)
 	if err != nil {
 		return "", err
@@ -361,14 +361,14 @@ func downloadBytes(ctx context.Context, client *http.Client, rawURL, mirror stri
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("User-Agent", "gh-issue-killer")
+	request.Header.Set("User-Agent", "issuekiller")
 	response, err := client.Do(request)
 	if err != nil && mirror != "" {
 		request, err = http.NewRequestWithContext(ctx, http.MethodGet, mirrorURL(mirror, rawURL), nil)
 		if err != nil {
 			return nil, err
 		}
-		request.Header.Set("User-Agent", "gh-issue-killer")
+		request.Header.Set("User-Agent", "issuekiller")
 		response, err = client.Do(request)
 	}
 	if err != nil {
@@ -392,7 +392,7 @@ func extractBinary(archive, dest string) error {
 
 func isDaemonBinary(name string) bool {
 	base := filepath.Base(name)
-	return base == "gh-issue-killer" || base == "gh-issue-killer.exe"
+	return base == "issuekiller" || base == "issuekiller.exe"
 }
 
 func extractBinaryTarGz(archive, dest string) error {
@@ -420,7 +420,7 @@ func extractBinaryTarGz(archive, dest string) error {
 		}
 		return writeReader(dest, reader)
 	}
-	return fmt.Errorf("%s does not contain gh-issue-killer", archive)
+	return fmt.Errorf("%s does not contain issuekiller", archive)
 }
 
 func extractBinaryZip(archive, dest string) error {
@@ -440,7 +440,7 @@ func extractBinaryZip(archive, dest string) error {
 		defer opened.Close()
 		return writeReader(dest, opened)
 	}
-	return fmt.Errorf("%s does not contain gh-issue-killer", archive)
+	return fmt.Errorf("%s does not contain issuekiller", archive)
 }
 
 func writeReader(dest string, source io.Reader) error {
@@ -479,7 +479,7 @@ func replaceBinary(exe, staged string) error {
 }
 
 const (
-	masterRepoURL = "https://github.com/uiautodev/gh-issue-killer.git"
+	masterRepoURL = "https://github.com/uiautodev/issuekiller.git"
 	masterBranch  = "master"
 	// masterCheck is fast on purpose: on a development machine a push to master
 	// should reach the running daemon in under a minute, not half an hour.
@@ -627,7 +627,7 @@ func rebuildFromMaster(ctx context.Context, log *Logger, env []string, head stri
 	tmp := exe + ".new"
 	if _, err := runCmd(ctx, goBin, []string{"build", "-trimpath",
 		"-ldflags", "-X main.commit=" + head,
-		"-o", tmp, "./cmd/gh-issue-killer"}, CmdOptions{
+		"-o", tmp, "./cmd/issuekiller"}, CmdOptions{
 		Cwd:     dir,
 		Env:     env,
 		Timeout: 10 * time.Minute,
@@ -647,7 +647,7 @@ func rebuildFromMaster(ctx context.Context, log *Logger, env []string, head stri
 	return nil
 }
 
-// buildDashboard compiles frontend/ into cmd/gh-issue-killer/web/dist, which the
+// buildDashboard compiles frontend/ into cmd/issuekiller/web/dist, which the
 // binary embeds. `npm ci` is skipped when the lockfile did not change.
 func buildDashboard(ctx context.Context, log *Logger, npmBin, dir string, env []string) error {
 	frontend := filepath.Join(dir, "frontend")
@@ -657,7 +657,7 @@ func buildDashboard(ctx context.Context, log *Logger, npmBin, dir string, env []
 	}
 	sum := sha256.Sum256(lock)
 	stamp := hex.EncodeToString(sum[:])
-	stampFile := filepath.Join(frontend, "node_modules", ".ghik-lock")
+	stampFile := filepath.Join(frontend, "node_modules", ".issuekiller-lock")
 	if current, readErr := os.ReadFile(stampFile); readErr != nil || string(current) != stamp {
 		log.Info("master update: installing dashboard dependencies")
 		if _, err := runCmd(ctx, npmBin, []string{"ci", "--no-audit", "--no-fund"}, CmdOptions{

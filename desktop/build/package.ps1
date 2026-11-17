@@ -1,6 +1,6 @@
 # Assemble the Windows desktop bundle: the shell and the engine in one zip.
 # Build the SvelteKit dashboard first (`npm --prefix frontend run build`); the
-# engine embeds cmd/gh-issue-killer/web/dist.
+# engine embeds cmd/issuekiller/web/dist.
 # Run from PowerShell on a Windows machine (the release workflow does this).
 param(
     [string]$Version = "dev"
@@ -12,7 +12,7 @@ $Root = Split-Path -Parent $DesktopDir
 $Goos = & go env GOOS
 $Goarch = & go env GOARCH
 $Dist = Join-Path $DesktopDir "build\dist"
-$Name = "gh-issue-killer-desktop_${Version}_${Goos}_${Goarch}"
+$Name = "issuekiller-desktop_${Version}_${Goos}_${Goarch}"
 $Work = Join-Path $Dist $Name
 $Zip = Join-Path $Dist "$Name.zip"
 
@@ -28,7 +28,7 @@ Write-Host "building engine $Goos/$Goarch"
 Push-Location $Root
 try {
     & go build -trimpath -ldflags "-s -w -X main.version=$Version" `
-        -o (Join-Path $Work "gh-issue-killer.exe") ./cmd/gh-issue-killer
+        -o (Join-Path $Work "issuekiller.exe") ./cmd/issuekiller
     if ($LASTEXITCODE -ne 0) { throw "engine build failed" }
 } finally { Pop-Location }
 
@@ -36,7 +36,7 @@ Write-Host "building desktop shell"
 Push-Location $DesktopDir
 try {
     & go build -trimpath -ldflags "-s -w" `
-        -o (Join-Path $Work "gh-issue-killer-desktop.exe") .
+        -o (Join-Path $Work "issuekiller-desktop.exe") .
     if ($LASTEXITCODE -ne 0) { throw "desktop build failed" }
 } finally { Pop-Location }
 

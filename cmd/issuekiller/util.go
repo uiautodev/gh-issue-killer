@@ -26,15 +26,64 @@ func homeDir() string {
 	return home
 }
 
+const (
+	stateDirName       = ".issuekiller"
+	legacyStateDirName = ".gh-issue-killer"
+)
+
 // stateDirOverride lets tests isolate state without introducing a public
-// environment variable. The daemon always uses ~/.gh-issue-killer.
+// environment variable. The daemon always uses ~/.issuekiller.
 var stateDirOverride string
+
+// legacyStateDirInUse is set when the one-time move of ~/.gh-issue-killer
+// failed: staying on the old directory beats starting with empty state and
+// losing the stored login, state.json and worktrees.
+var legacyStateDirInUse bool
 
 func stateDir() string {
 	if stateDirOverride != "" {
 		return stateDirOverride
 	}
-	return filepath.Join(homeDir(), ".gh-issue-killer")
+	name := stateDirName
+	if legacyStateDirInUse {
+		name = legacyStateDirName
+	}
+	return filepath.Join(homeDir(), name)
+}
+
+// migrateStateDir adopts the state directory of the pre-rename releases so an
+// upgrade keeps the token, state.json, cloned repositories, worktrees and logs.
+// It only runs when the new directory does not exist yet; on failure the daemon
+// keeps using the old one instead of silently starting from scratch.
+func migrateStateDir() error {
+	if stateDirOverride != "" {
+		return nil
+	}
+	return migrateStateDirIn(homeDir())
+}
+
+func migrateStateDirIn(home string) error {
+	old := filepath.Join(home, legacyStateDirName)
+	renamed := filepath.Join(home, stateDirName)
+	if fileExists(renamed) || !fileExists(old) {
+		return nil
+	}
+	if err := os.Rename(old, renamed); err != nil {
+		legacyStateDirInUse = true
+		return fmt.Errorf("could not move %s to %s, keeping the old directory: %w", old, renamed, err)
+	}
+	return nil
+}
+
+// envValue returns the first non-empty variable among names. Renamed variables
+// list the old name last so an already deployed instance keeps working.
+func envValue(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func logsDir() string   { return filepath.Join(stateDir(), "logs") }

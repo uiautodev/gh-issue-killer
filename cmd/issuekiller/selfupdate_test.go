@@ -59,17 +59,17 @@ func TestIsNewerVersion(t *testing.T) {
 func TestPickReleaseAsset(t *testing.T) {
 	assets := []releaseAsset{
 		{Name: "checksums.txt"},
-		{Name: "gh-issue-killer-desktop_v1.2.3_darwin_arm64.zip"},
-		{Name: "gh-issue-killer_v1.2.3_darwin_arm64.tar.gz"},
-		{Name: "gh-issue-killer_v1.2.3_linux_amd64.tar.gz"},
-		{Name: "gh-issue-killer_v1.2.3_windows_amd64.zip"},
+		{Name: "issuekiller-desktop_v1.2.3_darwin_arm64.zip"},
+		{Name: "issuekiller_v1.2.3_darwin_arm64.tar.gz"},
+		{Name: "issuekiller_v1.2.3_linux_amd64.tar.gz"},
+		{Name: "issuekiller_v1.2.3_windows_amd64.zip"},
 	}
 	asset, ok := pickReleaseAsset(assets, "v1.2.3", "darwin", "arm64")
-	if !ok || asset.Name != "gh-issue-killer_v1.2.3_darwin_arm64.tar.gz" {
+	if !ok || asset.Name != "issuekiller_v1.2.3_darwin_arm64.tar.gz" {
 		t.Fatalf("darwin asset = %+v ok=%v", asset, ok)
 	}
 	asset, ok = pickReleaseAsset(assets, "v1.2.3", "windows", "amd64")
-	if !ok || asset.Name != "gh-issue-killer_v1.2.3_windows_amd64.zip" {
+	if !ok || asset.Name != "issuekiller_v1.2.3_windows_amd64.zip" {
 		t.Fatalf("windows asset = %+v ok=%v", asset, ok)
 	}
 	if _, ok := pickReleaseAsset(assets, "v1.2.3", "linux", "arm64"); ok {
@@ -79,13 +79,13 @@ func TestPickReleaseAsset(t *testing.T) {
 
 func TestChecksumFor(t *testing.T) {
 	sums := "d41d8cd98f00b204e9800998ecf8427e  other.tar.gz\n" +
-		"  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789  *dir/gh-issue-killer_v1.0.0_linux_amd64.tar.gz\n" +
-		"not-a-hash  gh-issue-killer_x.tar.gz\n"
-	hash, ok := checksumFor("gh-issue-killer_v1.0.0_linux_amd64.tar.gz", sums)
+		"  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789  *dir/issuekiller_v1.0.0_linux_amd64.tar.gz\n" +
+		"not-a-hash  issuekiller_x.tar.gz\n"
+	hash, ok := checksumFor("issuekiller_v1.0.0_linux_amd64.tar.gz", sums)
 	if !ok || hash != "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789" {
 		t.Fatalf("hash=%q ok=%v", hash, ok)
 	}
-	if _, ok := checksumFor("gh-issue-killer_x.tar.gz", sums); ok {
+	if _, ok := checksumFor("issuekiller_x.tar.gz", sums); ok {
 		t.Fatal("invalid hash lines must be ignored")
 	}
 	if _, ok := checksumFor("missing.tar.gz", sums); ok {
@@ -125,10 +125,10 @@ func TestNormalizeMirror(t *testing.T) {
 }
 
 func TestAssetNameFor(t *testing.T) {
-	if got := assetNameFor("v1.2.3", "linux", "arm64"); got != "gh-issue-killer_v1.2.3_linux_arm64.tar.gz" {
+	if got := assetNameFor("v1.2.3", "linux", "arm64"); got != "issuekiller_v1.2.3_linux_arm64.tar.gz" {
 		t.Fatalf("linux name = %q", got)
 	}
-	if got := assetNameFor("v1.2.3", "windows", "amd64"); got != "gh-issue-killer_v1.2.3_windows_amd64.zip" {
+	if got := assetNameFor("v1.2.3", "windows", "amd64"); got != "issuekiller_v1.2.3_windows_amd64.zip" {
 		t.Fatalf("windows name = %q", got)
 	}
 }
@@ -186,9 +186,9 @@ func TestExtractBinary(t *testing.T) {
 	dir := t.TempDir()
 	payload := []byte("#!/bin/sh\necho fresh\n")
 	tarPath := filepath.Join(dir, "release.tar.gz")
-	writeTarGz(t, tarPath, "gh-issue-killer", payload)
+	writeTarGz(t, tarPath, "issuekiller", payload)
 	zipPath := filepath.Join(dir, "release.zip")
-	writeZip(t, zipPath, "nested/gh-issue-killer.exe", payload)
+	writeZip(t, zipPath, "nested/issuekiller.exe", payload)
 
 	for _, archive := range []string{tarPath, zipPath} {
 		dest := filepath.Join(dir, "out-"+filepath.Base(archive))
@@ -235,7 +235,7 @@ func TestInstallReleaseRejectsBadChecksum(t *testing.T) {
 
 	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "release.tar.gz")
-	writeTarGz(t, archivePath, "gh-issue-killer", []byte("new binary"))
+	writeTarGz(t, archivePath, "issuekiller", []byte("new binary"))
 	archive, err := os.ReadFile(archivePath)
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +243,7 @@ func TestInstallReleaseRejectsBadChecksum(t *testing.T) {
 	name := assetNameFor("v1.2.3", runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "windows" {
 		archivePath = filepath.Join(dir, "release.zip")
-		writeZip(t, archivePath, "gh-issue-killer.exe", []byte("new binary"))
+		writeZip(t, archivePath, "issuekiller.exe", []byte("new binary"))
 		archive, err = os.ReadFile(archivePath)
 		if err != nil {
 			t.Fatal(err)
@@ -255,7 +255,7 @@ func TestInstallReleaseRejectsBadChecksum(t *testing.T) {
 		{Name: "checksums.txt", URL: server.URL + "/checksums.txt"},
 	}}
 
-	exe := filepath.Join(dir, "gh-issue-killer")
+	exe := filepath.Join(dir, "issuekiller")
 	if err := os.WriteFile(exe, []byte("old binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -282,11 +282,11 @@ func TestInstallReleaseInstallsVerifiedAsset(t *testing.T) {
 	var archive []byte
 	if runtime.GOOS == "windows" {
 		path := filepath.Join(dir, "release.zip")
-		writeZip(t, path, "gh-issue-killer.exe", payload)
+		writeZip(t, path, "issuekiller.exe", payload)
 		archive, _ = os.ReadFile(path)
 	} else {
 		path := filepath.Join(dir, "release.tar.gz")
-		writeTarGz(t, path, "gh-issue-killer", payload)
+		writeTarGz(t, path, "issuekiller", payload)
 		archive, _ = os.ReadFile(path)
 	}
 	sum := sha256.Sum256(archive)
@@ -296,7 +296,7 @@ func TestInstallReleaseInstallsVerifiedAsset(t *testing.T) {
 		{Name: "checksums.txt", URL: server.URL + "/checksums.txt"},
 	}}
 
-	exe := filepath.Join(dir, "gh-issue-killer")
+	exe := filepath.Join(dir, "issuekiller")
 	if err := os.WriteFile(exe, []byte("old binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}

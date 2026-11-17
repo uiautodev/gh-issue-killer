@@ -13,24 +13,24 @@ operations live in [DEPLOY.md](DEPLOY.md).
 ## 1. Build, test, run
 
 ```bash
-go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
+go build -o bin/issuekiller ./cmd/issuekiller
 go vet ./...
 go test ./...
 gofmt -l .            # must print nothing
-GOOS=windows GOARCH=amd64 go build ./cmd/gh-issue-killer   # platform layer still compiles
+GOOS=windows GOARCH=amd64 go build ./cmd/issuekiller   # platform layer still compiles
 pre-commit install    # optional: gofmt, vet, test, build, 1 MB file guard
 ```
 
 The dashboard is a SvelteKit SPA in `frontend/`; `go build` embeds
-`cmd/gh-issue-killer/web/dist`. Build it once before building a release binary
+`cmd/issuekiller/web/dist`. Build it once before building a release binary
 (and always after changing `frontend/`), otherwise the binary serves a "build
 the frontend" page:
 
 ```bash
 npm --prefix frontend ci
 npm --prefix frontend run check
-npm --prefix frontend run build   # writes cmd/gh-issue-killer/web/dist
-go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
+npm --prefix frontend run build   # writes cmd/issuekiller/web/dist
+go build -o bin/issuekiller ./cmd/issuekiller
 ```
 
 The desktop shell is a separate module so the daemon keeps its single
@@ -38,6 +38,7 @@ dependency (`fsnotify`):
 
 ```bash
 cd desktop && go build .        # Wails 3 window; needs the wails v3 module
+cd desktop && go test .         # directory migration, env fallback
 desktop/build/package.sh v1.2.3 # macOS .app + .dmg / Linux tarball; .ps1 on Windows
 ```
 
@@ -48,10 +49,10 @@ Markdown, image composition and the HTTP API client.
 Run it while developing:
 
 ```bash
-./bin/gh-issue-killer -f        # foreground, Ctrl+C to stop
-./bin/gh-issue-killer -once     # startup scan + one poll, then exit
-./bin/gh-issue-killer -status   # pid, config, log, state paths
-./bin/gh-issue-killer -logs     # follow the daemon log
+./bin/issuekiller -f        # foreground, Ctrl+C to stop
+./bin/issuekiller -once     # startup scan + one poll, then exit
+./bin/issuekiller -status   # pid, config, log, state paths
+./bin/issuekiller -logs     # follow the daemon log
 ```
 
 End-to-end smoke test against a scratch repository:
@@ -66,7 +67,13 @@ It drives a real issue through plan → approve → implement → merge using th
 
 ## 2. Runtime layout
 
-Everything lives under `~/.gh-issue-killer` (`stateDir()` in `util.go`):
+Everything lives under `~/.issuekiller` (`stateDir()` in `util.go`). The first
+start after the rename adopts the old `~/.gh-issue-killer` directory with a
+single `os.Rename` (`migrateStateDir`), so the token, `state.json`, clones and
+worktrees survive an upgrade; if the move fails the daemon keeps the old
+directory instead of starting empty. The desktop shell does the same for
+`~/.gh-issue-killer` and `~/.config/gh-issue-killer` (`migrateHomeDirs` in
+`desktop/engine.go`).
 
 | path | contents |
 | --- | --- |
@@ -85,7 +92,10 @@ Only the daemon writes `state.json`; the web UI and CLIs read it. Treat
 
 ## 3. Startup sequence (`main.go`)
 
-1. Flags; a bare run daemonizes itself (`startBackground` child mode).
+1. Flags; `migrateStateDir` adopts `~/.gh-issue-killer` when the new directory
+   does not exist yet; a bare run daemonizes itself (`startBackground` child
+   mode) with `ISSUEKILLER_DAEMON_CHILD=1` (`GHIK_DAEMON_CHILD` is still
+   accepted).
    `-embedded` is the desktop shell's engine: foreground, no detach, no
    process-group tricks on Windows, and an exit code 75 (`exitRestart`) when a
    config save or an update asks for a restart. `-web-port` overrides
@@ -93,7 +103,7 @@ Only the daemon writes `state.json`; the web UI and CLIs read it. Treat
 2. `ensureDirs`, logger, `loadConfig`, `parseProxy`.
 3. `acquireLock` on `daemon.lock` — one daemon per machine, desktop engine
    included.
-4. `NewGH`: resolves the credential in `GH_AGENT_TOKEN` → `~/.gh-issue-killer/token`
+4. `NewGH`: resolves the credential in `GH_AGENT_TOKEN` → `~/.issuekiller/token`
    → the old `gh-agent` `hosts.yml` (read-only compatibility), refreshes it when
    it is close to expiry, and verifies the identity (never the human account).
 5. For each repo: `GetRepo`, `resolveRepo` (managed clone under `repos/`),
@@ -130,7 +140,7 @@ process, then exit” instead of `syscall.Exec`.
 
 ## 4. Package map
 
-All Go code is `package main` in `cmd/gh-issue-killer`; `prompts` embeds the
+All Go code is `package main` in `cmd/issuekiller`; `prompts` embeds the
 Markdown prompts; `web` embeds the SvelteKit build in `web/dist`. `frontend/`
 is the SvelteKit/Tailwind/shadcn-svelte source for that build, and `desktop/` is
 a separate Go module (Wails 3) so the daemon does not inherit the GUI
@@ -145,7 +155,7 @@ dependencies.
 | `actions.go` | the stages: plan, implement, revise, CI settle, merge, and their helpers |
 | `checks.go` | `checks.json` detection/loading/execution and the summary line |
 | `gh.go` | GitHub REST client: issues, comments, PRs, labels, reviews, check runs, workflow runs/jobs, hooks, tags, commits, releases, asset uploads; token resolution and the 401 refresh retry |
-| `oauth.go` | built-in GitHub Device Flow, token file (`~/.gh-issue-killer/token`, 0600), expiry/refresh, legacy `hosts.yml` reader |
+| `oauth.go` | built-in GitHub Device Flow, token file (`~/.issuekiller/token`, 0600), expiry/refresh, legacy `hosts.yml` reader |
 | `git.go` | managed clone, worktrees, commit/push, diff/stat, env |
 | `runner.go` | coding-agent registry (`opencode`, `claude`, `codex`) and process/JSON output handling |
 | `state.go` | `Store`, `IssueState`, `RepoState`, atomic persistence |
@@ -161,15 +171,15 @@ dependencies.
 | `openurl.go` | opens an external http(s) link in the platform browser (`open`/`xdg-open`/`rundll32`) |
 | `webconfig.go` | settings API: `/api/config`, `/api/detect`, `/api/restart`, `/api/update` |
 | `messages.go` | scaffolding text (headings, hints, footers) in Chinese/English, `app.text`, language detection |
-| `util.go` | paths, logger, atomic writes, `tailString`, small helpers |
+| `util.go` | paths (state-dir adoption, `envValue` for renamed variables), logger, atomic writes, `tailString`, small helpers |
 | `prompts/*.md` | stage prompts (embedded via `prompts/embed.go`) |
 | `docs/testerhome.md` | Chinese promo article for testerhome.com (not part of the build) |
 | `docs/v2ex-share.md` | Chinese V2EX sharing draft plus a manual publishing checklist (not part of the build) |
 | `docs/images/dashboard-*.png` | dashboard screenshots referenced by the V2EX draft, captured with sample data (not part of the build) |
 | `assets/sponsor.png` | WeChat reward QR code shown at the end of `README.zh-CN.md` (not part of the build) |
-| `desktop/` | separate Go module: Wails 3 shell (`main.go`, `engine.go`, `process_*.go`) and `build/` packaging (icon rendered from `frontend/static/logo.svg`, `.app`, DMG) |
+| `desktop/` | separate Go module: Wails 3 shell (`main.go`, `engine.go`, `engine_test.go`, `process_*.go`) and `build/` packaging (icon rendered from `frontend/static/logo.svg`, `.app`, DMG) |
 | `.agents/skills/modern-web-guidance/`, `skills-lock.json` | vendored GoogleChrome modern-web-guidance skill (SKILL.md + `guides/`) and its pinned commit, Apache-2.0 / CC-BY-4.0; search it before changing dashboard CSS, layout, tables, dialogs or theme handling |
-| `frontend/` | SvelteKit SPA for the dashboard: Tailwind v4 + shadcn-svelte tokens, zh/en strings, routes and `$lib` API/i18n/theme/layout modules (`dialog.ts` wraps native dialogs and the light-dismiss fallback); `npm run build` writes `cmd/gh-issue-killer/web/dist` |
+| `frontend/` | SvelteKit SPA for the dashboard: Tailwind v4 + shadcn-svelte tokens, zh/en strings, routes and `$lib` API/i18n/theme/layout modules (`dialog.ts` wraps native dialogs and the light-dismiss fallback); `npm run build` writes `cmd/issuekiller/web/dist` |
 
 ## 5. State model and phases
 
@@ -254,7 +264,8 @@ Other rules:
   when consumed so the poller cannot loop. This is what makes a blocked issue
   recoverable without typing a command. When the id is missing (state written by
   an older build), the poller adopts the newest comment carrying
-  `<!-- ghik:agent -->` before checking it.
+  `<!-- issuekiller:agent -->` (or the pre-rename `<!-- ghik:agent -->`; both
+  markers identify daemon output) before checking it.
 - Every accepted 👍 is acknowledged with an 👀 reaction on that comment
   (`ackReaction`) before the job runs. The job may queue behind another task,
   and without the ack the approver cannot tell the reaction was seen.
@@ -584,7 +595,7 @@ dropdown) and by free text.
 
 The page is a client-rendered SvelteKit SPA in `frontend/` (Svelte 5 runes,
 Tailwind v4, shadcn-svelte CSS tokens). `npm run build` writes it to
-`cmd/gh-issue-killer/web/dist`, which `web.go` embeds with
+`cmd/issuekiller/web/dist`, which `web.go` embeds with
 `//go:embed all:web/dist`; `dist` is not committed, so a release build must run
 the frontend build first (CI and the release workflow do). `web.go` serves
 `index.html` with `no-store`, hashed files under `/assets/` with an immutable
@@ -600,11 +611,11 @@ repository's star count, then hairline dividers separate the settings, language
 and theme buttons. The icons stay visible at every width (the language button
 also shows `中`/`EN`), and the row wraps instead of overflowing on narrow
 screens. The star count comes from one anonymous `api.github.com` request
-(`stargazers_count`), cached in `localStorage` under `ghik-stars` for 24 hours;
+(`stargazers_count`), cached in `localStorage` under `issuekiller-stars` for 24 hours;
 a stale count is shown while it refreshes, and a failed or rate-limited request
 leaves the GitHub icon alone. `formatStars` keeps counts below 1000 exact and
 compacts the rest (`9.3k`). The layout button (`gallery-horizontal`,
-`localStorage` key `ghik-layout`) mirrors shadcn-svelte's "Toggle layout": it
+`localStorage` key `issuekiller-layout`) mirrors shadcn-svelte's "Toggle layout": it
 flips the shell between the full 1600px board and a centred 1100px column.
 `app.css` keeps that width in `--page-max` and `.page-shell` is the single
 container class used by the masthead rows, the board, the LINES band and the
@@ -612,7 +623,7 @@ console, so all of them move together. Version, pid, identity, transport and the
 config path
 moved into the settings dialog's System card so the header stays quiet. The
 masthead switches between Chinese (default) and English (`localStorage` key
-`ghik-lang`) and links to the project on GitHub. The theme button (`ghik-theme`)
+`issuekiller-lang`) and links to the project on GitHub. The theme button (`issuekiller-theme`)
 cycles auto → light → dark and its icon and label follow the current mode:
 `auto` follows `prefers-color-scheme`; `theme.svelte.ts` flips the `.dark` class
 and the `<meta name="color-scheme">` hint together. `app.css` declares the
@@ -655,7 +666,7 @@ coding agent (populated from `/api/detect`), model, proxy, `webPort`,
 `selfUpdate` and `updateProxy`, plus the version card, the update buttons and
 the System card. The first block is the GitHub login: it shows the one-time
 code and authorization link, polls `/api/auth/device`, and keeps a paste-token
-fallback; a successful login writes `~/.gh-issue-killer/token` and restarts
+fallback; a successful login writes `~/.issuekiller/token` and restarts
 into the engine. When `/api/state` reports `configError` (first run, missing
 token or a broken edit) the panel opens by itself and the save button starts
 the real engine.
@@ -681,18 +692,21 @@ shell restarts the engine with the same `-config` / `-web-port`.
 API limits) and only acts when the tag parses and is newer than `version`; a
 `dev`/local build never auto-installs (use the dashboard button). The installer:
 
-1. picks `gh-issue-killer_<tag>_<goos>_<goarch>.tar.gz` (`.zip` on Windows); the
-   `gh-issue-killer_` prefix keeps the desktop bundles out;
+1. picks `issuekiller_<tag>_<goos>_<goarch>.tar.gz` (`.zip` on Windows); the
+   `issuekiller_` prefix keeps the desktop bundles out;
 2. downloads `checksums.txt` and refuses to continue when it has no entry for
    the asset or the sha256 does not match — the running binary is untouched;
-3. extracts only a regular file named `gh-issue-killer` (`gh-issue-killer.exe`);
+3. extracts only a regular file named `issuekiller` (`issuekiller.exe`);
 4. renames it over the executable, or `.old` first on Windows where a running
    image cannot be replaced;
 5. signals a restart. Release downloads try github.com directly and retry
    `<updateProxy>/<url>` when that fails; the API lookup only uses `proxy`.
+   The asset names changed with the rename: a build before it looks for
+   `gh-issue-killer_*` and cannot self-update across the rename, so that one
+   upgrade is a manual binary swap (see DEPLOY.md §7).
 
 In the desktop bundle this replaces the engine binary inside
-`gh-issue-killer.app/Contents/MacOS/` (or next to `gh-issue-killer-desktop.exe`)
+`issuekiller.app/Contents/MacOS/` (or next to `issuekiller-desktop.exe`)
 and the shell restarts it; the thin shell keeps its version. Replacing the file
 invalidates a macOS signature, so a
 `xattr -dr com.apple.quarantine` / re-download is needed if Gatekeeper refuses a
@@ -730,7 +744,7 @@ keeps tests quiet. Notable coverage:
 | `router_ci_test.go` | the CI queue does not block work; cancel stops CI jobs |
 | `gh_test.go` | label transitions and GitHub helpers |
 | `release_test.go` | version tag parsing, bump rules, commit classification, due check (calendar days and configured time), time parsing/defaults, release request body, disabled/not-due/no-commit skips |
-| `main_test.go` | proxy/env parsing, repo normalization (names, objects, object arrays), mentions and commands, closable phases |
+| `main_test.go` | proxy/env parsing, repo normalization (names, objects, object arrays), mentions and commands, closable phases, state-dir adoption of `~/.gh-issue-killer`, legacy env fallbacks |
 | `prompts_test.go` | every embedded prompt loads and keeps its placeholders |
 | `triage_test.go` | mode normalization, plan/build routing, triage answer parsing, explicit plan requests, direct-build start |
 | `runner_test.go` | per-agent argv construction, overlong-record draining, stage timeout and stall kill |
@@ -748,7 +762,9 @@ keeps tests quiet. Notable coverage:
 
 Add a test for every new branch in the gate, a new command keyword, a new
 phase transition, or a scheduler invariant. `go test ./...` and `go vet ./...`
-must stay clean; `gofmt -l .` must print nothing.
+must stay clean; `gofmt -l .` must print nothing. The separate desktop module
+has its own tests for the directory migration and env fallback
+(`cd desktop && go test ./...`).
 
 The dashboard is tested with its own toolchain: `npm --prefix frontend run check`
 (svelte-check), `npm --prefix frontend run test` (Node's test runner against
@@ -794,7 +810,7 @@ green unit check does not cover the UI; skipping this step is not allowed.
   argv.
 - POSIX-only calls do not belong in shared files: every signal, process group,
   `exec` and shell invocation goes through `process_unix.go` /
-  `process_windows.go`, or `GOOS=windows go build ./cmd/gh-issue-killer` breaks.
+  `process_windows.go`, or `GOOS=windows go build ./cmd/issuekiller` breaks.
 
 ## 19. Keeping this document in sync
 
@@ -822,6 +838,7 @@ green unit check does not cover the UI; skipping this step is not allowed.
 | dashboard design tokens, layout primitives or the vendored modern-web-guidance skill | §15, §17 and AGENTS.md “Dashboard design work” |
 | the login flow, token file or credential precedence | §3, §11, §15 and DEPLOY.md §2 |
 | reload/self-update behaviour | §16 |
+| the project name, binary/asset names, state or config paths, environment variables, repository links | §1, §2, §3, §4, §16, README.md, README.zh-CN.md and DEPLOY.md |
 | new or renamed test files | §17 |
 | startup order, flags, daemonizing, `-embedded`, platform process helpers | §3 and §1 |
 | web routes or API payloads | §15 |

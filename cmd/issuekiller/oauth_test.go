@@ -25,6 +25,7 @@ func isolateTokenState(t *testing.T) {
 	t.Setenv("GH_AGENT_TOKEN", "")
 	t.Setenv("GH_CONFIG_DIR", filepath.Join(home, "gh-agent"))
 	t.Setenv("GITHUB_API_URL", "")
+	t.Setenv("ISSUEKILLER_OAUTH_CLIENT_ID", "")
 	t.Setenv("GHIK_OAUTH_CLIENT_ID", "")
 }
 
@@ -262,9 +263,17 @@ func TestOAuthClientIDCanBeOverridden(t *testing.T) {
 	if oauthClientID() != defaultOAuthClientID {
 		t.Fatalf("client id = %q", oauthClientID())
 	}
-	t.Setenv("GHIK_OAUTH_CLIENT_ID", "custom")
+	t.Setenv("ISSUEKILLER_OAUTH_CLIENT_ID", "custom")
 	if oauthClientID() != "custom" {
 		t.Fatalf("client id = %q", oauthClientID())
+	}
+}
+
+func TestOAuthClientIDReadsLegacyVariable(t *testing.T) {
+	isolateTokenState(t)
+	t.Setenv("GHIK_OAUTH_CLIENT_ID", "legacy")
+	if oauthClientID() != "legacy" {
+		t.Fatalf("client id = %q, want the pre-rename variable", oauthClientID())
 	}
 }
 

@@ -14,7 +14,7 @@
 ## 正文
 
 issue 堆着没人动，PR 的检查又要一直盯——这两件事占掉的时间，往往比写代码本身还多。
-于是我写了个小工具 [gh-issue-killer](https://github.com/uiautodev/gh-issue-killer)，
+于是我写了个小工具 [issuekiller](https://github.com/uiautodev/issuekiller)，
 把这段流程交给编码 agent，自己只用评论控制节奏。
 
 它不是“让 AI 直接改 master”。正常流程是这样：
@@ -46,7 +46,7 @@ issue 堆着没人动，PR 的检查又要一直盯——这两件事占掉的�
 
 ## 跑起来需要什么
 
-- Go 1.27+ 和 `git`，也可以直接用 [Releases](https://github.com/uiautodev/gh-issue-killer/releases)
+- Go 1.27+ 和 `git`，也可以直接用 [Releases](https://github.com/uiautodev/issuekiller/releases)
   里的二进制
 - 一个编码 agent CLI：opencode、Claude Code 或 Codex
 - 一个独立的 GitHub bot 账号：在桌面版/看板里用内置 Device Flow 登录，或设置
@@ -63,7 +63,7 @@ issue 堆着没人动，PR 的检查又要一直盯——这两件事占掉的�
 仓库里有一段现成的 prompt，原样贴进去：
 
 ```text
-按照 DEPLOY.md 第 0–5 节在这台机器上部署 gh-issue-killer（除非我要求开机自启，
+按照 DEPLOY.md 第 0–5 节在这台机器上部署 issuekiller（除非我要求开机自启，
 否则跳过第 6 节）。自主完成，最多问我一个问题，且只在这个值确实无法推断时才问。
 
 默认值，不用确认：
@@ -72,17 +72,17 @@ issue 堆着没人动，PR 的检查又要一直盯——这两件事占掉的�
 - codingAgent：PATH 里第一个 opencode、claude、codex
 - model：留空（CLI 默认）
 - proxy：设置了 $https_proxy 或 $ALL_PROXY 就用它，否则直连
-- 二进制：~/.local/bin/gh-issue-killer
-- 配置：~/.config/gh-issue-killer/config.json
+- 二进制：~/.local/bin/issuekiller
+- 配置：~/.config/issuekiller/config.json
 
 不要创建 GitHub 账号或 token。允许用我的 gh 把上面这些仓库的权限授给这个 bot
 （DEPLOY.md 第 2 节）。如果还没有 bot 凭据，就用内置 GitHub 登录（桌面版/看板，
-~/.gh-issue-killer/token），或者提示我用小号登录；不要让我去装 gh-agent。
+~/.issuekiller/token），或者提示我用小号登录；不要让我去装 gh-agent。
 
 最后执行第 10 节的检查，把状态行贴出来。不要让我确认你能自己验证的步骤。
 ```
 
-agent 会按 [DEPLOY.md](https://github.com/uiautodev/gh-issue-killer/blob/master/DEPLOY.md)
+agent 会按 [DEPLOY.md](https://github.com/uiautodev/issuekiller/blob/master/DEPLOY.md)
 安装二进制、写配置、跑冒烟测试、启动 daemon，并回报状态。它只会停在需要用
 GitHub 小号登录的那一步，因为那一步只能你本人操作。
 

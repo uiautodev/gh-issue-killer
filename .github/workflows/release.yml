@@ -44,15 +44,15 @@ jobs:
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             os="${target%/*}"
             arch="${target#*/}"
-            name="gh-issue-killer_${version}_${os}_${arch}"
-            binary="gh-issue-killer"
+            name="issuekiller_${version}_${os}_${arch}"
+            binary="issuekiller"
             mkdir -p "dist/${name}"
             if [ "$os" = "windows" ]; then
-              binary="gh-issue-killer.exe"
+              binary="issuekiller.exe"
             fi
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
               -ldflags "-s -w -X main.version=${version} -X main.commit=${GITHUB_SHA}" \
-              -o "dist/${name}/${binary}" ./cmd/gh-issue-killer
+              -o "dist/${name}/${binary}" ./cmd/issuekiller
             cp README.md README.zh-CN.md LICENSE DEPLOY.md "dist/${name}/"
             if [ "$os" = "windows" ]; then
               (cd "dist/${name}" && zip -qr "../${name}.zip" .)

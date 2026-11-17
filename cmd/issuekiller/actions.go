@@ -33,7 +33,7 @@ type AppContext struct {
 }
 
 // projectURL is shown on plan comments so readers can find the project.
-const projectURL = "https://github.com/uiautodev/gh-issue-killer"
+const projectURL = "https://github.com/uiautodev/issuekiller"
 
 type Trigger struct {
 	Type        string

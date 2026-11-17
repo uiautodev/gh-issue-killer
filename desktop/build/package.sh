@@ -16,7 +16,7 @@ root="$(cd "$desktop_dir/.." && pwd)"
 goos="$(go env GOOS)"
 goarch="$(go env GOARCH)"
 dist="$desktop_dir/build/dist"
-name="gh-issue-killer-desktop_${version}_${goos}_${goarch}"
+name="issuekiller-desktop_${version}_${goos}_${goarch}"
 work="$dist/$name"
 
 if [ "$goos" = "windows" ]; then
@@ -47,20 +47,20 @@ make_icns() {
 echo "building engine ${goos}/${goarch}"
 (cd "$root" && go build -trimpath \
   -ldflags "-s -w -X main.version=${version}" \
-  -o "$work/gh-issue-killer" ./cmd/gh-issue-killer)
+  -o "$work/issuekiller" ./cmd/issuekiller)
 
 echo "building desktop shell ${goos}/${goarch}"
 (cd "$desktop_dir" && go build -trimpath -ldflags "-s -w" \
-  -o "$work/gh-issue-killer-desktop" .)
+  -o "$work/issuekiller-desktop" .)
 
 case "$goos" in
 darwin)
-  app="$work/gh-issue-killer.app"
+  app="$work/issuekiller.app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
   sed "s/__VERSION__/${version#v}/g" "$desktop_dir/build/darwin/Info.plist" >"$app/Contents/Info.plist"
   make_icns "$app/Contents/Resources/AppIcon.icns"
-  mv "$work/gh-issue-killer-desktop" "$work/gh-issue-killer" "$app/Contents/MacOS/"
-  (cd "$work" && zip -qry "$dist/$name.zip" "gh-issue-killer.app")
+  mv "$work/issuekiller-desktop" "$work/issuekiller" "$app/Contents/MacOS/"
+  (cd "$work" && zip -qry "$dist/$name.zip" "issuekiller.app")
 
   # The DMG is the friendlier install: drag the app onto /Applications. Both
   # artefacts are unsigned; Gatekeeper still asks on the first launch.
@@ -68,7 +68,7 @@ darwin)
   mkdir -p "$stage"
   cp -R "$app" "$stage/"
   ln -s /Applications "$stage/Applications"
-  hdiutil create -quiet -volname "gh-issue-killer" -srcfolder "$stage" \
+  hdiutil create -quiet -volname "issuekiller" -srcfolder "$stage" \
     -ov -format UDZO "$dist/$name.dmg"
   rm -rf "$work"
   ;;

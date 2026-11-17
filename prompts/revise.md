@@ -24,7 +24,7 @@ The repo owner reviewed the pull request and asked for changes:
 Apply that feedback on top of the current worktree. Hard rules:
 - Work only inside the worktree. Never touch other clones, ~/.config, or user data.
 - Follow AGENTS.md in the repo root if present, especially its version-bump rules.
-- Any change that touches the dashboard (`frontend/`, `cmd/gh-issue-killer/web`)
+- Any change that touches the dashboard (`frontend/`, `cmd/issuekiller/web`)
   must be verified with real browser or desktop automation — use whatever the
   repo or environment provides (Playwright, cua-driver, an existing E2E setup),
   not one named tool. Exercise the changed component, check the browser console

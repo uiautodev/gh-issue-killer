@@ -5,7 +5,7 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const placeholder = fileURLToPath(
-	new URL('../../cmd/gh-issue-killer/web/dist/.gitkeep', import.meta.url)
+	new URL('../../cmd/issuekiller/web/dist/.gitkeep', import.meta.url)
 );
 
 writeFileSync(placeholder, '');

@@ -94,13 +94,18 @@ func shouldDaemonize(foreground, initConfig, once, stop, status, child, embedded
 	return true
 }
 
-const daemonChildEnv = "GHIK_DAEMON_CHILD"
+const (
+	daemonChildEnv       = "ISSUEKILLER_DAEMON_CHILD"
+	legacyDaemonChildEnv = "GHIK_DAEMON_CHILD"
+)
 
 // version is set at build time: -ldflags "-X main.version=v1.2.3".
 var version = "dev"
 
+// isDaemonChild also accepts the pre-rename variable: a binary rebuilt from
+// master re-execs with the environment it inherited, which may still be old.
 func isDaemonChild() bool {
-	return os.Getenv(daemonChildEnv) == "1"
+	return os.Getenv(daemonChildEnv) == "1" || os.Getenv(legacyDaemonChildEnv) == "1"
 }
 
 func printStatus(configPath string) {
@@ -130,7 +135,7 @@ func printStatus(configPath string) {
 }
 
 // startBackground re-execs this binary in a new session. The child is marked
-// with GHIK_DAEMON_CHILD=1 so it runs the daemon loop instead of forking again.
+// with ISSUEKILLER_DAEMON_CHILD=1 so it runs the daemon loop instead of forking again.
 func startBackground(configPath string) error {
 	if pid, running := readLockPID(); running {
 		fmt.Printf("already running (pid %d)\n", pid)
@@ -174,16 +179,16 @@ func startBackground(configPath string) error {
 	}
 	_ = command.Process.Release()
 	if !alive {
-		fmt.Fprintf(os.Stderr, "failed to start gh-issue-killer; see %s\n", daemonLogPath())
+		fmt.Fprintf(os.Stderr, "failed to start issuekiller; see %s\n", daemonLogPath())
 		if data, err := os.ReadFile(daemonLogPath()); err == nil {
 			fmt.Fprintln(os.Stderr, tailString(string(data), 15))
 		}
 		return errors.New("daemon failed to start")
 	}
 
-	fmt.Printf("started gh-issue-killer (pid %d)\n", pid)
+	fmt.Printf("started issuekiller (pid %d)\n", pid)
 	fmt.Printf("log: %s (rotate %d MB, keep %d)\n", daemonLogPath(), logRotateSizeMB, logRotateKeep)
-	fmt.Printf("stop: gh-issue-killer -stop\n")
+	fmt.Printf("stop: issuekiller -stop\n")
 	return nil
 }
 
@@ -199,20 +204,26 @@ func main() {
 	embedded := flag.Bool("embedded", false, "run the engine attached to the desktop shell (foreground, no detach, supervised restart)")
 	webPort := flag.Int("web-port", 0, "override config.webPort for this run (0 = use the config)")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "gh-issue-killer - GitHub issue watcher\n\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  gh-issue-killer [flags]\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "issuekiller - GitHub issue watcher\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  issuekiller [flags]\n\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Flags:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(flag.CommandLine.Output(), "\nWithout flags the daemon runs in the background.\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Examples:\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer               # start in the background\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -f            # run attached, Ctrl+C to stop\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -logs         # follow the daemon log\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -status       # pid, config, log and state paths\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -stop         # stop the running daemon\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  gh-issue-killer -init         # guided config.json setup\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  issuekiller               # start in the background\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  issuekiller -f            # run attached, Ctrl+C to stop\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  issuekiller -logs         # follow the daemon log\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  issuekiller -status       # pid, config, log and state paths\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  issuekiller -stop         # stop the running daemon\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  issuekiller -init         # guided config.json setup\n")
 	}
 	flag.Parse()
+
+	// Adopt the pre-rename state directory before anything reads a path from
+	// it: status, stop and the wizard must see the migrated token and state.
+	if err := migrateStateDir(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
 
 	if *logs {
 		if err := followDaemonLog(os.Stdout); err != nil {
@@ -257,7 +268,7 @@ func main() {
 				os.Exit(1)
 			}
 		} else {
-			fmt.Fprintf(os.Stderr, "no config at %s: run `gh-issue-killer -init` to create one\n", configFile)
+			fmt.Fprintf(os.Stderr, "no config at %s: run `issuekiller -init` to create one\n", configFile)
 			os.Exit(1)
 		}
 	}
@@ -294,7 +305,7 @@ func main() {
 			return
 		}
 		if errors.Is(err, fs.ErrNotExist) {
-			log.Error("no config at %s: run `gh-issue-killer -init` to create one", configFile)
+			log.Error("no config at %s: run `issuekiller -init` to create one", configFile)
 		} else {
 			log.Error("%v", err)
 		}
@@ -315,7 +326,7 @@ func main() {
 	}
 	defer release()
 
-	log.Info("gh-issue-killer %s starting, config=%s proxy=%s", buildLabel(), cfg.File, firstNonEmpty(cfg.Proxy, "direct"))
+	log.Info("issuekiller %s starting, config=%s proxy=%s", buildLabel(), cfg.File, firstNonEmpty(cfg.Proxy, "direct"))
 	log.Debug("runtime: codingAgent=%s model=%s poll=%s webhook=%v planParallel=%d implementParallel=%d maxFixRounds=%d",
 		cfg.CodingAgent, firstNonEmpty(cfg.Model, "(default)"), cfg.PollInterval, cfg.Webhook, cfg.PlanParallel, cfg.ImplementParallel, cfg.MaxFixRounds)
 	log.Debug("paths: config=%s state=%s log=%s", cfg.File, stateFile(), daemonLogPath())

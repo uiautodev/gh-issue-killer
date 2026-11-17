@@ -5,7 +5,7 @@ import { readdirSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
-const dist = fileURLToPath(new URL('../../cmd/gh-issue-killer/web/dist', import.meta.url));
+const dist = fileURLToPath(new URL('../../cmd/issuekiller/web/dist', import.meta.url));
 
 for (const entry of readdirSync(dist)) {
 	if (entry === '.gitkeep') continue;

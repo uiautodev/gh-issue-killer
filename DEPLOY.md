@@ -1,4 +1,4 @@
-# Deploying gh-issue-killer — runbook for an AI agent
+# Deploying issuekiller — runbook for an AI agent
 
 Audience: an AI agent operating this machine (a human can copy-paste the same
 commands). Work through the steps in order. Every step ends with a **verify**
@@ -30,10 +30,10 @@ human only for `REPOS` when the current checkout has no GitHub origin and for
 AGENT_LOGIN=yourname-agent                       # dedicated bot account
 REPOS="your-org/app your-org/api"                # watched repos
 BIN_DIR="$HOME/.local/bin"                       # install location
-CONFIG="$HOME/.config/gh-issue-killer/config.json"
-STATE="$HOME/.gh-issue-killer"
+CONFIG="$HOME/.config/issuekiller/config.json"
+STATE="$HOME/.issuekiller"
 LOG="$STATE/logs/daemon.log"
-HB="gh-issue-killer"                             # binary name on PATH
+HB="issuekiller"                                 # binary name on PATH
 ```
 
 ## 0.1 Defaults — infer, do not ask
@@ -41,13 +41,13 @@ HB="gh-issue-killer"                             # binary name on PATH
 | value | default |
 | --- | --- |
 | `REPOS` | `git remote get-url origin` of the current checkout, if it is a GitHub repo |
-| `AGENT_LOGIN` | the bot login from the dashboard (`~/.gh-issue-killer/token`), `GH_AGENT_TOKEN`, or the legacy `gh-agent` hosts file |
+| `AGENT_LOGIN` | the bot login from the dashboard (`~/.issuekiller/token`), `GH_AGENT_TOKEN`, or the legacy `gh-agent` hosts file |
 | approver | the human's login from `gh api user --jq .login` |
 | `codingAgent` | first of `opencode`, `claude`, `codex`, `pi`, `omp` on `PATH` |
 | model | empty (CLI default) |
 | proxy | `$https_proxy` / `$ALL_PROXY` if set, otherwise none |
 | `BIN_DIR` | `$HOME/.local/bin` |
-| `CONFIG` | `$HOME/.config/gh-issue-killer/config.json` |
+| `CONFIG` | `$HOME/.config/issuekiller/config.json` |
 
 Write down every assumption in the final report instead of asking about it.
 
@@ -59,7 +59,7 @@ go version                                   # need go1.27+
 git --version                                # need 2.5+
 command -v opencode claude codex pi omp       # at least one
 [ -n "$GH_AGENT_TOKEN" ] && echo token:env
-[ -f "$HOME/.gh-issue-killer/token" ] && echo token:file || echo token:file-missing
+[ -f "$HOME/.issuekiller/token" ] && echo token:file || echo token:file-missing
 ```
 
 | result | action |
@@ -80,7 +80,7 @@ account, and it must not create its own trigger issues.
 
 The built-in login is a GitHub Device Flow, the same idea as `gh auth login`:
 the dashboard shows a one-time code and a link, and the daemon stores the token
-in `~/.gh-issue-killer/token` (mode 0600) with its expiry and refresh token.
+in `~/.issuekiller/token` (mode 0600) with its expiry and refresh token.
 When the token is close to expiry it refreshes automatically, so a token-expiry
 policy on the OAuth app does not interrupt the daemon. The desktop app opens
 the login panel on first run; for a headless daemon, set `webPort`, open
@@ -96,7 +96,8 @@ export GH_AGENT_TOKEN=...             # still accepted, no refresh support
 # admin:repo_hook and read:user itself.
 ```
 
-`GHIK_OAUTH_CLIENT_ID` overrides the built-in OAuth app client ID for forks.
+`ISSUEKILLER_OAUTH_CLIENT_ID` overrides the built-in OAuth app client ID for forks
+(the pre-rename `GHIK_OAUTH_CLIENT_ID` is still read).
 The legacy `~/.config/gh-agent/hosts.yml` is read if neither the token file nor
 `GH_AGENT_TOKEN` exists, but nothing creates or rewrites it any more and the
 daemon never falls back to the human's `gh auth token`.
@@ -104,7 +105,7 @@ daemon never falls back to the human's `gh auth token`.
 Verify identity and per-repo permission (the token file is JSON):
 
 ```bash
-AGENT_TOKEN="${GH_AGENT_TOKEN:-$(jq -r .access_token "$HOME/.gh-issue-killer/token" 2>/dev/null || true)}"
+AGENT_TOKEN="${GH_AGENT_TOKEN:-$(jq -r .access_token "$HOME/.issuekiller/token" 2>/dev/null || true)}"
 [ -n "$AGENT_TOKEN" ] || { echo "no bot token: log in from the dashboard first" >&2; exit 1; }
 GH_TOKEN="$AGENT_TOKEN" gh api user --jq .login                # must print $AGENT_LOGIN
 for r in $REPOS; do GH_TOKEN="$AGENT_TOKEN" gh api "repos/$r" --jq '{repo:.full_name,push:.permissions.push,admin:.permissions.admin}'; done
@@ -125,24 +126,24 @@ than $REPOS.
 ## 3. Install — ENSURE
 
 Prebuilt archives (no Go needed): download the matching
-`gh-issue-killer_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) and
+`issuekiller_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) and
 `checksums.txt` from
-[Releases](https://github.com/uiautodev/gh-issue-killer/releases), verify with
+[Releases](https://github.com/uiautodev/issuekiller/releases), verify with
 `sha256sum -c` (or `shasum -a 256 -c`), then put the binary on `PATH`.
 
 ```bash
-git clone <this-repo> gh-issue-killer && cd gh-issue-killer
+git clone <this-repo> issuekiller && cd issuekiller
 npm --prefix frontend ci
-npm --prefix frontend run build   # writes cmd/gh-issue-killer/web/dist (embedded)
-go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
+npm --prefix frontend run build   # writes cmd/issuekiller/web/dist (embedded)
+go build -o bin/issuekiller ./cmd/issuekiller
 go test ./...
-install -m 0755 bin/gh-issue-killer "$BIN_DIR/gh-issue-killer"
+install -m 0755 bin/issuekiller "$BIN_DIR/issuekiller"
 ```
 
 **Verify**
 
 ```bash
-"$BIN_DIR/gh-issue-killer" -h | head -3      # prints usage
+"$BIN_DIR/issuekiller" -h | head -3      # prints usage
 ```
 
 Prompts are embedded in the binary, so a copied binary is self-contained. A
@@ -156,9 +157,9 @@ daemon, no terminal wizard. Download the bundle for the platform:
 
 | platform | asset | contents |
 | --- | --- | --- |
-| macOS | `gh-issue-killer-desktop_<version>_darwin_<arch>.zip` or `.dmg` | `gh-issue-killer.app` with `AppIcon.icns` (shell + engine inside `Contents/MacOS/`); the DMG adds an `/Applications` shortcut |
-| Linux | `gh-issue-killer-desktop_<version>_linux_<arch>.tar.gz` | `gh-issue-killer-desktop` + `gh-issue-killer` |
-| Windows | `gh-issue-killer-desktop_<version>_windows_amd64.zip` | `gh-issue-killer-desktop.exe` + `gh-issue-killer.exe` |
+| macOS | `issuekiller-desktop_<version>_darwin_<arch>.zip` or `.dmg` | `issuekiller.app` with `AppIcon.icns` (shell + engine inside `Contents/MacOS/`); the DMG adds an `/Applications` shortcut |
+| Linux | `issuekiller-desktop_<version>_linux_<arch>.tar.gz` | `issuekiller-desktop` + `issuekiller` |
+| Windows | `issuekiller-desktop_<version>_windows_amd64.zip` | `issuekiller-desktop.exe` + `issuekiller.exe` |
 
 Open the DMG and drag the app onto `/Applications`, or unzip the archive and
 launch it. On first run there is no config, so the window opens on the
@@ -170,23 +171,27 @@ window stops the engine — nothing is left in the background.
 Links in the dashboard open in the system browser, including when the window
 is the embedded desktop one.
 
-- Config file: `~/.config/gh-issue-killer/config.json` (`GHIK_CONFIG` overrides).
-- State/logs: `~/.gh-issue-killer` — the same as the daemon.
+- Config file: `~/.config/issuekiller/config.json` (`ISSUEKILLER_CONFIG` overrides).
+- State/logs: `~/.issuekiller` — the same as the daemon.
+- Upgrading from the old `gh-issue-killer` bundle: the first start moves
+  `~/.config/gh-issue-killer` and `~/.gh-issue-killer` to their new names, so the
+  config, token and worktrees carry over; `GHIK_CONFIG` and `GHIK_ENGINE` are
+  still read as a fallback.
 - The engine still takes `daemon.lock`, so do not run the desktop app and the
   background daemon at the same time.
 - Updates replace the engine binary inside the bundle (the shell is a thin
   window and rarely changes); the engine restarts into the new version when the
   download and checksum succeed, and the old binary stays on any failure.
-- `GHIK_ENGINE` points the shell at a different engine binary (development).
+- `ISSUEKILLER_ENGINE` points the shell at a different engine binary (development).
 - Build from source: `cd desktop && go build .`, then
   `desktop/build/package.sh vX.Y.Z` (macOS/Linux; macOS also gets a DMG) or
   `desktop/build/package.ps1 -Version vX.Y.Z` (Windows). Build the dashboard
   first (`npm --prefix frontend ci && npm --prefix frontend run build`), since
-  the engine embeds `cmd/gh-issue-killer/web/dist`; `wails3` itself is not
+  the engine embeds `cmd/issuekiller/web/dist`; `wails3` itself is not
   needed, the window loads the engine's dashboard.
 - The macOS bundle is not signed or notarised. If Gatekeeper refuses the first
   launch, use Open from the Finder context menu or
-  `xattr -dr com.apple.quarantine gh-issue-killer.app`.
+  `xattr -dr com.apple.quarantine issuekiller.app`.
 
 ## 4. Configure — do not use `-init` in automation
 
@@ -219,7 +224,7 @@ Rules:
 **Verify** (startup scan + one poll, then exit; proves token, repos, CLI):
 
 ```bash
-gh-issue-killer -once -config "$CONFIG"; echo "exit=$?"
+issuekiller -once -config "$CONFIG"; echo "exit=$?"
 grep -E 'agent identity|repo ready' "$LOG" | tail -5
 ```
 
@@ -394,14 +399,14 @@ model id alone is ambiguous.
 ## 5. Start and verify
 
 ```bash
-gh-issue-killer -config "$CONFIG"            # background, prints pid + log path
-gh-issue-killer -config "$CONFIG" -status
+issuekiller -config "$CONFIG"            # background, prints pid + log path
+issuekiller -config "$CONFIG" -status
 ```
 
 **Verify**
 
 ```bash
-gh-issue-killer -config "$CONFIG" -status | grep -E 'daemon: running|webhook:|repo:'
+issuekiller -config "$CONFIG" -status | grep -E 'daemon: running|webhook:|repo:'
 grep -E 'poller started|smee channel|polling only' "$LOG" | tail -3
 ```
 
@@ -421,15 +426,15 @@ Only if the human wants it. The daemon already self-backgrounds; no `launchd`,
 `nohup` or `logrotate` is needed.
 
 ```ini
-# ~/.config/systemd/user/gh-issue-killer.service
+# ~/.config/systemd/user/issuekiller.service
 [Unit]
-Description=gh-issue-killer
+Description=issuekiller
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/gh-issue-killer -foreground -config %h/.config/gh-issue-killer/config.json
+ExecStart=%h/.local/bin/issuekiller -foreground -config %h/.config/issuekiller/config.json
 Restart=on-failure
 RestartSec=10
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
@@ -442,8 +447,8 @@ WantedBy=default.target
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now gh-issue-killer
-systemctl --user status gh-issue-killer --no-pager
+systemctl --user enable --now issuekiller
+systemctl --user status issuekiller --no-pager
 ```
 
 macOS: start it once after login, or add it to login items. Nothing else.
@@ -452,10 +457,10 @@ macOS: start it once after login, or add it to login items. Nothing else.
 
 | task | command |
 | --- | --- |
-| status / paths | `gh-issue-killer -config "$CONFIG" -status` |
+| status / paths | `issuekiller -config "$CONFIG" -status` |
 | dashboard | set `webPort` and open `http://127.0.0.1:<port>` (loopback only, no auth; approve/cancel are POST-only with an Origin check) |
-| follow logs | `gh-issue-killer -config "$CONFIG" -logs` |
-| stop | `gh-issue-killer -config "$CONFIG" -stop` |
+| follow logs | `issuekiller -config "$CONFIG" -logs` |
+| stop | `issuekiller -config "$CONFIG" -stop` |
 | apply a config change | save the file; the daemon reloads in place when jobs finish (same PID) |
 | self-update | with `"selfUpdate": true`, poll `releases/latest` every 30 min, verify `checksums.txt`, replace the binary and re-exec (no Go toolchain needed) |
 | follow master | with `"followMaster": true`, poll `master` every 30 s and rebuild the binary from source (`git`, `go` and `npm` on PATH; the dashboard is rebuilt too), then re-exec. Takes precedence over `selfUpdate`. For development machines: a push reaches the daemon in about a minute. |
@@ -463,7 +468,7 @@ macOS: start it once after login, or add it to login items. Nothing else.
 | update behind the GFW | set `"updateProxy": "gh-proxy.com"`; release downloads fall back to it |
 | release check | `grep 'release' "$LOG"`; a due check at `release.time` publishes a tag + release, a failure logs `release check:` and retries next hour |
 | bump the next release | nothing to configure: `feat`/`feature` commits bump minor and everything else patch; tag a major (`vX.0.0`) by hand when intended. The version comes from the newest `v*` tag |
-| smoke test | `gh-issue-killer -config "$CONFIG" -once` |
+| smoke test | `issuekiller -config "$CONFIG" -once` |
 | full loop with the human's `gh` | `scripts/smoke-test.sh <owner/repo>` |
 
 State layout (all under `$STATE`): `repos/` managed clones, `worktrees/`
@@ -476,15 +481,23 @@ Upgrade (either path keeps `state.json`, so nothing is re-planned):
 ```bash
 # release archive
 sha256sum -c checksums.txt --ignore-missing
-install -m 0755 gh-issue-killer "$BIN_DIR/gh-issue-killer"
-gh-issue-killer -config "$CONFIG" -stop
-gh-issue-killer -config "$CONFIG"
+install -m 0755 issuekiller "$BIN_DIR/issuekiller"
+issuekiller -config "$CONFIG" -stop
+issuekiller -config "$CONFIG"
 
 # or from source
-gh-issue-killer -config "$CONFIG" -stop
-git pull && go build -o bin/gh-issue-killer ./cmd/gh-issue-killer && go test ./...
-gh-issue-killer -config "$CONFIG"
+issuekiller -config "$CONFIG" -stop
+git pull && go build -o bin/issuekiller ./cmd/issuekiller && go test ./...
+issuekiller -config "$CONFIG"
 ```
+
+Upgrading from the pre-rename `gh-issue-killer` needs one manual install: the
+old build looks for `gh-issue-killer_*` release assets and the renamed releases
+only publish `issuekiller_*`, so its self-update cannot cross the rename. After
+the manual swap the first start moves `~/.gh-issue-killer` to `~/.issuekiller`,
+which keeps the token, `state.json`, clones and worktrees; `GHIK_*` variables
+still work as a fallback. Stop the old daemon first — it would otherwise keep
+writing into the directory that is being moved.
 
 A failed self-update (no asset for the platform, bad checksum, mirror and
 GitHub both unreachable) leaves the running binary untouched and logs why.
@@ -494,7 +507,7 @@ Interrupted implementations resume from their worktree on the next start.
 
 | symptom (log or command) | action |
 | --- | --- |
-| `no GitHub token` | log in from the dashboard with the bot account, set `GH_AGENT_TOKEN`, or run `gh-issue-killer -init` |
+| `no GitHub token` | log in from the dashboard with the bot account, set `GH_AGENT_TOKEN`, or run `issuekiller -init` |
 | `the GitHub token has no push access` | grant collaborator push/admin (step 2) |
 | login code expired or `access_denied` | click **Log in with GitHub** again; the code is single-use and short-lived |
 | token refresh fails repeatedly | log in again from the dashboard; the refresh token expired or was revoked |
@@ -509,7 +522,7 @@ Interrupted implementations resume from their worktree on the next start.
 | every poll fails with `API rate limit exceeded` | the token burned its 5000/h core quota; polls and reactions stay blind until the window resets (`gh api rate_limit`). Check for repeated daemon starts (each runs a startup scan) |
 | stale `agent:*` labels | only `agent:awaiting-approval` is still managed; delete the leftover old labels by hand in the repo settings |
 | `already running (pid N)` | use `-status` / `-stop`; never start a second instance |
-| desktop window says the engine exited | read `~/.gh-issue-killer/logs/desktop-engine.log`; the usual cause is a daemon (or a second desktop) already holding `daemon.lock` |
+| desktop window says the engine exited | read `~/.issuekiller/logs/desktop-engine.log`; the usual cause is a daemon (or a second desktop) already holding `daemon.lock` |
 | update fails with `checksum mismatch` | do not bypass it; the release asset or the mirror is corrupt. Retry, or install the archive by hand after `sha256sum -c` |
 | `release check:` warning repeats | check the token's `contents: write` and that `v*` tags are not protected; the next hourly tick retries without moving the timestamp |
 
@@ -529,8 +542,8 @@ Interrupted implementations resume from their worktree on the next start.
 ## 10. Post-deploy check (one block)
 
 ```bash
-gh-issue-killer -config "$CONFIG" -status | tee /tmp/ghik-status.txt
-grep -q 'daemon: running' /tmp/ghik-status.txt && echo "STATUS ok"
+issuekiller -config "$CONFIG" -status | tee /tmp/issuekiller-status.txt
+grep -q 'daemon: running' /tmp/issuekiller-status.txt && echo "STATUS ok"
 for r in $REPOS; do GH_TOKEN="$AGENT_TOKEN" gh api "repos/$r" --jq '.permissions.push' | grep -q true && echo "ACCESS $r ok"; done
 grep -q 'repo ready' "$LOG" && echo "REPOS ok"
 grep -Eq 'smee stream connected|polling only' "$LOG" && echo "TRANSPORT ok"

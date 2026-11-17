@@ -4,10 +4,10 @@ Guidance for coding agents working in this repository.
 
 ## What this is
 
-`gh-issue-killer` is a single Go binary that watches GitHub issues, runs a
+`issuekiller` is a single Go binary that watches GitHub issues, runs a
 coding agent (opencode / Claude Code / Codex / Pi / Oh My Pi) in isolated git
 worktrees, runs checks, opens PRs, repairs CI and squash-merges on command. All
-Go code is `package main` under `cmd/gh-issue-killer`.
+Go code is `package main` under `cmd/issuekiller`.
 
 ## Commands
 
@@ -16,20 +16,20 @@ go build ./...                 # must pass
 go vet ./...                   # must pass
 go test ./...                  # must pass
 gofmt -l .                     # must print nothing
-go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
+go build -o bin/issuekiller ./cmd/issuekiller
 npm --prefix frontend ci       # dashboard deps
 npm --prefix frontend run check
 npm --prefix frontend run test
 npm --prefix frontend run build   # writes the embedded web/dist
 ```
 
-`go build` embeds `cmd/gh-issue-killer/web/dist`; run the frontend build before
+`go build` embeds `cmd/issuekiller/web/dist`; run the frontend build before
 building a release binary. `go test ./...` still passes on a checkout without
 the build (the server then serves the "build the frontend" page).
 
 End-to-end: `scripts/smoke-test.sh owner/repo` (needs `gh` and a bot token:
-dashboard login, `~/.gh-issue-killer/token`, or `GH_AGENT_TOKEN`).
-Never start two daemons: they share `~/.gh-issue-killer/state.json`.
+dashboard login, `~/.issuekiller/token`, or `GH_AGENT_TOKEN`).
+Never start two daemons: they share `~/.issuekiller/state.json`.
 
 ## Documentation must move with the code
 

@@ -5,14 +5,14 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
 		<meta name="color-scheme" content="light dark" />
-		<title>gh-issue-killer · 调度台</title>
+		<title>issuekiller · 调度台</title>
 		<link rel="icon" type="image/svg+xml" href="/logo.svg" />
 		<script>
 			// Paint the right theme before the bundle loads: `auto` follows the OS,
-			// and ghik-theme mirrors the toggle. The Svelte theme store takes over
+			// and issuekiller-theme mirrors the toggle. The Svelte theme store takes over
 			// after hydration.
 			try {
-				const mode = localStorage.getItem('ghik-theme') || 'auto';
+				const mode = localStorage.getItem('issuekiller-theme') || 'auto';
 				const dark =
 					mode === 'dark' ||
 					(mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -20,12 +20,12 @@
 				document.documentElement.dataset.theme = mode;
 				const scheme = document.querySelector('meta[name="color-scheme"]');
 				if (scheme) scheme.content = dark ? 'dark' : 'light';
-				if (localStorage.getItem('ghik-lang') === 'en') {
+				if (localStorage.getItem('issuekiller-lang') === 'en') {
 					document.documentElement.lang = 'en';
-					document.title = 'gh-issue-killer · Dashboard';
+					document.title = 'issuekiller · Dashboard';
 				}
-				// ghik-layout narrows the shell; set it before paint like the theme.
-				if (localStorage.getItem('ghik-layout') === 'narrow') {
+				// issuekiller-layout narrows the shell; set it before paint like the theme.
+				if (localStorage.getItem('issuekiller-layout') === 'narrow') {
 					document.documentElement.dataset.layout = 'narrow';
 				}
 			} catch (_) {

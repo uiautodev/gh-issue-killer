@@ -16,7 +16,8 @@ import (
 
 // The OAuth app is registered by the project owner with Device Flow enabled and
 // a 8h access-token lifetime, so the daemon can refresh without asking again.
-// GHIK_OAUTH_CLIENT_ID overrides it for forks and local testing.
+// ISSUEKILLER_OAUTH_CLIENT_ID overrides it for forks and local testing; the
+// pre-rename GHIK_OAUTH_CLIENT_ID is still read.
 const defaultOAuthClientID = "Ov23linflGhn5OPmkRSm"
 
 // repo covers contents/issues/PRs, admin:repo_hook creates the webhook, and
@@ -39,7 +40,7 @@ var (
 	errNoDeviceLogin     = errors.New("no GitHub login in progress")
 )
 
-// tokenRecord is the on-disk shape of ~/.gh-issue-killer/token. expires_at and
+// tokenRecord is the on-disk shape of ~/.issuekiller/token. expires_at and
 // refresh_token_expires_at are RFC3339 so the file stays readable by hand.
 type tokenRecord struct {
 	AccessToken           string `json:"access_token"`
@@ -54,7 +55,7 @@ type tokenRecord struct {
 func tokenFile() string { return filepath.Join(stateDir(), "token") }
 
 func oauthClientID() string {
-	if value := strings.TrimSpace(os.Getenv("GHIK_OAUTH_CLIENT_ID")); value != "" {
+	if value := envValue("ISSUEKILLER_OAUTH_CLIENT_ID", "GHIK_OAUTH_CLIENT_ID"); value != "" {
 		return value
 	}
 	return defaultOAuthClientID
@@ -149,7 +150,7 @@ func oauthForm(ctx context.Context, client *http.Client, endpoint string, form u
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	request.Header.Set("User-Agent", "gh-issue-killer-go/0.1")
+	request.Header.Set("User-Agent", "issuekiller-go/0.1")
 	response, err := client.Do(request)
 	if err != nil {
 		return err
@@ -355,11 +356,11 @@ func loadAgentTokenSource(proxy *Proxy) (tokenSource, error) {
 	if token, err := tokenFromHostsYAML(); err == nil && token != "" {
 		return tokenSource{Token: token, Source: "hosts"}, nil
 	}
-	return tokenSource{}, errors.New("no GitHub token: log in from the dashboard (recommended: a separate bot account), set GH_AGENT_TOKEN, or run `gh-issue-killer -init`")
+	return tokenSource{}, errors.New("no GitHub token: log in from the dashboard (recommended: a separate bot account), set GH_AGENT_TOKEN, or run `issuekiller -init`")
 }
 
 // loginDeviceFlowInteractive walks the same Device Flow in a terminal so
-// `gh-issue-killer -init` can log in without gh or a wrapper.
+// `issuekiller -init` can log in without gh or a wrapper.
 func loginDeviceFlowInteractive(ctx context.Context, proxy *Proxy, out io.Writer) (tokenRecord, error) {
 	client := newHTTPClient(proxy, 30*time.Second)
 	code, err := requestDeviceCode(ctx, client, oauthClientID())

@@ -5,17 +5,17 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>gh-issue-killer-desktop</string>
+	<string>issuekiller-desktop</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.uiautodev.gh-issue-killer</string>
+	<string>com.uiautodev.issuekiller</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>gh-issue-killer</string>
+	<string>issuekiller</string>
 	<key>CFBundleDisplayName</key>
-	<string>gh-issue-killer</string>
+	<string>issuekiller</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

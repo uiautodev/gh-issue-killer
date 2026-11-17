@@ -724,7 +724,7 @@
 						<Textarea
 							rows={3}
 							spellcheck="false"
-							placeholder="uiautodev/gh-issue-killer"
+							placeholder="uiautodev/issuekiller"
 							bind:value={repoText}
 							oninput={syncRows}
 						/>

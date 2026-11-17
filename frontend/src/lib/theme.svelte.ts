@@ -4,7 +4,7 @@
 
 export type ThemeMode = 'auto' | 'light' | 'dark';
 
-const THEME_KEY = 'ghik-theme';
+const THEME_KEY = 'issuekiller-theme';
 
 function systemPrefersDark(): boolean {
 	if (typeof window === 'undefined' || !window.matchMedia) return true;

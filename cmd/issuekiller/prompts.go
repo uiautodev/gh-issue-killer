@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gh-issue-killer/prompts"
+	"issuekiller/prompts"
 )
 
 // promptsDir returns a prompts/ directory that overrides the embedded copies,

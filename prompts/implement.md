@@ -30,7 +30,7 @@ part of the task:
 Hard rules:
 - Work only inside the worktree. Never touch other clones, ~/.config, or user data.
 - Follow AGENTS.md in the repo root if present, especially its testing requirements.
-- Any change that touches the dashboard (`frontend/`, `cmd/gh-issue-killer/web`)
+- Any change that touches the dashboard (`frontend/`, `cmd/issuekiller/web`)
   must be verified with real browser or desktop automation before you finish.
   Use whatever the repo already has or the environment provides (Playwright,
   cua-driver, an existing E2E harness — whichever works); never block on one

@@ -1,6 +1,6 @@
-<p align="center"><img src="frontend/static/logo.svg" width="88" height="88" alt="gh-issue-killer"></p>
+<p align="center"><img src="frontend/static/logo.svg" width="88" height="88" alt="issuekiller"></p>
 
-# gh-issue-killer
+# issuekiller
 
 [简体中文](README.zh-CN.md)
 
@@ -83,7 +83,7 @@ posts the plan, `mode: build` always skips it. See the
   decision. Off by default and configured per repository.
 - **Built-in GitHub login.** No `gh` or wrapper to install: the desktop app and
   dashboard use GitHub Device Flow to log in a bot account, store the token in
-  `~/.gh-issue-killer/token` (0600) and refresh it before expiry; a pasted
+  `~/.issuekiller/token` (0600) and refresh it before expiry; a pasted
   token still works as a fallback.
 - **One static binary.** Outbound HTTPS only; at runtime it needs `git`, one
   coding-agent CLI and a shell (`/bin/sh`, `cmd` on Windows). Releases ship
@@ -111,7 +111,7 @@ embed its build output, and a source build needs
 ### Desktop app
 
 No terminal needed: download the desktop bundle from
-[Releases](https://github.com/uiautodev/gh-issue-killer/releases) (macOS `.dmg`
+[Releases](https://github.com/uiautodev/issuekiller/releases) (macOS `.dmg`
 or `.app`, Linux tarball, Windows zip) and launch it. The window is the same
 dashboard, with a **Settings** panel for repos, coding agent, model, proxy, each
 project's release schedule and the release mirror, plus a version card that
@@ -126,7 +126,7 @@ Details: [DEPLOY.md](DEPLOY.md#31-desktop-app--optional).
 Give Claude Code, Codex, opencode, Pi, or Oh My Pi this repository and paste this into it:
 
 ```text
-Deploy gh-issue-killer on this machine by following DEPLOY.md §0–§5 (skip §6
+Deploy issuekiller on this machine by following DEPLOY.md §0–§5 (skip §6
 unless I ask for boot persistence). Work autonomously and ask at most one
 question, only if a value truly cannot be inferred.
 
@@ -136,12 +136,12 @@ Defaults, use them without confirming:
 - codingAgent: the first of opencode, claude, codex, pi, omp found on PATH
 - model: the CLI default (leave it empty)
 - proxy: $https_proxy or $ALL_PROXY if set, otherwise none
-- binary: ~/.local/bin/gh-issue-killer, config: ~/.config/gh-issue-killer/config.json
+- binary: ~/.local/bin/issuekiller, config: ~/.config/issuekiller/config.json
 
 Do not create GitHub accounts or tokens. Granting this bot push/admin on the
 repos above with my gh is allowed (DEPLOY.md §2). If there is no bot credential
 yet, use the built-in GitHub login (desktop/dashboard, token file at
-~/.gh-issue-killer/token) or prompt me to log in with a bot account; do not ask
+~/.issuekiller/token) or prompt me to log in with a bot account; do not ask
 me to install gh-agent.
 
 Finish with the §10 checks and paste the status lines. Do not ask me to confirm
@@ -158,11 +158,18 @@ GitHub bot account (log in from the desktop app/dashboard, or set
 `GH_AGENT_TOKEN`).
 
 ```bash
-go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
-./bin/gh-issue-killer -init      # wizard: GitHub login, repos, agent, approvers, proxy
-./bin/gh-issue-killer            # background daemon
-./bin/gh-issue-killer -status    # pid, config, log and state paths
+go build -o bin/issuekiller ./cmd/issuekiller
+./bin/issuekiller -init      # wizard: GitHub login, repos, agent, approvers, proxy
+./bin/issuekiller            # background daemon
+./bin/issuekiller -status    # pid, config, log and state paths
 ```
+
+Upgrading from `gh-issue-killer`? The first start moves `~/.gh-issue-killer` to
+`~/.issuekiller` (the desktop also moves `~/.config/gh-issue-killer` to
+`~/.config/issuekiller`), so the token, `state.json` and worktrees carry over.
+The old `GHIK_*` variables (`GHIK_OAUTH_CLIENT_ID`, `GHIK_CONFIG`,
+`GHIK_ENGINE`) are still read, but a pre-rename build cannot self-update across
+the rename: install this release once by hand.
 
 Full deployment, operations, upgrades and troubleshooting:
 [DEPLOY.md](DEPLOY.md). Internals, the state machine, queues and the CI gate:
@@ -196,7 +203,7 @@ comment**. Approval words, status labels and review rules live in
 ## Configuration
 
 ```bash
-./bin/gh-issue-killer -init      # wizard: GitHub login, repos, agent, approvers, proxy
+./bin/issuekiller -init      # wizard: GitHub login, repos, agent, approvers, proxy
 ```
 
 `-init` writes the config for you; a hand-written JSON uses the same `repos` /
@@ -212,7 +219,7 @@ demand.
 
 ```bash
 go test ./...
-go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
+go build -o bin/issuekiller ./cmd/issuekiller
 ```
 
 Internals and releases (a `v*` tag drives the workflow) are in
@@ -223,12 +230,12 @@ or dialogs.
 
 ## Contributors
 
-Found a bug or have an idea? [Open an issue](https://github.com/uiautodev/gh-issue-killer/issues/new)
+Found a bug or have an idea? [Open an issue](https://github.com/uiautodev/issuekiller/issues/new)
 or send a pull request — the contributor rules are in [AGENTS.md](AGENTS.md).
 Thanks to everyone who has contributed!
 
-<a href="https://github.com/uiautodev/gh-issue-killer/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=uiautodev/gh-issue-killer" alt="Contributors of gh-issue-killer" />
+<a href="https://github.com/uiautodev/issuekiller/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=uiautodev/issuekiller" alt="Contributors of issuekiller" />
 </a>
 
 ## License

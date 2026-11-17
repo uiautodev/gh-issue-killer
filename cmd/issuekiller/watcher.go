@@ -39,7 +39,7 @@ func createSmeeChannel(ctx context.Context, proxy *Proxy) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	request.Header.Set("User-Agent", "gh-issue-killer-go/0.1")
+	request.Header.Set("User-Agent", "issuekiller-go/0.1")
 	response, err := client.Do(request)
 	if err != nil {
 		return "", err
@@ -329,7 +329,7 @@ func consumeSmee(ctx context.Context, app *AppContext, router *Router, client *h
 	}
 	request.Header.Set("Accept", "text/event-stream")
 	request.Header.Set("Cache-Control", "no-cache")
-	request.Header.Set("User-Agent", "gh-issue-killer-go/0.1")
+	request.Header.Set("User-Agent", "issuekiller-go/0.1")
 	response, err := client.Do(request)
 	if err != nil {
 		return err

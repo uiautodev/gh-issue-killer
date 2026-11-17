@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,11 +168,98 @@ func TestIsAgentComment(t *testing.T) {
 	if !isAgentComment("### 🤖 已完成\n\n" + agentCommentMarker) {
 		t.Fatal("marked comment should be daemon output")
 	}
+	if !isAgentComment("### 🤖 已完成\n\n" + legacyAgentCommentMarker) {
+		t.Fatal("comment written before the rename should still be daemon output")
+	}
 	if isAgentComment("lgtm") {
 		t.Fatal("a plain command from the bot account is not daemon output")
 	}
 	if isAgentComment("看起来不错，`### 🤖` 是标题") {
 		t.Fatal("inline heading text must not be treated as daemon output")
+	}
+}
+
+// The rename must not lose the token or the worktrees of an existing install.
+func TestMigrateStateDirAdoptsLegacyDirectory(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, legacyStateDirName)
+	for _, rel := range []string{"token", "worktrees/acme", "state.json", "logs"} {
+		if err := os.MkdirAll(filepath.Join(legacy, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(legacy, rel), []byte(rel), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := migrateStateDirIn(home); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"token", "worktrees/acme", "state.json", "logs"} {
+		if _, err := os.Stat(filepath.Join(home, stateDirName, rel)); err != nil {
+			t.Fatalf("%s was not adopted: %v", rel, err)
+		}
+	}
+	if _, err := os.Stat(legacy); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("legacy directory still exists: %v", err)
+	}
+}
+
+func TestMigrateStateDirKeepsExistingNewDirectory(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, stateDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, stateDirName, "token"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, legacyStateDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, legacyStateDirName, "token"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := migrateStateDirIn(home); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, stateDirName, "token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "new" {
+		t.Fatalf("token = %q, want the existing new directory untouched", data)
+	}
+	if _, err := os.Stat(filepath.Join(home, legacyStateDirName, "token")); err != nil {
+		t.Fatalf("legacy directory should be left alone: %v", err)
+	}
+}
+
+func TestEnvValuePrefersRenamedVariable(t *testing.T) {
+	t.Setenv("ISSUEKILLER_TEST_VALUE", "new")
+	t.Setenv("GHIK_TEST_VALUE", "old")
+	if got := envValue("ISSUEKILLER_TEST_VALUE", "GHIK_TEST_VALUE"); got != "new" {
+		t.Fatalf("value = %q, want the renamed variable", got)
+	}
+	t.Setenv("ISSUEKILLER_TEST_VALUE", "")
+	if got := envValue("ISSUEKILLER_TEST_VALUE", "GHIK_TEST_VALUE"); got != "old" {
+		t.Fatalf("value = %q, want the legacy fallback", got)
+	}
+}
+
+func TestIsDaemonChildAcceptsLegacyVariable(t *testing.T) {
+	t.Setenv(daemonChildEnv, "")
+	t.Setenv(legacyDaemonChildEnv, "1")
+	if !isDaemonChild() {
+		t.Fatal("GHIK_DAEMON_CHILD should still mark a daemon child")
+	}
+	t.Setenv(legacyDaemonChildEnv, "")
+	if isDaemonChild() {
+		t.Fatal("an unset child marker must not detach from the parent")
+	}
+	t.Setenv(daemonChildEnv, "1")
+	if !isDaemonChild() {
+		t.Fatal("ISSUEKILLER_DAEMON_CHILD should mark a daemon child")
 	}
 }
 

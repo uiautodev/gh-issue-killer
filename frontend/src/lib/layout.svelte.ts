@@ -5,7 +5,7 @@
 
 export type LayoutWidth = 'wide' | 'narrow';
 
-const LAYOUT_KEY = 'ghik-layout';
+const LAYOUT_KEY = 'issuekiller-layout';
 
 export const layout = $state<{ width: LayoutWidth }>({ width: 'wide' });
 

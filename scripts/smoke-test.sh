@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# End-to-end smoke test for gh-issue-killer.
+# End-to-end smoke test for issuekiller.
 #
 # IMPORTANT: this script intentionally uses the HUMAN `gh` account to simulate
 # the repo owner (create issue, approve, request merge). The daemon uses the
-# built-in bot token: ~/.gh-issue-killer/token, GH_AGENT_TOKEN, or the legacy
+# built-in bot token: ~/.issuekiller/token, GH_AGENT_TOKEN, or the legacy
 # gh-agent hosts file.
 #
 # Usage:
@@ -17,15 +17,15 @@
 set -euo pipefail
 
 REPO="${1:?usage: smoke-test.sh <owner/repo> [title]}"
-TITLE="${2:-[smoke] gh-issue-killer end-to-end test}"
+TITLE="${2:-[smoke] issuekiller end-to-end test}"
 POLL_SECONDS="${SMOKE_POLL_SECONDS:-10}"
 TIMEOUT_SECONDS="${SMOKE_TIMEOUT_SECONDS:-900}"
 : "${SMOKE_APPROVE:=yes}"
 : "${SMOKE_MERGE:=yes}"
 
 TOKEN="${GH_AGENT_TOKEN:-}"
-if [ -z "$TOKEN" ] && [ -f "$HOME/.gh-issue-killer/token" ]; then
-  TOKEN="$(sed -n 's/.*"access_token": *"\([^"]*\)".*/\1/p' "$HOME/.gh-issue-killer/token" | head -1)"
+if [ -z "$TOKEN" ] && [ -f "$HOME/.issuekiller/token" ]; then
+  TOKEN="$(sed -n 's/.*"access_token": *"\([^"]*\)".*/\1/p' "$HOME/.issuekiller/token" | head -1)"
 fi
 if [ -n "$TOKEN" ]; then
   AGENT_LOGIN="$(GH_TOKEN="$TOKEN" gh api user --jq .login)"
@@ -55,7 +55,7 @@ echo "==> creating smoke issue in $REPO (mentioning @$AGENT_LOGIN)"
 ISSUE_URL="$(
   gh issue create --repo "$REPO" \
     --title "$TITLE" \
-    --body "Smoke test for gh-issue-killer. @$AGENT_LOGIN please add a file named SMOKE.md containing the single line \`smoke\` at the repo root, and remove nothing else." \
+    --body "Smoke test for issuekiller. @$AGENT_LOGIN please add a file named SMOKE.md containing the single line \`smoke\` at the repo root, and remove nothing else." \
     --assignee "@me"
 )"
 ISSUE="$(basename "$ISSUE_URL")"

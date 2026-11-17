@@ -117,11 +117,11 @@ func TestWebOpenURLHandsHTTPLinkToBrowser(t *testing.T) {
 		return nil
 	}
 
-	recorder := postOpenURL(t, web, `{"url":"https://github.com/uiautodev/gh-issue-killer/pull/7"}`, "http://127.0.0.1:8787")
+	recorder := postOpenURL(t, web, `{"url":"https://github.com/uiautodev/issuekiller/pull/7"}`, "http://127.0.0.1:8787")
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(opened) != 1 || opened[0] != "https://github.com/uiautodev/gh-issue-killer/pull/7" {
+	if len(opened) != 1 || opened[0] != "https://github.com/uiautodev/issuekiller/pull/7" {
 		t.Fatalf("opened = %#v", opened)
 	}
 	var payload struct {
@@ -314,7 +314,7 @@ func TestEmbeddedWebServesDashboardOrHint(t *testing.T) {
 		t.Fatalf("status = %d", recorder.Code)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, "gh-issue-killer") && !strings.Contains(body, "npm --prefix frontend") {
+	if !strings.Contains(body, "issuekiller") && !strings.Contains(body, "npm --prefix frontend") {
 		t.Fatalf("unexpected embedded page: %s", body)
 	}
 }

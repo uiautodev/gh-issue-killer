@@ -41,15 +41,15 @@ func embeddedWeb() fs.FS {
 }
 
 const webBuildHint = `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>gh-issue-killer</title></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>issuekiller</title></head>
 <body style="font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;max-width:42rem;margin:4rem auto;padding:0 1rem">
 <h1>请先构建前端 / Build the frontend first</h1>
 <p>这个二进制里没有打包好的看板。在仓库根目录运行：</p>
 <pre>npm --prefix frontend install
 npm --prefix frontend run build
-go build ./cmd/gh-issue-killer</pre>
+go build ./cmd/issuekiller</pre>
 <p>The dashboard is not embedded in this binary. Run the commands above from
-the repository root so <code>cmd/gh-issue-killer/web/dist</code> contains the
+the repository root so <code>cmd/issuekiller/web/dist</code> contains the
 SvelteKit build output.</p>
 </body></html>
 `

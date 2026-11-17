@@ -1,5 +1,5 @@
 // Shapes returned by the Go dashboard API. Field names mirror the json tags in
-// cmd/gh-issue-killer/web.go, webconfig.go, webauth.go and state.go: the
+// cmd/issuekiller/web.go, webconfig.go, webauth.go and state.go: the
 // frontend never renames or reshapes a payload.
 
 export interface Pool {

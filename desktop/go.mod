@@ -1,4 +1,4 @@
-module gh-issue-killer/desktop
+module issuekiller/desktop
 
 go 1.27
 

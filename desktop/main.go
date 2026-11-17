@@ -1,4 +1,4 @@
-// Command gh-issue-killer-desktop is a Wails 3 shell around the engine. The
+// Command issuekiller-desktop is a Wails 3 shell around the engine. The
 // engine keeps the state machine, the daemon lock and the dashboard; this
 // binary only starts it, shows it in a window and stops it on quit.
 //
@@ -31,7 +31,7 @@ func main() {
 	}
 
 	app := application.New(application.Options{
-		Name:        "gh-issue-killer",
+		Name:        "issuekiller",
 		Description: "GitHub issue dispatcher",
 		Mac: application.MacOptions{
 			// Closing the window ends the engine; nothing keeps running in the
@@ -42,7 +42,7 @@ func main() {
 	// No frontend build: the window is the engine's dashboard.
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:      "main",
-		Title:     "gh-issue-killer",
+		Title:     "issuekiller",
 		Width:     1320,
 		Height:    900,
 		MinWidth:  900,
@@ -58,14 +58,14 @@ func main() {
 // fatal reports a startup failure where the user can see it: stderr for a
 // terminal launch, a dialog for a bundle launched from Finder.
 func fatal(err error) {
-	fmt.Fprintln(os.Stderr, "gh-issue-killer desktop:", err)
+	fmt.Fprintln(os.Stderr, "issuekiller desktop:", err)
 	message := err.Error()
 	if len(message) > 600 {
 		message = message[:600] + "..."
 	}
 	if runtime.GOOS == "darwin" {
 		script := fmt.Sprintf("display dialog %q with title %q buttons {\"OK\"} default button 1",
-			message, "gh-issue-killer")
+			message, "issuekiller")
 		_ = exec.Command("osascript", "-e", script).Run()
 	}
 	os.Exit(1)

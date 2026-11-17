@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// exitRestartEngine matches exitRestart in cmd/gh-issue-killer: the engine exits
+// exitRestartEngine matches exitRestart in cmd/issuekiller: the engine exits
 // with it after a config save or an installed update and expects to be started
 // again with the same arguments.
 const exitRestartEngine = 75
@@ -45,6 +45,13 @@ type supervisor struct {
 	failures int
 }
 
+const (
+	stateDirName        = ".issuekiller"
+	legacyStateDirName  = ".gh-issue-killer"
+	configDirName       = ".config/issuekiller"
+	legacyConfigDirName = ".config/gh-issue-killer"
+)
+
 func newSupervisor() (*supervisor, error) {
 	enginePath, err := engineBinary()
 	if err != nil {
@@ -54,13 +61,14 @@ func newSupervisor() (*supervisor, error) {
 	if err != nil {
 		return nil, err
 	}
-	configPath := os.Getenv("GHIK_CONFIG")
+	migrateHomeDirs()
+	configPath := envValue("ISSUEKILLER_CONFIG", "GHIK_CONFIG")
 	if configPath == "" {
 		home, homeErr := os.UserHomeDir()
 		if homeErr != nil {
 			return nil, homeErr
 		}
-		configPath = filepath.Join(home, ".config", "gh-issue-killer", "config.json")
+		configPath = filepath.Join(home, configDirName, "config.json")
 	}
 	if err := os.MkdirAll(filepath.Join(homeStateDir(), "logs"), 0o755); err != nil {
 		return nil, err
@@ -83,26 +91,71 @@ func newSupervisor() (*supervisor, error) {
 	}, nil
 }
 
+// legacyStateDirInUse keeps the desktop on the old state directory when the
+// move failed, so it never creates the new directory and leaves the engine
+// looking at empty state.
+var legacyStateDirInUse bool
+
 func homeStateDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".gh-issue-killer"
+		return stateDirName
 	}
-	return filepath.Join(home, ".gh-issue-killer")
+	name := stateDirName
+	if legacyStateDirInUse {
+		name = legacyStateDirName
+	}
+	return filepath.Join(home, name)
+}
+
+// migrateHomeDirs adopts the directories of the pre-rename desktop builds so an
+// upgrade keeps the existing config, token, state and worktrees.
+func migrateHomeDirs() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	if !migrateDir(filepath.Join(home, legacyStateDirName), filepath.Join(home, stateDirName)) {
+		legacyStateDirInUse = true
+	}
+	migrateDir(filepath.Join(home, legacyConfigDirName), filepath.Join(home, configDirName))
+}
+
+// migrateDir renames from to to unless to already exists. It reports false when
+// the caller should keep using from.
+func migrateDir(from, to string) bool {
+	if _, err := os.Stat(to); err == nil {
+		return true
+	}
+	if _, err := os.Stat(from); err != nil {
+		return true
+	}
+	return os.Rename(from, to) == nil
+}
+
+// envValue mirrors the daemon's helper: the pre-rename GHIK_ names are listed
+// last so an existing launch script keeps working.
+func envValue(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // engineBinary looks for the engine next to the shell, then on PATH.
-// GHIK_ENGINE overrides both for development.
+// ISSUEKILLER_ENGINE overrides both for development.
 func engineBinary() (string, error) {
-	name := "gh-issue-killer"
+	name := "issuekiller"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	if override := os.Getenv("GHIK_ENGINE"); override != "" {
+	if override := envValue("ISSUEKILLER_ENGINE", "GHIK_ENGINE"); override != "" {
 		if info, err := os.Stat(override); err == nil && !info.IsDir() {
 			return override, nil
 		}
-		return "", fmt.Errorf("GHIK_ENGINE=%s is not a file", override)
+		return "", fmt.Errorf("ISSUEKILLER_ENGINE=%s is not a file", override)
 	}
 	if self, err := os.Executable(); err == nil {
 		for _, candidate := range []string{
@@ -118,7 +171,7 @@ func engineBinary() (string, error) {
 	if found, err := exec.LookPath(name); err == nil {
 		return found, nil
 	}
-	return "", fmt.Errorf("%s not found next to the desktop app; install it beside the app or set GHIK_ENGINE", name)
+	return "", fmt.Errorf("%s not found next to the desktop app; install it beside the app or set ISSUEKILLER_ENGINE", name)
 }
 
 // freePort binds port 0 and returns the port the OS picked. The engine starts a
@@ -159,7 +212,7 @@ func (s *supervisor) startLocked() (string, error) {
 		"-config", s.configPath,
 	}
 	cmd := exec.Command(s.enginePath, args...)
-	cmd.Env = append(os.Environ(), "GHIK_DESKTOP=1")
+	cmd.Env = append(os.Environ(), "ISSUEKILLER_DESKTOP=1")
 	cmd.Dir = filepath.Dir(s.configPath)
 	cmd.Stdin = nil
 	cmd.Stdout = s.logFile

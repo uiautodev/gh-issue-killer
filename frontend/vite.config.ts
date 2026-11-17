@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 // The dashboard ships inside the Go binary, so the static build goes straight
 // into the embed directory instead of a separate `build/` folder. SPA mode
 // (index.html fallback) keeps deep links working through web.go's fallback.
-const dist = fileURLToPath(new URL('../cmd/gh-issue-killer/web/dist', import.meta.url));
+const dist = fileURLToPath(new URL('../cmd/issuekiller/web/dist', import.meta.url));
 
 export default defineConfig({
 	plugins: [

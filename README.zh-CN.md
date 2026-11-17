@@ -1,6 +1,6 @@
-<p align="center"><img src="frontend/static/logo.svg" width="88" height="88" alt="gh-issue-killer"></p>
+<p align="center"><img src="frontend/static/logo.svg" width="88" height="88" alt="issuekiller"></p>
 
-# gh-issue-killer
+# issuekiller
 
 [English](README.md)
 
@@ -68,7 +68,7 @@ flowchart LR
   第二位版本号、其余提交升第三位，按每天或每隔几天、在配置的本地时间（默认
   09:00）发版。重大版本（major）由人工打 tag。默认关闭，按项目单独配置。
 - **内置 GitHub 登录。** 不用装 `gh` 或 wrapper：桌面版/看板里点一下就用
-  GitHub Device Flow 登录小号，token 存在 `~/.gh-issue-killer/token`（0600），
+  GitHub Device Flow 登录小号，token 存在 `~/.issuekiller/token`（0600），
   快过期时自动续期；也支持粘贴 token。
 - **单个静态二进制。** 只发起出站 HTTPS，运行时只需要 `git`、一个编码 agent
   CLI 和一个 shell（`/bin/sh`，Windows 上是 `cmd`）。发布产物覆盖 macOS、
@@ -89,7 +89,7 @@ flowchart LR
 
 ### 桌面版
 
-不用开终端：从 [Releases](https://github.com/uiautodev/gh-issue-killer/releases)
+不用开终端：从 [Releases](https://github.com/uiautodev/issuekiller/releases)
 下载对应平台的桌面包（macOS 用 `.dmg` 拖进「应用程序」或解压 `.app`、
 Linux 用 tar 包、Windows 用 zip）双击运行即可。窗口里就是同一套看板，带
 **设置** 面板（仓库、编码代理、模型、代理、各项目的定时发版、更新镜像），
@@ -104,7 +104,7 @@ Linux 用 tar 包、Windows 用 zip）双击运行即可。窗口里就是同一
 把仓库交给 Claude Code、Codex、opencode、Pi 或 Oh My Pi，然后把下面这段贴进去：
 
 ```text
-按照 DEPLOY.md 第 0–5 节在这台机器上部署 gh-issue-killer（除非我要求开机自启，
+按照 DEPLOY.md 第 0–5 节在这台机器上部署 issuekiller（除非我要求开机自启，
 否则跳过第 6 节）。自主完成，最多问我一个问题，且只在这个值确实无法推断时才问。
 
 默认值，不用确认：
@@ -113,12 +113,12 @@ Linux 用 tar 包、Windows 用 zip）双击运行即可。窗口里就是同一
 - codingAgent：PATH 里第一个 opencode、claude、codex、pi、omp
 - model：留空（CLI 默认）
 - proxy：设置了 $https_proxy 或 $ALL_PROXY 就用它，否则直连
-- 二进制：~/.local/bin/gh-issue-killer
-- 配置：~/.config/gh-issue-killer/config.json
+- 二进制：~/.local/bin/issuekiller
+- 配置：~/.config/issuekiller/config.json
 
 不要创建 GitHub 账号或 token。允许用我的 gh 把上面这些仓库的权限授给这个 bot
 （DEPLOY.md 第 2 节）。如果还没有 bot 凭据，就用内置的 GitHub 登录（桌面版或
-看板，~/.gh-issue-killer/token），或者提示我用小号登录；不要让我去装 gh-agent。
+看板，~/.issuekiller/token），或者提示我用小号登录；不要让我去装 gh-agent。
 
 最后执行第 10 节的检查，把状态行贴出来。不要让我确认你能自己验证的步骤。
 ```
@@ -130,11 +130,17 @@ agent 会按 [DEPLOY.md](DEPLOY.md) 安装二进制、写配置、跑冒烟测�
 账号（在桌面版/看板里用内置登录，或设置 `GH_AGENT_TOKEN`）。
 
 ```bash
-go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
-./bin/gh-issue-killer -init      # 向导：GitHub 登录、仓库、agent、approvers、代理
-./bin/gh-issue-killer            # 后台 daemon
-./bin/gh-issue-killer -status    # pid、配置、日志和状态路径
+go build -o bin/issuekiller ./cmd/issuekiller
+./bin/issuekiller -init      # 向导：GitHub 登录、仓库、agent、approvers、代理
+./bin/issuekiller            # 后台 daemon
+./bin/issuekiller -status    # pid、配置、日志和状态路径
 ```
+
+从 `gh-issue-killer` 升级？首次启动会把 `~/.gh-issue-killer` 改名为
+`~/.issuekiller`（桌面版还会把 `~/.config/gh-issue-killer` 改名为
+`~/.config/issuekiller`），token、`state.json` 和 worktree 都会保留。旧的
+`GHIK_*` 变量（`GHIK_OAUTH_CLIENT_ID`、`GHIK_CONFIG`、`GHIK_ENGINE`）仍会被读取，
+但改名前的版本无法跨过这次改名自动更新：先手动装一次这个版本。
 
 完整的部署、运维、升级和排障见 [DEPLOY.md](DEPLOY.md)；内部实现、状态机、队列
 和 CI 门禁见 [DEVELOP.md](DEVELOP.md)，贡献/agent 规则见 [AGENTS.md](AGENTS.md)。
@@ -165,7 +171,7 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 ## 配置
 
 ```bash
-./bin/gh-issue-killer -init      # 向导：GitHub 登录、仓库、agent、approvers、代理
+./bin/issuekiller -init      # 向导：GitHub 登录、仓库、agent、approvers、代理
 ```
 
 `-init` 会写好配置；手写就是同样的 `repos` / `codingAgent` / `approvers` /
@@ -179,7 +185,7 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 
 ```bash
 go test ./...
-go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
+go build -o bin/issuekiller ./cmd/issuekiller
 ```
 
 内部实现和发版（打 `v*` tag）见 [DEVELOP.md](DEVELOP.md)，贡献规则见
@@ -194,11 +200,11 @@ skill（`.agents/skills/`）；改看板的 CSS、布局、表格或弹窗前先
 
 ## 贡献者
 
-发现 bug 或者有好点子？欢迎[提 issue](https://github.com/uiautodev/gh-issue-killer/issues/new)
+发现 bug 或者有好点子？欢迎[提 issue](https://github.com/uiautodev/issuekiller/issues/new)
 或直接提 PR，贡献规则见 [AGENTS.md](AGENTS.md)。感谢每一位贡献者！
 
-<a href="https://github.com/uiautodev/gh-issue-killer/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=uiautodev/gh-issue-killer" alt="gh-issue-killer 的贡献者" />
+<a href="https://github.com/uiautodev/issuekiller/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=uiautodev/issuekiller" alt="issuekiller 的贡献者" />
 </a>
 
 ## License
