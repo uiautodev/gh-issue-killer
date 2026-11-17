@@ -78,9 +78,9 @@ posts the plan, `mode: build` always skips it. See the
   blocks another.
 - **Optional scheduled releases.** A repository can opt into publishing GitHub
   releases after its default branch moves: a `feat:` commit bumps the second
-  version number, any other commit the third, checked once a day (or every few
-  days). Major versions stay a manual decision. Off by default and configured per
-  repository.
+  version number, any other commit the third, once a day (or every few days) at
+  a configured local time, 09:00 by default. Major versions stay a manual
+  decision. Off by default and configured per repository.
 - **Built-in GitHub login.** No `gh` or wrapper to install: the desktop app and
   dashboard use GitHub Device Flow to log in a bot account, store the token in
   `~/.gh-issue-killer/token` (0600) and refresh it before expiry; a pasted

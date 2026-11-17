@@ -22,6 +22,15 @@ func newReleaseTestStore(t *testing.T) *Store {
 }
 
 func releaseTestApp(gh *GH, store *Store, release ReleaseConfig) *AppContext {
+	if release.Time == "" {
+		// The due check is wall-clock dependent. 00:00 lets these tests control
+		// the day only: with the seeded check below, the slot has always
+		// arrived, whatever hour the suite runs at.
+		release.Time = "00:00"
+	}
+	store.UpdateMeta("acme/app", func(meta *RepoMeta) {
+		meta.LastReleaseCheckAt = time.Now().Add(-24 * time.Hour).Format(time.RFC3339)
+	})
 	return &AppContext{
 		Repo:  RepoConfig{FullName: "acme/app", Release: release},
 		Local: &LocalRepo{Base: "main"},
@@ -126,27 +135,113 @@ func TestInitialRelease(t *testing.T) {
 
 func TestReleaseDue(t *testing.T) {
 	now := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
-	if !releaseDue("", 1, now) {
-		t.Fatal("a repo that was never checked is due")
+	if !releaseDue("", 1, "09:00", now) {
+		t.Fatal("a repo that was never checked is due once today's slot passed")
 	}
-	if !releaseDue("yesterday", 1, now) {
+	if releaseDue("", 1, "13:00", now) {
+		t.Fatal("a repo that was never checked must wait for today's slot")
+	}
+	if !releaseDue("yesterday", 1, "09:00", now) {
 		t.Fatal("an unparsable timestamp must not block releases forever")
+	}
+	if releaseDue("yesterday", 1, "13:00", now) {
+		t.Fatal("an unparsable timestamp still waits for the slot, not the next tick")
 	}
 	cases := []struct {
 		last     string
 		days     int
+		at       string
 		expected bool
 	}{
-		{now.Add(-23 * time.Hour).Format(time.RFC3339), 1, false},
-		{now.Add(-25 * time.Hour).Format(time.RFC3339), 1, true},
-		{now.Add(-47 * time.Hour).Format(time.RFC3339), 2, false},
-		{now.Add(-49 * time.Hour).Format(time.RFC3339), 2, true},
-		{now.Add(-time.Hour).Format(time.RFC3339), 0, false},
+		// A check this morning waits for tomorrow 09:00.
+		{time.Date(2026, 11, 15, 0, 30, 0, 0, time.UTC).Format(time.RFC3339), 1, "09:00", false},
+		{time.Date(2026, 11, 15, 0, 30, 0, 0, time.UTC).Format(time.RFC3339), 1, "11:00", false},
+		// Yesterday's check is due today at 09:00, not at yesterday's hour.
+		{time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC).Format(time.RFC3339), 1, "09:00", true},
+		{time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC).Format(time.RFC3339), 1, "13:00", false},
+		// Calendar days: a two-day interval from Friday 23:00 lands Sunday
+		// 09:00, not 48 hours later.
+		{time.Date(2026, 11, 13, 23, 0, 0, 0, time.UTC).Format(time.RFC3339), 2, "09:00", true},
+		{time.Date(2026, 11, 13, 23, 0, 0, 0, time.UTC).Format(time.RFC3339), 3, "09:00", false},
+		// intervalDays below one is clamped to one day.
+		{time.Date(2026, 11, 15, 1, 0, 0, 0, time.UTC).Format(time.RFC3339), 0, "09:00", false},
+		{time.Date(2026, 11, 14, 1, 0, 0, 0, time.UTC).Format(time.RFC3339), 0, "09:00", true},
+		// An unusable time falls back to 09:00 instead of publishing at 00:00.
+		{time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC).Format(time.RFC3339), 1, "noon", true},
 	}
 	for _, c := range cases {
-		if got := releaseDue(c.last, c.days, now); got != c.expected {
-			t.Fatalf("releaseDue(%q, %d) = %v, want %v", c.last, c.days, got, c.expected)
+		if got := releaseDue(c.last, c.days, c.at, now); got != c.expected {
+			t.Fatalf("releaseDue(%q, %d, %q) = %v, want %v", c.last, c.days, c.at, got, c.expected)
 		}
+	}
+}
+
+func TestReleaseDueAtTheConfiguredMinute(t *testing.T) {
+	at := "09:00"
+	slot := time.Date(2026, 11, 15, 9, 0, 0, 0, time.Local)
+	if releaseDue("", 1, at, slot.Add(-time.Minute)) {
+		t.Fatal("08:59 must not be due for a 09:00 slot")
+	}
+	if !releaseDue("", 1, at, slot) {
+		t.Fatal("09:00 must be due for a 09:00 slot")
+	}
+	// The configured time is the publish point, not the hour the check ran.
+	last := time.Date(2026, 11, 14, 15, 45, 0, 0, time.Local).Format(time.RFC3339)
+	if releaseDue(last, 1, "18:30", time.Date(2026, 11, 15, 18, 29, 0, 0, time.Local)) {
+		t.Fatal("a 18:30 slot must not be due at 18:29")
+	}
+	if !releaseDue(last, 1, "18:30", time.Date(2026, 11, 15, 18, 30, 0, 0, time.Local)) {
+		t.Fatal("a 18:30 slot must be due at 18:30")
+	}
+}
+
+func TestParseReleaseTime(t *testing.T) {
+	cases := []struct {
+		value  string
+		hour   int
+		minute int
+		ok     bool
+	}{
+		{"", 9, 0, true},
+		{" 09:00 ", 9, 0, true},
+		{"18:30", 18, 30, true},
+		{"7:05", 7, 5, true},
+		{"00:00", 0, 0, true},
+		{"23:59", 23, 59, true},
+		{"24:00", 0, 0, false},
+		{"09:60", 0, 0, false},
+		{"9", 0, 0, false},
+		{"noon", 0, 0, false},
+		{"09:00:00", 0, 0, false},
+	}
+	for _, c := range cases {
+		hour, minute, err := parseReleaseTime(c.value)
+		if (err == nil) != c.ok || (c.ok && (hour != c.hour || minute != c.minute)) {
+			t.Fatalf("parseReleaseTime(%q) = %d, %d, %v", c.value, hour, minute, err)
+		}
+	}
+	if got := formatReleaseTime(7, 5); got != "07:05" {
+		t.Fatalf("formatReleaseTime = %q", got)
+	}
+}
+
+func TestNormalizeReleaseDefaultsTime(t *testing.T) {
+	cfg, err := normalizeRelease(releaseOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg != (ReleaseConfig{IntervalDays: 1, Time: "09:00"}) {
+		t.Fatalf("defaults = %+v", cfg)
+	}
+	cfg, err = normalizeRelease(releaseOptions{Enabled: true, IntervalDays: 3, Time: " 7:05 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg != (ReleaseConfig{Enabled: true, IntervalDays: 3, Time: "07:05"}) {
+		t.Fatalf("explicit time = %+v", cfg)
+	}
+	if _, err := normalizeRelease(releaseOptions{Time: "24:00"}); err == nil {
+		t.Fatal("an out-of-range time must be rejected")
 	}
 }
 
@@ -325,11 +420,15 @@ func TestCheckReleaseFailureKeepsTimestamp(t *testing.T) {
 	})
 	store := newReleaseTestStore(t)
 	app := releaseTestApp(gh, store, ReleaseConfig{Enabled: true, IntervalDays: 1})
+	before := store.Meta("acme/app").LastReleaseCheckAt
+	if before == "" {
+		t.Fatal("the test fixture must seed a previous check")
+	}
 	if err := checkRelease(context.Background(), app); err == nil {
 		t.Fatal("expected the tag lookup to fail")
 	}
-	if store.Meta("acme/app").LastReleaseCheckAt != "" {
-		t.Fatal("a failed check must not record a timestamp")
+	if got := store.Meta("acme/app").LastReleaseCheckAt; got != before {
+		t.Fatalf("a failed check moved the timestamp: %q -> %q", before, got)
 	}
 }
 

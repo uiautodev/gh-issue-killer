@@ -9,16 +9,18 @@ import (
 )
 
 // Periodic release publishing. A repository opts in with release.enabled; the
-// daemon then checks the default branch at most once per intervalDays and
-// publishes a GitHub release when it moved past the newest v* tag, or v0.1.0
-// when the repository has no version tag yet. Everything here is deliberately
-// small: the tag is the only version source, and the conventional-commit
-// subject decides whether the batch is a feature.
+// daemon then checks the default branch at most once per intervalDays, on the
+// configured local time (release.time, 09:00 by default), and publishes a
+// GitHub release when it moved past the newest v* tag, or v0.1.0 when the
+// repository has no version tag yet. Everything here is deliberately small: the
+// tag is the only version source, and the conventional-commit subject decides
+// whether the batch is a feature.
 
 const (
-	// releaseTick re-evaluates each repo's schedule; the config interval decides
-	// whether that tick may call GitHub. Hourly keeps the daemon's clock coarse
-	// without waiting for the exact interval to elapse before trying again.
+	// releaseTick re-evaluates each repo's schedule; the config interval and
+	// time decide whether that tick may call GitHub. Hourly keeps the daemon's
+	// clock coarse: a scheduled time publishes on the first tick after it, so
+	// within an hour, without waking up per repository.
 	releaseTick = time.Hour
 	// releaseCommitLimit caps the first release of a repository, which has no
 	// previous tag to compare against.
@@ -126,21 +128,51 @@ func nextReleaseVersion(current releaseVersion, titles []string) releaseVersion 
 	return bumpVersion(current, part)
 }
 
-// releaseDue reports whether the last check is at least intervalDays old. An
-// empty or unparsable timestamp means "never checked", so a fresh state file
-// and an upgraded one both check on the next tick.
-func releaseDue(lastCheck string, intervalDays int, now time.Time) bool {
-	if strings.TrimSpace(lastCheck) == "" {
-		return true
-	}
-	checked, err := time.Parse(time.RFC3339, lastCheck)
+// releaseDue reports whether this repo's release slot has arrived. The slot is
+// the local calendar date of the last successful check plus intervalDays, at
+// the configured HH:MM; a repo that was never checked is due at today's slot.
+// Calendar days instead of 24-hour steps keep a 09:00 release at 09:00 across a
+// daylight-saving change, and the hour is deliberately not part of the
+// interval: intervalDays says which day, time says when on that day.
+func releaseDue(lastCheck string, intervalDays int, at string, now time.Time) bool {
+	hour, minute, err := parseReleaseTime(at)
 	if err != nil {
-		return true
+		hour, minute = 9, 0
 	}
-	if intervalDays < 1 {
-		intervalDays = 1
+	base := now
+	if checked, err := time.Parse(time.RFC3339, strings.TrimSpace(lastCheck)); err == nil {
+		base = checked.In(now.Location())
+		if intervalDays < 1 {
+			intervalDays = 1
+		}
+	} else {
+		// An empty or unparsable timestamp means "never checked": the repo
+		// waits for today's slot instead of publishing during an odd hour.
+		intervalDays = 0
 	}
-	return !now.Before(checked.Add(time.Duration(intervalDays) * 24 * time.Hour))
+	slot := time.Date(base.Year(), base.Month(), base.Day()+intervalDays, hour, minute, 0, 0, now.Location())
+	return !now.Before(slot)
+}
+
+// parseReleaseTime reads the local publish time of day. Empty means the
+// default; H:MM is accepted so a hand-edited config does not fail over a
+// missing zero. Anything else is an error: a typo must not silently move a
+// release to another hour.
+func parseReleaseTime(value string) (int, int, error) {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		text = defaultReleaseTime
+	}
+	parsed, err := time.Parse("15:04", text)
+	if err != nil {
+		return 0, 0, fmt.Errorf("release.time must be HH:MM between 00:00 and 23:59, got %q", value)
+	}
+	return parsed.Hour(), parsed.Minute(), nil
+}
+
+// formatReleaseTime renders the canonical HH:MM form stored in ReleaseConfig.
+func formatReleaseTime(hour, minute int) string {
+	return fmt.Sprintf("%02d:%02d", hour, minute)
 }
 
 func commitTitle(commit Commit) string {
@@ -193,7 +225,7 @@ func checkRelease(ctx context.Context, app *AppContext) error {
 	if base == "" {
 		return fmt.Errorf("release check needs the default branch")
 	}
-	if !releaseDue(app.Store.Meta(app.Repo.FullName).LastReleaseCheckAt, cfg.IntervalDays, time.Now()) {
+	if !releaseDue(app.Store.Meta(app.Repo.FullName).LastReleaseCheckAt, cfg.IntervalDays, cfg.Time, time.Now()) {
 		app.Log.Debug("%s: release check not due yet", app.Repo.FullName)
 		return nil
 	}

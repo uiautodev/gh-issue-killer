@@ -286,7 +286,8 @@ and ignored, so the old settings stay active.
     "me/app": {
       "release": {
         "enabled": true,
-        "intervalDays": 1
+        "intervalDays": 1,
+        "time": "09:00"
       }
     }
   }
@@ -297,12 +298,14 @@ and ignored, so the old settings stay active.
 | --- | --- | --- |
 | `enabled` | `false` | publish releases for this repository |
 | `intervalDays` | `1` | minimum days between checks |
+| `time` | `"09:00"` | local publish time of day (`HH:MM`, daemon host time zone) |
 
 The dashboard shows the same block: **Settings** has one row per repository with
-the switch and the interval, and saving writes them back into `repos` (keeping
-`codingAgent`, `model`, `language` and the other overrides) before restarting
-the daemon. A row left off with the default values is not written, so the file
-stays free of no-op `release` blocks.
+the switch, the interval and the time, and saving writes them back into `repos`
+(keeping `codingAgent`, `model`, `language` and the other overrides) before
+restarting the daemon. A row left off with the default values is not written, so
+the file stays free of no-op `release` blocks. An unusable `time` is rejected at
+load time and by the dashboard save instead of falling back silently.
 
 The bump part is not configurable because it follows the conventional commits:
 a `feat`/`feature` subject (including `feat(scope):`) bumps the minor part,
@@ -318,8 +321,11 @@ subjects and a compare link.
 Older configs may still contain `bugBump`/`featureBump`; both keys are ignored
 now and a save from the dashboard removes them.
 
-Checks run at startup and then hourly, but at most once per `intervalDays`. A
-check with no new commits records the timestamp and publishes nothing; a failed
+Checks run at startup and then hourly, but a repository publishes at most once
+per `intervalDays`, at `time` on the local date that follows the last successful
+check. The tick is hourly, so the actual release lands within an hour after the
+configured time; a repo that was never checked waits for today's `time`. A check
+with no new commits records the timestamp and publishes nothing; a failed
 request is logged and retried on the next tick without moving the timestamp.
 `-once` does not run release checks. This is opt-in because it creates public
 tags and releases: the first run of a repository covers every commit since its
@@ -455,7 +461,7 @@ macOS: start it once after login, or add it to login items. Nothing else.
 | follow master | with `"followMaster": true`, poll `master` every 30 s and rebuild the binary from source (`git`, `go` and `npm` on PATH; the dashboard is rebuilt too), then re-exec. Takes precedence over `selfUpdate`. For development machines: a push reaches the daemon in about a minute. |
 | install a release now | dashboard → 设置 → 检查更新 → 立即升级, or download the archive and replace the binary |
 | update behind the GFW | set `"updateProxy": "gh-proxy.com"`; release downloads fall back to it |
-| release check | `grep 'release' "$LOG"`; a due check publishes a tag + release, a failure logs `release check:` and retries next hour |
+| release check | `grep 'release' "$LOG"`; a due check at `release.time` publishes a tag + release, a failure logs `release check:` and retries next hour |
 | bump the next release | nothing to configure: `feat`/`feature` commits bump minor and everything else patch; tag a major (`vX.0.0`) by hand when intended. The version comes from the newest `v*` tag |
 | smoke test | `gh-issue-killer -config "$CONFIG" -once` |
 | full loop with the human's `gh` | `scripts/smoke-test.sh <owner/repo>` |

@@ -319,13 +319,39 @@ func TestLoadConfigRelease(t *testing.T) {
 		t.Fatalf("repos = %+v", cfg.Repos)
 	}
 	// The object form is sorted by repo name.
-	want := ReleaseConfig{Enabled: true, IntervalDays: 3}
+	want := ReleaseConfig{Enabled: true, IntervalDays: 3, Time: "09:00"}
 	if cfg.Repos[0].Release != want {
 		t.Fatalf("release = %+v, want %+v", cfg.Repos[0].Release, want)
 	}
-	defaults := ReleaseConfig{Enabled: false, IntervalDays: 1}
+	defaults := ReleaseConfig{Enabled: false, IntervalDays: 1, Time: "09:00"}
 	if cfg.Repos[1].Release != defaults {
 		t.Fatalf("default release = %+v, want %+v", cfg.Repos[1].Release, defaults)
+	}
+
+	// release.time is optional; an explicit time is validated and stored as
+	// HH:MM, including the single-digit form a human may type.
+	timed := `{"repos":{"me/app":{"release":{"enabled":true,"time":"18:30"}},"me/early":{"release":{"time":"7:05"}}}}`
+	if err := os.WriteFile(path, []byte(timed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Repos[0].Release; got != (ReleaseConfig{Enabled: true, IntervalDays: 1, Time: "18:30"}) {
+		t.Fatalf("timed release = %+v", got)
+	}
+	if got := cfg.Repos[1].Release; got.Time != "07:05" {
+		t.Fatalf("single-digit time was not normalized: %+v", got)
+	}
+	for _, bad := range []string{"9", "24:00", "09:60", "9:5", "noon", "09:00:00"} {
+		body := `{"repos":{"me/app":{"release":{"time":"` + bad + `"}}}}`
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadConfig(path); err == nil {
+			t.Fatalf("release.time %q must be rejected", bad)
+		}
 	}
 
 	// bugBump/featureBump were removed when the bump became conventional; an
@@ -338,7 +364,7 @@ func TestLoadConfigRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy bump keys must be ignored: %v", err)
 	}
-	if got := cfg.Repos[0].Release; got != (ReleaseConfig{Enabled: true, IntervalDays: 1}) {
+	if got := cfg.Repos[0].Release; got != (ReleaseConfig{Enabled: true, IntervalDays: 1, Time: "09:00"}) {
 		t.Fatalf("legacy release = %+v", got)
 	}
 }
@@ -363,7 +389,7 @@ func TestLoadConfigRepoObjectArray(t *testing.T) {
 	if cfg.Repos[0].FullName != "me/app" || cfg.Repos[0].CodingAgent != "claude" {
 		t.Fatalf("first repo = %+v", cfg.Repos[0])
 	}
-	want := ReleaseConfig{Enabled: true, IntervalDays: 2}
+	want := ReleaseConfig{Enabled: true, IntervalDays: 2, Time: "09:00"}
 	if cfg.Repos[0].Release != want {
 		t.Fatalf("release = %+v, want %+v", cfg.Repos[0].Release, want)
 	}

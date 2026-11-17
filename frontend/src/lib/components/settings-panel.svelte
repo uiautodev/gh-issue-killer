@@ -38,7 +38,19 @@
 		name: string;
 		enabled: boolean;
 		interval: string;
+		time: string;
 	}
+
+	interface ReleaseValue {
+		enabled: boolean;
+		intervalDays: number;
+		time: string;
+	}
+
+	// HH:MM in 24-hour form; the browser's time input only emits this, but a
+	// config edited by hand may not.
+	const RELEASE_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+	const RELEASE_DEFAULT_TIME = '09:00';
 
 	const AGENT_FALLBACK = [
 		{ id: 'opencode', name: 'opencode' },
@@ -162,13 +174,19 @@
 		doc.repos = next;
 	}
 
-	function releaseDefaults(): { enabled: boolean; intervalDays: number } {
+	function releaseDefaults(): ReleaseValue {
 		const defaults =
-			(configDefaults.release as { enabled?: boolean; intervalDays?: number } | undefined) || {};
+			(configDefaults.release as
+				| { enabled?: boolean; intervalDays?: number; time?: string }
+				| undefined) || {};
 		const interval = Number(defaults.intervalDays);
 		return {
 			enabled: defaults.enabled === true,
-			intervalDays: Number.isInteger(interval) && interval >= 1 ? interval : 1
+			intervalDays: Number.isInteger(interval) && interval >= 1 ? interval : 1,
+			time:
+				typeof defaults.time === 'string' && RELEASE_TIME.test(defaults.time)
+					? defaults.time
+					: RELEASE_DEFAULT_TIME
 		};
 	}
 
@@ -187,7 +205,7 @@
 		return null;
 	}
 
-	function releaseValue(doc: Record<string, unknown>, name: string): { enabled: boolean; intervalDays: number } {
+	function releaseValue(doc: Record<string, unknown>, name: string): ReleaseValue {
 		const base = releaseDefaults();
 		const entry = repoEntry(doc, name);
 		const release =
@@ -197,12 +215,20 @@
 		const interval = Number(release.intervalDays);
 		return {
 			enabled: release.enabled === true,
-			intervalDays: Number.isInteger(interval) && interval >= 1 ? interval : base.intervalDays
+			intervalDays: Number.isInteger(interval) && interval >= 1 ? interval : base.intervalDays,
+			time:
+				typeof release.time === 'string' && RELEASE_TIME.test(release.time)
+					? release.time
+					: base.time
 		};
 	}
 
-	function releaseIsSet(value: { enabled: boolean; intervalDays: number }, defaults: { enabled: boolean; intervalDays: number }): boolean {
-		return value.enabled || Number(value.intervalDays) !== defaults.intervalDays;
+	function releaseIsSet(value: ReleaseValue, defaults: ReleaseValue): boolean {
+		return (
+			value.enabled ||
+			Number(value.intervalDays) !== defaults.intervalDays ||
+			value.time !== defaults.time
+		);
 	}
 
 	// repoObjects turns the array-of-names form into objects so a release block
@@ -245,8 +271,8 @@
 		const defaults = releaseDefaults();
 		const values = names.map((name) => {
 			const row = rows.find((candidate) => candidate.name === name);
-			const value = row
-				? { enabled: row.enabled, intervalDays: Number(row.interval) }
+			const value: ReleaseValue = row
+				? { enabled: row.enabled, intervalDays: Number(row.interval), time: row.time || defaults.time }
 				: releaseValue(doc, name);
 			return [name, value] as const;
 		});
@@ -259,21 +285,29 @@
 				continue;
 			}
 			const interval = Number(value.intervalDays);
-			entry.release = {
+			const release: Record<string, unknown> = {
 				enabled: Boolean(value.enabled),
 				intervalDays: Number.isInteger(interval) && interval >= 1 ? interval : defaults.intervalDays
 			};
+			// The default time stays implicit; only a deliberate schedule is
+			// written, so later default changes still reach these repos.
+			if (value.time && value.time !== defaults.time) release.time = value.time;
+			entry.release = release;
 		}
 	}
 
-	function releaseRowsValid(names: string[]): boolean {
+	// releaseRowsProblem returns the i18n key of the first invalid field, or an
+	// empty string. The time input cannot produce a bad value, but a pasted or
+	// restored draft can, and the PUT would reject it anyway.
+	function releaseRowsProblem(names: string[]): string {
 		for (const name of names) {
 			const row = rows.find((candidate) => candidate.name === name);
 			if (!row) continue;
 			const interval = Number(row.interval);
-			if (!Number.isInteger(interval) || interval < 1) return false;
+			if (!Number.isInteger(interval) || interval < 1) return 'settings.releaseIntervalInvalid';
+			if (row.time && !RELEASE_TIME.test(row.time)) return 'settings.releaseTimeInvalid';
 		}
-		return true;
+		return '';
 	}
 
 	// syncRows renders a row per repo while typing and keeps values already
@@ -284,7 +318,7 @@
 			const existing = rows.find((row) => row.name === name);
 			if (existing) return existing;
 			const value = releaseValue(configDoc, name);
-			return { name, enabled: value.enabled, interval: String(value.intervalDays) };
+			return { name, enabled: value.enabled, interval: String(value.intervalDays), time: value.time };
 		});
 	}
 
@@ -305,7 +339,7 @@
 		repoText = repoList(configDoc).join('\n');
 		rows = repoList(configDoc).map((name) => {
 			const value = releaseValue(configDoc, name);
-			return { name, enabled: value.enabled, interval: String(value.intervalDays) };
+			return { name, enabled: value.enabled, interval: String(value.intervalDays), time: value.time };
 		});
 		const agent = String(pick(configDoc, 'codingAgent', 'opencode'));
 		form.agent = agent;
@@ -340,8 +374,9 @@
 			formError(err instanceof Error ? err.message : String(err));
 			return;
 		}
-		if (!releaseRowsValid(repos)) {
-			formError(t('settings.releaseIntervalInvalid'));
+		const problem = releaseRowsProblem(repos);
+		if (problem) {
+			formError(t(problem));
 			return;
 		}
 		setRepoList(doc, repos);
@@ -716,6 +751,14 @@
 											step="1"
 											class="h-9 w-20 rounded-md border border-input bg-transparent px-2 text-sm"
 											bind:value={row.interval}
+										/>
+									</label>
+									<label class="flex flex-col gap-1 text-2xs tracking-[0.03em] text-muted-foreground">
+										{t('settings.releaseTime')}
+										<input
+											type="time"
+											class="h-9 w-[7.5rem] rounded-md border border-input bg-transparent px-2 text-sm"
+											bind:value={row.time}
 										/>
 									</label>
 								</div>

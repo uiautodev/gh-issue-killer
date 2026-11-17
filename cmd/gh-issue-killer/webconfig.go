@@ -107,7 +107,9 @@ func (w *webServer) configPayload() map[string]any {
 // configDefaults are the values the daemon would use when the key is absent.
 func (w *webServer) configDefaults() map[string]any {
 	cfg := w.cfg
-	release := normalizeRelease(releaseOptions{})
+	// The built-in defaults are valid by construction; the error exists for
+	// user input, which the PUT validates below.
+	release, _ := normalizeRelease(releaseOptions{})
 	return map[string]any{
 		"codingAgent":         cfg.CodingAgent,
 		"model":               cfg.Model,
@@ -130,6 +132,7 @@ func (w *webServer) configDefaults() map[string]any {
 		"release": map[string]any{
 			"enabled":      release.Enabled,
 			"intervalDays": release.IntervalDays,
+			"time":         release.Time,
 		},
 	}
 }
@@ -337,6 +340,21 @@ func normalizeReleaseBlock(entry map[string]any) error {
 				return errors.New("release.intervalDays must be an integer >= 1")
 			}
 			release["intervalDays"] = days
+		}
+	}
+	if raw, ok := release["time"]; ok {
+		// An empty input in the dashboard means "use the default": drop it so
+		// the saved file does not pin today's default value.
+		text, isString := raw.(string)
+		text = strings.TrimSpace(text)
+		if raw == nil || (isString && text == "") {
+			delete(release, "time")
+		} else if !isString {
+			return errors.New("release.time must be a HH:MM string")
+		} else if hour, minute, err := parseReleaseTime(text); err != nil {
+			return err
+		} else {
+			release["time"] = formatReleaseTime(hour, minute)
 		}
 	}
 	if raw, ok := release["enabled"]; ok {

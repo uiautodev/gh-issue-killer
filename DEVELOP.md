@@ -301,10 +301,14 @@ Rules that keep it safe:
 **Release schedule** (`release.go`) is not a queue: every repo with
 `release.enabled` gets one goroutine started from `main.go`. It checks at
 startup and then every `releaseTick` (one hour); `release.intervalDays` decides
-whether that tick may call GitHub, and `RepoMeta.LastReleaseCheckAt` records a
-successful check (including “no commits”), so a failed request retries on the
-next tick instead of waiting a whole interval. Publishing never enqueues a job
-and never touches an issue worktree.
+the earliest local date and `release.time` (09:00 by default) the time of day,
+so a scheduled release lands on the first tick after that slot. `releaseDue`
+compares calendar days, not 24-hour steps, which keeps a 09:00 release at 09:00
+across a daylight-saving change; a repo that was never checked waits for today's
+slot. `RepoMeta.LastReleaseCheckAt` records a successful check (including “no
+commits”), so a failed request retries on the next tick instead of waiting a
+whole interval. Publishing never enqueues a job and never touches an issue
+worktree.
 
 ## 8. Stages (`actions.go`)
 
@@ -530,8 +534,10 @@ an unknown mode is rejected at load time). `repos` also accepts an object for
 per-repo `codingAgent`/`model`/`approvers`/`worktreeRoot`/`language`/`mode`/
 `release`.
 
-`release` is an optional per-repo block — `enabled` (false) and `intervalDays`
-(1). The bump part is not a config key: `release.go` bumps minor when the batch
+`release` is an optional per-repo block — `enabled` (false), `intervalDays`
+(1) and `time` (`09:00`, local `HH:MM`; an invalid value fails the load with an
+actionable error rather than silently moving the schedule). The bump part is not
+a config key: `release.go` bumps minor when the batch
 contains a `feat`/`feature` commit subject and patch otherwise, and never
 publishes a major automatically. The newest `vMAJOR.MINOR.PATCH` tag is the
 version source; a repo without one publishes `v0.1.0` first (the bump rule only
@@ -541,11 +547,13 @@ and the release in one call (`target_commitish` = default branch), so the token
 needs `contents: write`, which the push-capable bot token already has.
 
 The dashboard's settings panel edits the same block: `/api/config` sends the
-one-day default as `defaults.release` and renders one row per repo with the
-switch and the interval; the PUT rejects `intervalDays` below 1 (or a
-non-integer) before the temp-file `loadConfig`, instead of letting the loader
-clamp the value, and strips the removed bump keys. A row left off with the
-defaults is removed from the saved file. `repos` may be an array of names, an
+one-day/09:00 defaults as `defaults.release` and renders one row per repo with
+the switch, the interval and the time; the PUT rejects `intervalDays` below 1
+(or a non-integer) and a `time` that is not `HH:MM` before the temp-file
+`loadConfig`, instead of letting the loader clamp or fall back, and strips the
+removed bump keys. An empty `time` means “use the default” and is dropped, like
+a null; a row left off with the defaults is removed from the saved file.
+`repos` may be an array of names, an
 array of objects (`{"repo": "owner/name", ...overrides}`) or a keyed object; the
 panel keeps the existing shape and the overrides of repos that stay.
 
@@ -641,7 +649,8 @@ the top layer, and `dialog.ts` only adds the outside-click fallback where
 contains scroll chaining for the top layer. The settings button opens the
 dialog with a section nav (login / config / updates), a scrolling body and a
 sticky action bar: repos (array, array of objects or object form, with per-repo
-overrides preserved), one release row per repo (`enabled`, `intervalDays`),
+overrides preserved), one release row per repo (`enabled`, `intervalDays`,
+`time`, a native `<input type="time">`),
 coding agent (populated from `/api/detect`), model, proxy, `webPort`,
 `selfUpdate` and `updateProxy`, plus the version card, the update buttons and
 the System card. The first block is the GitHub login: it shows the one-time
@@ -720,7 +729,7 @@ keeps tests quiet. Notable coverage:
 | `blocked_ci_test.go` | green-check detection, auto-resume of CI-blocked tasks, other reasons untouched |
 | `router_ci_test.go` | the CI queue does not block work; cancel stops CI jobs |
 | `gh_test.go` | label transitions and GitHub helpers |
-| `release_test.go` | version tag parsing, bump rules, commit classification, due check, release request body, disabled/not-due/no-commit skips |
+| `release_test.go` | version tag parsing, bump rules, commit classification, due check (calendar days and configured time), time parsing/defaults, release request body, disabled/not-due/no-commit skips |
 | `main_test.go` | proxy/env parsing, repo normalization (names, objects, object arrays), mentions and commands, closable phases |
 | `prompts_test.go` | every embedded prompt loads and keeps its placeholders |
 | `triage_test.go` | mode normalization, plan/build routing, triage answer parsing, explicit plan requests, direct-build start |
