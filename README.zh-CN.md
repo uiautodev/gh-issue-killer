@@ -69,13 +69,17 @@ flowchart LR
   CLI 和一个 shell（`/bin/sh`，Windows 上是 `cmd`）。发布产物覆盖 macOS、
   Linux 和 Windows。
 
-配置 `webPort` 后还能打开实时看板：每个仓库的队列与并发表（PLAN/WORK 上限按
-项目各自计算）、阶段进度、PR、检查和截图，计划按 markdown 渲染。主题可跟随
-系统或固定日间/夜间，界面可中英文切换、右上角可跳转本项目，任务列表可按项目
-过滤或搜索、也可隐藏已完成和已取消，控制台按级别给日志配色，顶部显示“待我处理”
-的任务数（待批准、待合并、被阻塞）。设置面板可改仓库、编码代理、模型、代理、
-更新镜像，以及每个项目的定时发版。看板本身是 `frontend/` 里的 SvelteKit 应用
-（Tailwind + shadcn-svelte 主题）；发布产物已内嵌构建结果，从源码构建前需要先跑
+配置 `webPort` 后还能打开实时看板：顶部是吸顶双行头部（品牌与操作、实时
+计数），下面有每个仓库的队列与并发表（PLAN/WORK 上限按项目各自计算）、阶段
+进度、PR、检查和截图，计划按 markdown 渲染。任务列表在宽屏保留表格列，窄屏
+自动切成带字段标签的卡片；仓库概览和控制台是可折叠卡片；任务详情和设置面板
+使用原生 `dialog`，键盘焦点与 `Esc` 关闭交给浏览器处理。主题可跟随系统或固定
+日间/夜间，界面可中英文切换、右上角可跳转本项目，任务列表可按项目过滤或搜索、
+也可隐藏已完成和已取消，控制台按级别给日志配色，顶部显示“待我处理”的任务数
+（待批准、待合并、被阻塞）。设置面板可改仓库、编码代理、模型、代理、更新镜像，
+以及每个项目的定时发版，并显示守护进程的版本、pid、身份、事件来源和配置文件
+路径。看板本身是 `frontend/` 里的 SvelteKit 应用（Tailwind + shadcn-svelte
+主题）；发布产物已内嵌构建结果，从源码构建前需要先跑
 `npm --prefix frontend run build`。
 
 ### 桌面版
@@ -171,7 +175,8 @@ go build -o bin/gh-issue-killer ./cmd/gh-issue-killer
 ```
 
 内部实现和发版（打 `v*` tag）见 [DEVELOP.md](DEVELOP.md)，贡献规则见
-[AGENTS.md](AGENTS.md)。
+[AGENTS.md](AGENTS.md)。仓库内嵌了 GoogleChrome 的 `modern-web-guidance`
+skill（`.agents/skills/`）；改看板的 CSS、布局、表格或弹窗前先检索它。
 
 ## 打赏
 

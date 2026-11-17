@@ -28,11 +28,11 @@
 		{@const step = index + 1}
 		{@const state = stepClass(step)}
 		<li
-			class="relative flex size-[22px] items-center justify-center first:[&::before]:left-1/2 last:[&::before]:right-1/2 [&::before]:absolute [&::before]:inset-x-0 [&::before]:top-1/2 [&::before]:h-px [&::before]:bg-border [&::before]:content-['']"
+			class="relative flex size-[26px] items-center justify-center first:[&::before]:left-1/2 last:[&::before]:right-1/2 [&::before]:absolute [&::before]:inset-x-0 [&::before]:top-1/2 [&::before]:h-px [&::before]:bg-border [&::before]:content-['']"
 			title={t(labels[index])}
 		>
 			<i
-				class="relative z-10 size-1.5 rounded-full {state === 'done'
+				class="relative z-10 size-2 rounded-full {state === 'done'
 					? 'bg-phase-done'
 					: state === 'now'
 						? 'bg-phase-work ring-2 ring-phase-work/25'

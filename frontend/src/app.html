@@ -4,6 +4,7 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<meta name="color-scheme" content="light dark" />
 		<title>gh-issue-killer · 调度台</title>
 		<link rel="icon" type="image/svg+xml" href="/logo.svg" />
 		<script>
@@ -17,6 +18,8 @@
 					(mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 				document.documentElement.classList.toggle('dark', dark);
 				document.documentElement.dataset.theme = mode;
+				const scheme = document.querySelector('meta[name="color-scheme"]');
+				if (scheme) scheme.content = dark ? 'dark' : 'light';
 				if (localStorage.getItem('ghik-lang') === 'en') {
 					document.documentElement.lang = 'en';
 					document.title = 'gh-issue-killer · Dashboard';

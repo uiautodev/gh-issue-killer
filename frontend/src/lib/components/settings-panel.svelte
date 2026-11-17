@@ -15,6 +15,7 @@
 		startDevice
 	} from '#lib/api.ts';
 	import { dashboard } from '#lib/dashboard.svelte.ts';
+	import { showModalDialog } from '#lib/dialog.ts';
 	import { t } from '#lib/i18n.svelte.ts';
 	import type {
 		AuthPayload,
@@ -71,6 +72,17 @@
 
 	let update = $state<UpdatePayload | null>(null);
 	let updateStatus = $state('');
+
+	let dialog = $state<HTMLDialogElement | null>(null);
+
+	$effect(() => {
+		if (!dialog) return;
+		return showModalDialog(dialog);
+	});
+
+	function close(): void {
+		dialog?.close();
+	}
 
 	let repoNames = $derived(parseRepoNames(repoText));
 	let agentOptions = $derived.by<{ id: string; version?: string }[]>(() =>
@@ -541,25 +553,19 @@
 	});
 </script>
 
-<div class="fixed inset-0 z-30 overflow-auto px-4 py-9">
-	<button
-		type="button"
-		class="fixed inset-0 -z-10 cursor-default bg-black/60"
-		aria-label={t('settings.close')}
-		onclick={() => dashboard.closeSettings()}
-	></button>
-	<div
-		class="relative mx-auto w-full max-w-[720px] rounded-lg border bg-card shadow-xl"
-		role="dialog"
-		aria-modal="true"
-		aria-label={t('settings.aria')}
-		tabindex="-1"
-		data-testid="settings"
-	>
-		<div class="flex items-start gap-3 border-b px-4.5 py-4">
+<dialog
+	bind:this={dialog}
+	class="settings-dialog"
+	closedby="any"
+	aria-labelledby="settings-title"
+	data-testid="settings"
+	onclose={() => dashboard.closeSettings()}
+>
+	<div class="flex h-full min-h-0 flex-col">
+		<header class="flex items-start gap-3 border-b px-5 py-4">
 			<div class="min-w-0">
-				<h2 class="font-sans text-[20px] font-semibold">{t('settings.title')}</h2>
-				<div class="mt-1 text-[10.5px] break-words text-muted-foreground" data-testid="settings-path">
+				<h2 id="settings-title" class="font-sans text-xl font-semibold">{t('settings.title')}</h2>
+				<div class="mt-1 text-xs break-words text-muted-foreground" data-testid="settings-path">
 					{configPath}
 				</div>
 			</div>
@@ -568,261 +574,335 @@
 				size="icon"
 				class="ml-auto flex-none"
 				aria-label={t('settings.close')}
-				onclick={() => dashboard.closeSettings()}
+				autofocus
+				onclick={close}
 			>
 				<X class="size-4" />
 			</Button>
-		</div>
+		</header>
 
-		<div class="flex flex-col gap-4 px-4.5 py-4">
-			<!-- login -->
-			<section class="flex flex-col gap-2 rounded-md border border-phase-work/30 bg-phase-work/5 p-3" data-testid="auth-panel">
-				<div class="flex flex-wrap items-baseline gap-2.5">
-					<span class="text-[12px] tracking-[0.04em]">{t('auth.title')}</span>
-					<span
-						class={cn(
-							'text-[11px]',
-							auth?.authenticated ? 'text-phase-done' : auth ? 'text-phase-blocked' : 'text-muted-foreground'
-						)}
-						data-testid="auth-state"
+		<div class="flex min-h-0 flex-1">
+			<nav
+				class="hidden w-40 flex-none flex-col gap-1 border-r p-3 md:flex"
+				aria-label={t('settings.aria')}
+			>
+				{#each [{ id: 'settings-auth', label: 'settings.navAuth' }, { id: 'settings-config', label: 'settings.navConfig' }, { id: 'settings-update', label: 'settings.navUpdate' }] as section}
+					<a
+						href={'#' + section.id}
+						class="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
-						{auth
-							? auth.authenticated
-								? auth.login
-									? t('auth.loggedInAs', { login: '@' + auth.login })
-									: t('auth.loggedIn')
-								: t('auth.loggedOut')
-							: '–'}
-					</span>
-				</div>
-				<p class="m-0 text-[11px] leading-normal text-muted-foreground">{authHint(auth)}</p>
-				{#if authDevice}
-					<div class="flex flex-wrap items-center gap-3.5 rounded-md border bg-background px-2.5 py-2" data-testid="auth-device">
-						<span class="text-[10px] tracking-[0.06em] text-muted-foreground">{t('auth.code')}</span>
-						<code class="text-[18px] font-semibold tracking-[0.16em] text-phase-wait">{authDevice.userCode || '----'}</code>
-						<Button
-							variant="outline"
-							class="h-7 px-2.5 text-[11px]"
-							onclick={() => openExternal(authDevice?.verificationUri || '')}
+						{t(section.label)}
+					</a>
+				{/each}
+			</nav>
+
+			<div class="min-h-0 flex-1 overflow-auto px-5 py-4">
+				<nav class="mb-4 flex flex-wrap gap-2 md:hidden" aria-label={t('settings.aria')}>
+					{#each [{ id: 'settings-auth', label: 'settings.navAuth' }, { id: 'settings-config', label: 'settings.navConfig' }, { id: 'settings-update', label: 'settings.navUpdate' }] as section}
+						<a class="chip" href={'#' + section.id}>{t(section.label)}</a>
+					{/each}
+				</nav>
+
+				<!-- login -->
+				<section id="settings-auth" class="flex scroll-mt-4 flex-col gap-2.5 rounded-lg border border-phase-work/30 bg-phase-work/5 p-4" data-testid="auth-panel">
+					<div class="flex flex-wrap items-baseline gap-2.5">
+						<span class="text-base tracking-[0.04em]">{t('auth.title')}</span>
+						<span
+							class={cn(
+								'text-sm',
+								auth?.authenticated ? 'text-phase-done' : auth ? 'text-phase-blocked' : 'text-muted-foreground'
+							)}
+							data-testid="auth-state"
 						>
-							{t('auth.open')}
-						</Button>
+							{auth
+								? auth.authenticated
+									? auth.login
+										? t('auth.loggedInAs', { login: '@' + auth.login })
+										: t('auth.loggedIn')
+									: t('auth.loggedOut')
+								: '–'}
+						</span>
 					</div>
-				{/if}
-				<div class="flex flex-wrap items-center gap-2">
-					<Button variant="outline" disabled={authBusy} onclick={login}>
-						{auth?.authenticated ? t('auth.relogin') : t('auth.login')}
-					</Button>
-					<span
-						class={cn(
-							'text-[10.5px] text-muted-foreground',
-							authFeedback.kind === 'ok' && 'text-phase-done',
-							authFeedback.kind === 'fail' && 'text-phase-blocked'
-						)}
-						role="status"
-					>
-						{authFeedback.text}
-					</span>
-				</div>
-				<details>
-					<summary class="cursor-pointer text-[11px] text-muted-foreground">{t('auth.pasteToggle')}</summary>
-					<div class="mt-2 flex flex-wrap items-end gap-2">
-						<label class="flex min-w-[150px] flex-1 flex-col gap-1">
-							<span class="text-[10.5px] tracking-[0.04em] text-muted-foreground">{t('auth.pasteLabel')}</span>
-							<Input
-								type="password"
-								spellcheck="false"
-								autocomplete="off"
-								placeholder={t('auth.pastePlaceholder')}
-								bind:value={authToken}
-							/>
-						</label>
-						<Button variant="outline" disabled={authBusy} onclick={pasteToken}>
-							{t('auth.pasteSave')}
-						</Button>
-					</div>
-				</details>
-			</section>
-
-			{#if configProblem}
-				<div
-					class="border-l-2 border-phase-work bg-phase-work/10 px-2.5 py-2 text-[11.5px] whitespace-pre-wrap"
-					data-testid="settings-note"
-				>
-					{t('settings.setupHint')}
-					{configProblem}
-				</div>
-			{/if}
-
-			<form class="flex flex-col gap-3" autocomplete="off" onsubmit={saveSettings}>
-				<label class="flex flex-col gap-1">
-					<span class="text-[10.5px] tracking-[0.04em] text-muted-foreground">{t('settings.repos')}</span>
-					<Textarea
-						rows={3}
-						spellcheck="false"
-						placeholder="uiautodev/gh-issue-killer"
-						bind:value={repoText}
-						oninput={syncRows}
-					/>
-				</label>
-
-				{#if repoNames.length}
-					<div class="flex flex-col gap-2 border-t pt-3" data-testid="release-rows">
-						<div class="flex flex-wrap items-baseline gap-2.5">
-							<span class="text-[10.5px] tracking-[0.04em] text-muted-foreground">{t('settings.release')}</span>
-							<small class="text-[10.5px] text-muted-foreground">{t('settings.releaseHint')}</small>
-						</div>
-						{#each rows as row (row.name)}
-							<div class="flex flex-wrap items-end gap-2.5 border-b border-border/60 py-1.5 last:border-b-0 last:pb-0" data-repo={row.name}>
-								<span class="min-w-[110px] flex-[1_1_150px] break-words pb-1 text-[11.5px]">{row.name}</span>
-								<label class="flex items-center gap-1.5 pb-1 text-[10px] text-muted-foreground">
-									<input type="checkbox" class="accent-phase-work" bind:checked={row.enabled} />
-									{t('settings.releaseEnabled')}
-								</label>
-								<label class="flex flex-col gap-1 text-[10px] tracking-[0.03em] text-muted-foreground">
-									{t('settings.releaseInterval')}
-									<input
-										type="number"
-										min="1"
-										step="1"
-										class="h-7 w-16 rounded-md border border-input bg-transparent px-1.5 text-[11px]"
-										bind:value={row.interval}
-									/>
-								</label>
-							</div>
-						{/each}
-					</div>
-				{/if}
-
-				<div class="flex flex-wrap gap-3">
-					<label class="flex min-w-[150px] flex-1 flex-col gap-1">
-						<span class="text-[10.5px] tracking-[0.04em] text-muted-foreground">{t('settings.agent')}</span>
-						<select
-							class="h-7 rounded-md border border-input bg-transparent px-1.5 text-[11px]"
-							bind:value={form.agent}
-						>
-							{#each agentOptions as agent (agent.id)}
-								<option value={agent.id}>
-									{agent.version ? agent.id + ' · ' + agent.version : agent.id}
-								</option>
-							{/each}
-							{#if form.agent && !agentOptions.some((agent) => agent.id === form.agent)}
-								<option value={form.agent}>{form.agent}</option>
-							{/if}
-						</select>
-					</label>
-					<label class="flex min-w-[150px] flex-1 flex-col gap-1">
-						<span class="text-[10.5px] tracking-[0.04em] text-muted-foreground">{t('settings.model')}</span>
-						<Input list="cfg-models" placeholder={t('settings.modelHint')} bind:value={form.model} />
-						<datalist id="cfg-models">
-							{#each models as model (model)}
-								<option value={model}></option>
-							{/each}
-						</datalist>
-					</label>
-				</div>
-
-				<div class="flex flex-wrap gap-3">
-					<label class="flex min-w-[150px] flex-1 flex-col gap-1">
-						<span class="text-[10.5px] tracking-[0.04em] text-muted-foreground">{t('settings.proxy')}</span>
-						<Input spellcheck="false" placeholder="socks5h://127.0.0.1:10808" bind:value={form.proxy} />
-					</label>
-					<label class="flex min-w-[150px] flex-1 flex-col gap-1">
-						<span class="text-[10.5px] tracking-[0.04em] text-muted-foreground">{t('settings.webPort')}</span>
-						<Input type="number" min="0" max="65535" step="1" placeholder="8787" bind:value={form.webPort} />
-					</label>
-				</div>
-
-				<div class="flex flex-wrap items-end gap-3">
-					<label class="flex min-w-[150px] flex-1 flex-col gap-1">
-						<span class="text-[10.5px] tracking-[0.04em] text-muted-foreground">{t('settings.updateProxy')}</span>
-						<Input spellcheck="false" placeholder="gh-proxy.com" bind:value={form.updateProxy} />
-					</label>
-					<label class="flex items-center gap-1.5 pb-1 text-[11px] text-muted-foreground">
-						<input type="checkbox" class="accent-phase-work" bind:checked={form.selfUpdate} />
-						{t('settings.selfUpdate')}
-					</label>
-					<label class="flex items-center gap-1.5 pb-1 text-[11px] text-muted-foreground">
-						<input type="checkbox" class="accent-phase-work" bind:checked={form.followMaster} />
-						{t('settings.followMaster')}
-					</label>
-				</div>
-
-				<div class="flex flex-wrap items-center gap-2">
-					<Button type="submit" variant="default" disabled={busy === 'save'}>{t('settings.save')}</Button>
-					<Button variant="outline" disabled={busy === 'detect'} onclick={runDetect}>{t('settings.detect')}</Button>
-					<Button variant="outline" disabled={busy === 'restart'} onclick={restartEngine}>{t('settings.restart')}</Button>
-					<Button variant="outline" onclick={loadConfig}>{t('settings.reload')}</Button>
-					<span
-						class={cn(
-							'text-[10.5px] text-muted-foreground',
-							feedback.kind === 'ok' && 'text-phase-done',
-							feedback.kind === 'fail' && 'text-phase-blocked'
-						)}
-						role="status"
-						data-testid="settings-result"
-					>
-						{feedback.text}
-					</span>
-				</div>
-			</form>
-
-			{#if detected}
-				<div class="flex flex-col gap-1 text-[10.5px] text-muted-foreground" data-testid="settings-detected">
-					<div class="flex flex-wrap gap-3">
-						<span>{t('settings.detectedAgents')}:</span>
-						{#if detected.agents.length}
-							{#each detected.agents as agent (agent.id)}
-								<span class="text-phase-done">{agent.version ? agent.id + ' · ' + agent.version : agent.id}</span>
-							{/each}
-						{:else}
-							<span>{t('settings.noAgents')}</span>
-						{/if}
-					</div>
-					{#if detected.proxy}
-						<div class="flex flex-wrap gap-3">
-							<span>{t('settings.detectedProxy')}:</span>
-							<span class="text-phase-done">{detected.proxy}</span>
-						</div>
-					{/if}
-					{#if detected.repos.length}
-						<div class="flex flex-wrap gap-3">
-							<span>{t('settings.detectedRepos')}:</span>
-							{#each detected.repos as repo (repo.repo)}
-								<span class={repo.permission === 'admin' || repo.permission === 'write' ? 'text-phase-done' : 'text-phase-blocked'}>
-									{repo.repo} · {repo.permission}{repo.error ? ' (' + repo.error + ')' : ''}
-								</span>
-							{/each}
-						</div>
-					{/if}
-					{#if detected.error}
-						<div class="flex flex-wrap gap-3"><span>!</span><span class="text-phase-blocked">{detected.error}</span></div>
-					{/if}
-				</div>
-			{/if}
-
-			<div class="flex flex-col gap-2.5 border-t pt-3.5" data-testid="update-card">
-				<div class="flex flex-wrap gap-4 text-[11px] text-muted-foreground">
-					<span>version <b class="font-medium text-foreground" data-testid="settings-version">{configVersion}</b></span>
-					<span>{updateStatus}</span>
-				</div>
-				{#if form.followMaster}
-					<p class="m-0 text-[10.5px] text-muted-foreground" data-testid="update-follow-master">
-						{t('settings.updateFollowMaster')}
-					</p>
-				{:else}
-					<div class="flex flex-wrap items-center gap-2">
-						<Button variant="outline" disabled={busy === 'check-update'} onclick={checkUpdate}>
-							{t('settings.checkUpdate')}
-						</Button>
-						{#if update?.available}
-							<Button variant="default" disabled={busy === 'install-update'} onclick={installUpdate}>
-								{t('settings.installUpdate')}
+					<p class="m-0 text-sm leading-normal text-muted-foreground">{authHint(auth)}</p>
+					{#if authDevice}
+						<div class="flex flex-wrap items-center gap-3.5 rounded-md border bg-background px-2.5 py-2" data-testid="auth-device">
+							<span class="text-2xs tracking-[0.06em] text-muted-foreground">{t('auth.code')}</span>
+							<code class="text-lg font-semibold tracking-[0.16em] text-phase-wait">{authDevice.userCode || '----'}</code>
+							<Button
+								variant="outline"
+								onclick={() => openExternal(authDevice?.verificationUri || '')}
+							>
+								{t('auth.open')}
 							</Button>
+						</div>
+					{/if}
+					<div class="flex flex-wrap items-center gap-2">
+						<Button variant="outline" disabled={authBusy} onclick={login}>
+							{auth?.authenticated ? t('auth.relogin') : t('auth.login')}
+						</Button>
+						<span
+							class={cn(
+								'text-xs text-muted-foreground',
+								authFeedback.kind === 'ok' && 'text-phase-done',
+								authFeedback.kind === 'fail' && 'text-phase-blocked'
+							)}
+							role="status"
+						>
+							{authFeedback.text}
+						</span>
+					</div>
+					<details>
+						<summary class="cursor-pointer text-sm text-muted-foreground">{t('auth.pasteToggle')}</summary>
+						<div class="mt-2 flex flex-wrap items-end gap-2">
+							<label class="flex min-w-[150px] flex-1 flex-col gap-1">
+								<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('auth.pasteLabel')}</span>
+								<Input
+									type="password"
+									spellcheck="false"
+									autocomplete="off"
+									placeholder={t('auth.pastePlaceholder')}
+									bind:value={authToken}
+								/>
+							</label>
+							<Button variant="outline" disabled={authBusy} onclick={pasteToken}>
+								{t('auth.pasteSave')}
+							</Button>
+						</div>
+					</details>
+				</section>
+
+				{#if configProblem}
+					<div
+						class="border-l-2 border-phase-work bg-phase-work/10 px-2.5 py-2 text-sm whitespace-pre-wrap"
+						data-testid="settings-note"
+					>
+						{t('settings.setupHint')}
+						{configProblem}
+					</div>
+				{/if}
+
+				<section id="settings-config" class="mt-6 scroll-mt-4">
+					<h3 class="band-title mb-2">{t('settings.navConfig')}</h3>
+					<form id="settings-form" class="flex flex-col gap-4" autocomplete="off" onsubmit={saveSettings}>
+					<label class="flex flex-col gap-1">
+						<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('settings.repos')}</span>
+						<Textarea
+							rows={3}
+							spellcheck="false"
+							placeholder="uiautodev/gh-issue-killer"
+							bind:value={repoText}
+							oninput={syncRows}
+						/>
+					</label>
+
+					{#if repoNames.length}
+						<div class="flex flex-col gap-2 border-t pt-3" data-testid="release-rows">
+							<div class="flex flex-wrap items-baseline gap-2.5">
+								<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('settings.release')}</span>
+								<small class="text-xs text-muted-foreground">{t('settings.releaseHint')}</small>
+							</div>
+							{#each rows as row (row.name)}
+								<div class="flex flex-wrap items-end gap-2.5 border-b border-border/60 py-1.5 last:border-b-0 last:pb-0" data-repo={row.name}>
+									<span class="min-w-[110px] flex-[1_1_150px] break-words pb-1 text-sm">{row.name}</span>
+									<label class="flex items-center gap-1.5 pb-1 text-2xs text-muted-foreground">
+										<input type="checkbox" class="accent-phase-work" bind:checked={row.enabled} />
+										{t('settings.releaseEnabled')}
+									</label>
+									<label class="flex flex-col gap-1 text-2xs tracking-[0.03em] text-muted-foreground">
+										{t('settings.releaseInterval')}
+										<input
+											type="number"
+											min="1"
+											step="1"
+											class="h-9 w-20 rounded-md border border-input bg-transparent px-2 text-sm"
+											bind:value={row.interval}
+										/>
+									</label>
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					<div class="flex flex-wrap gap-3">
+						<label class="flex min-w-[150px] flex-1 flex-col gap-1">
+							<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('settings.agent')}</span>
+							<select
+								class="h-9 rounded-md border border-input bg-transparent px-2.5 text-sm"
+								bind:value={form.agent}
+							>
+								{#each agentOptions as agent (agent.id)}
+									<option value={agent.id}>
+										{agent.version ? agent.id + ' · ' + agent.version : agent.id}
+									</option>
+								{/each}
+								{#if form.agent && !agentOptions.some((agent) => agent.id === form.agent)}
+									<option value={form.agent}>{form.agent}</option>
+								{/if}
+							</select>
+						</label>
+						<label class="flex min-w-[150px] flex-1 flex-col gap-1">
+							<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('settings.model')}</span>
+							<Input list="cfg-models" placeholder={t('settings.modelHint')} bind:value={form.model} />
+							<datalist id="cfg-models">
+								{#each models as model (model)}
+									<option value={model}></option>
+								{/each}
+							</datalist>
+						</label>
+					</div>
+
+					<div class="flex flex-wrap gap-3">
+						<label class="flex min-w-[150px] flex-1 flex-col gap-1">
+							<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('settings.proxy')}</span>
+							<Input spellcheck="false" placeholder="socks5h://127.0.0.1:10808" bind:value={form.proxy} />
+						</label>
+						<label class="flex min-w-[150px] flex-1 flex-col gap-1">
+							<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('settings.webPort')}</span>
+							<Input type="number" min="0" max="65535" step="1" placeholder="8787" bind:value={form.webPort} />
+						</label>
+					</div>
+
+					<div class="flex flex-wrap items-end gap-3">
+						<label class="flex min-w-[150px] flex-1 flex-col gap-1">
+							<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('settings.updateProxy')}</span>
+							<Input spellcheck="false" placeholder="gh-proxy.com" bind:value={form.updateProxy} />
+						</label>
+						<label class="flex items-center gap-1.5 pb-1 text-sm text-muted-foreground">
+							<input type="checkbox" class="accent-phase-work" bind:checked={form.selfUpdate} />
+							{t('settings.selfUpdate')}
+						</label>
+						<label class="flex items-center gap-1.5 pb-1 text-sm text-muted-foreground">
+							<input type="checkbox" class="accent-phase-work" bind:checked={form.followMaster} />
+							{t('settings.followMaster')}
+						</label>
+					</div>
+
+					</form>
+				</section>
+
+				{#if detected}
+					<div class="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="settings-detected">
+						<div class="flex flex-wrap gap-3">
+							<span>{t('settings.detectedAgents')}:</span>
+							{#if detected.agents.length}
+								{#each detected.agents as agent (agent.id)}
+									<span class="text-phase-done">{agent.version ? agent.id + ' · ' + agent.version : agent.id}</span>
+								{/each}
+							{:else}
+								<span>{t('settings.noAgents')}</span>
+							{/if}
+						</div>
+						{#if detected.proxy}
+							<div class="flex flex-wrap gap-3">
+								<span>{t('settings.detectedProxy')}:</span>
+								<span class="text-phase-done">{detected.proxy}</span>
+							</div>
+						{/if}
+						{#if detected.repos.length}
+							<div class="flex flex-wrap gap-3">
+								<span>{t('settings.detectedRepos')}:</span>
+								{#each detected.repos as repo (repo.repo)}
+									<span class={repo.permission === 'admin' || repo.permission === 'write' ? 'text-phase-done' : 'text-phase-blocked'}>
+										{repo.repo} · {repo.permission}{repo.error ? ' (' + repo.error + ')' : ''}
+									</span>
+								{/each}
+							</div>
+						{/if}
+						{#if detected.error}
+							<div class="flex flex-wrap gap-3"><span>!</span><span class="text-phase-blocked">{detected.error}</span></div>
 						{/if}
 					</div>
 				{/if}
+
+				<section id="settings-update" class="mt-6 scroll-mt-4">
+					<h3 class="band-title mb-2">{t('settings.navUpdate')}</h3>
+					<div class="flex flex-col gap-3 rounded-lg border p-4" data-testid="update-card">
+						<div class="flex flex-wrap gap-4 text-sm text-muted-foreground">
+							<span>version <b class="font-medium text-foreground" data-testid="settings-version">{configVersion}</b></span>
+							<span>{updateStatus}</span>
+						</div>
+						{#if form.followMaster}
+							<p class="m-0 text-sm text-muted-foreground" data-testid="update-follow-master">
+								{t('settings.updateFollowMaster')}
+							</p>
+						{:else}
+							<div class="flex flex-wrap items-center gap-2">
+								<Button variant="outline" disabled={busy === 'check-update'} onclick={checkUpdate}>
+									{t('settings.checkUpdate')}
+								</Button>
+								{#if update?.available}
+									<Button variant="default" disabled={busy === 'install-update'} onclick={installUpdate}>
+										{t('settings.installUpdate')}
+									</Button>
+								{/if}
+							</div>
+						{/if}
+					</div>
+
+					<div class="mt-3 rounded-lg border p-4" data-testid="settings-system">
+						<h3 class="band-title mb-2">{t('settings.system')}</h3>
+						<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+							<dt class="text-muted-foreground">version</dt>
+							<dd class="tabular-nums">{dashboard.data?.version || configVersion}</dd>
+							<dt class="text-muted-foreground">{t('settings.pid')}</dt>
+							<dd class="tabular-nums">{dashboard.data?.pid ?? '–'}</dd>
+							<dt class="text-muted-foreground">{t('settings.identity')}</dt>
+							<dd class="break-all">{dashboard.data?.identity ? '@' + dashboard.data.identity : '–'}</dd>
+							<dt class="text-muted-foreground">{t('settings.transport')}</dt>
+							<dd>
+								{dashboard.data
+									? dashboard.data.webhook
+										? t('transport.smee')
+										: t('transport.poll')
+									: '–'}
+							</dd>
+							<dt class="text-muted-foreground">{t('settings.configFile')}</dt>
+							<dd class="break-all">{dashboard.data?.configFile || configPath}</dd>
+						</dl>
+					</div>
+				</section>
 			</div>
 		</div>
+
+		<footer class="flex flex-wrap items-center gap-2 border-t bg-card px-5 py-3">
+			<Button type="submit" form="settings-form" variant="default" disabled={busy === 'save'}>
+				{t('settings.save')}
+			</Button>
+			<Button variant="outline" disabled={busy === 'detect'} onclick={runDetect}>{t('settings.detect')}</Button>
+			<Button variant="outline" disabled={busy === 'restart'} onclick={restartEngine}>{t('settings.restart')}</Button>
+			<Button variant="outline" onclick={loadConfig}>{t('settings.reload')}</Button>
+			<span
+				class={cn(
+					'ml-auto text-xs text-muted-foreground',
+					feedback.kind === 'ok' && 'text-phase-done',
+					feedback.kind === 'fail' && 'text-phase-blocked'
+				)}
+				role="status"
+				data-testid="settings-result"
+			>
+				{feedback.text}
+			</span>
+		</footer>
 	</div>
-</div>
+</dialog>
+
+<style>
+	.settings-dialog {
+		inline-size: min(760px, 94vw);
+		max-inline-size: none;
+		block-size: min(88dvh, 880px);
+		max-block-size: none;
+		margin: auto;
+		padding: 0;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		background: var(--card);
+		color: var(--card-foreground);
+		box-shadow: var(--shadow-float);
+	}
+
+	.settings-dialog::backdrop {
+		background: oklch(0 0 0 / 0.5);
+		backdrop-filter: blur(2px);
+	}
+</style>

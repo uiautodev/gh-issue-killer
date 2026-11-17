@@ -15,15 +15,8 @@
 
 	onMount(() => {
 		const stopPolling = dashboard.start();
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== 'Escape') return;
-			dashboard.closeDrawer();
-			dashboard.closeSettings();
-		};
-		window.addEventListener('keydown', onKey);
 		return () => {
 			stopPolling();
-			window.removeEventListener('keydown', onKey);
 		};
 	});
 </script>

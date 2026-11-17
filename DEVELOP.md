@@ -168,7 +168,8 @@ dependencies.
 | `docs/images/dashboard-*.png` | dashboard screenshots referenced by the V2EX draft, captured with sample data (not part of the build) |
 | `assets/sponsor.png` | WeChat reward QR code shown at the end of `README.zh-CN.md` (not part of the build) |
 | `desktop/` | separate Go module: Wails 3 shell (`main.go`, `engine.go`, `process_*.go`) and `build/` packaging (icon rendered from `frontend/static/logo.svg`, `.app`, DMG) |
-| `frontend/` | SvelteKit SPA for the dashboard: Tailwind v4 + shadcn-svelte tokens, zh/en strings, routes and `$lib` API/i18n/theme modules; `npm run build` writes `cmd/gh-issue-killer/web/dist` |
+| `.agents/skills/modern-web-guidance/`, `skills-lock.json` | vendored GoogleChrome modern-web-guidance skill (SKILL.md + `guides/`) and its pinned commit, Apache-2.0 / CC-BY-4.0; search it before changing dashboard CSS, layout, tables, dialogs or theme handling |
+| `frontend/` | SvelteKit SPA for the dashboard: Tailwind v4 + shadcn-svelte tokens, zh/en strings, routes and `$lib` API/i18n/theme modules (`dialog.ts` wraps native dialogs and the light-dismiss fallback); `npm run build` writes `cmd/gh-issue-killer/web/dist` |
 
 ## 5. State model and phases
 
@@ -537,32 +538,56 @@ to `index.html` for unknown non-asset paths. A missing `/assets/*` file is a
 404, and so is an unknown `/api/*` route. If `dist` contains no `index.html`
 the server returns a page that explains how to build the frontend.
 
-The masthead switches between Chinese (default) and English (`localStorage` key
+The layout is intentionally a two-row sticky masthead above a board: brand and
+primary actions (settings, GitHub, language, theme) on the first row, the live
+counters on the second. Version, pid, identity, transport and the config path
+moved into the settings dialog's System card so the header stays quiet. The
+masthead switches between Chinese (default) and English (`localStorage` key
 `ghik-lang`) and links to the project on GitHub. The theme toggle (`ghik-theme`)
-offers auto/light/dark: `auto` follows `prefers-color-scheme` and the store
-flips the `.dark` class on `<html>`, matching the shadcn token set. Every
-external link goes through `openExternal`: a normal browser gets `window.open`,
-while the desktop shell loads the page with `?surface=desktop` and the click is
-posted to `/api/open-url`, because Wails' WKWebView drops `target="_blank"`.
-Every string, including phases, filters, the drawer, the settings panel and the
-empty states, lives in the `zh`/`en` tables in `$lib/i18n.svelte.ts`;
-`/api/logs` stays plain text and the console colours INFO/WARN/ERROR/DEBUG in
-the browser. `planParallel` and `implementParallel` size each repository's own
-pool, so the PLAN/WORK meters are rendered per repository line rather than
-globally. A board toggle hides `done` and `cancelled` tasks on top of the other
-filters; it is on by default, so the board opens on active work. The console
-starts collapsed for the same reason and only polls `/api/logs` once expanded.
+offers auto/light/dark: `auto` follows
+`prefers-color-scheme`; `theme.svelte.ts` flips the `.dark` class and the
+`<meta name="color-scheme">` hint together. `app.css` declares the palette once
+with `light-dark()` and switches `color-scheme` on `<html>`, so a token has a
+single definition and native controls (scrollbars, checkboxes) follow the same
+theme. Without JS a `prefers-color-scheme` fallback still picks the dark
+scheme. Every external link goes through `openExternal`: a normal browser gets
+`window.open`, while the desktop shell loads the page with `?surface=desktop`
+and the click is posted to `/api/open-url`, because Wails' WKWebView drops
+`target="_blank"`. Every string, including phases, filters, the drawer, the
+settings panel and the empty states, lives in the `zh`/`en` tables in
+`$lib/i18n.svelte.ts`; `/api/logs` stays plain text and the console colours
+INFO/WARN/ERROR/DEBUG in the browser.
 
-The settings button opens a panel over the board: repos (array, array of
-objects or object form, with per-repo overrides preserved), one release row per
-repo (`enabled`, `intervalDays`), coding agent
-(populated from `/api/detect`), model, proxy, `webPort`, `selfUpdate` and
-`updateProxy`, plus the version card and the update buttons. The first block is
-the GitHub login: it shows the one-time code and authorization link, polls
-`/api/auth/device`, and keeps a paste-token fallback; a successful login writes
-`~/.gh-issue-killer/token` and restarts into the engine. When `/api/state`
-reports `configError` (first run, missing token or a broken edit) the panel
-opens by itself and the save button starts the real engine.
+The board toolbar merges the phase filters, the hide-finished toggle, the repo
+dropdown, the search field and the visible task count into one wrapping row.
+The task table keeps semantic `<table>`/`<thead>`/`<th scope="row">` markup and
+a sticky header inside its scroll region; the scroll region is a named
+container, so below 760 px the same table becomes stacked cards with the
+column labels injected from CSS variables (translated by the current language)
+instead of shrinking the columns. Repo overview (LINES) and the console are
+collapsible cards: the first screen keeps only the counters and the board, and
+the console still polls `/api/logs` only after it is expanded.
+`planParallel` and `implementParallel` size each repository's own pool, so the
+PLAN/WORK meters are rendered per repository line rather than globally. A board
+toggle hides `done` and `cancelled` tasks on top of the other filters; it is on
+by default, so the board opens on active work.
+
+The task drawer and the settings panel are native `<dialog>` elements opened
+with `showModal()`: the browser owns focus containment, `Esc`, focus return and
+the top layer, and `dialog.ts` only adds the outside-click fallback where
+`closedby="any"` is missing (WebKit in the desktop shell). `app.css` also
+contains scroll chaining for the top layer. The settings button opens the
+dialog with a section nav (login / config / updates), a scrolling body and a
+sticky action bar: repos (array, array of objects or object form, with per-repo
+overrides preserved), one release row per repo (`enabled`, `intervalDays`),
+coding agent (populated from `/api/detect`), model, proxy, `webPort`,
+`selfUpdate` and `updateProxy`, plus the version card, the update buttons and
+the System card. The first block is the GitHub login: it shows the one-time
+code and authorization link, polls `/api/auth/device`, and keeps a paste-token
+fallback; a successful login writes `~/.gh-issue-killer/token` and restarts
+into the engine. When `/api/state` reports `configError` (first run, missing
+token or a broken edit) the panel opens by itself and the save button starts
+the real engine.
 
 ## 16. Reload and self-update
 
@@ -649,7 +674,12 @@ phase transition, or a scheduler invariant. `go test ./...` and `go vet ./...`
 must stay clean; `gofmt -l .` must print nothing.
 
 The dashboard is tested with its own toolchain: `npm --prefix frontend run check`
-(svelte-check) and `npm --prefix frontend run build`. Any change to `frontend/`
+(svelte-check) and `npm --prefix frontend run build`. Before changing styles,
+layout, tables, dialogs or theme handling, search the vendored
+`.agents/skills/modern-web-guidance/` skill (for example
+`npx -y modern-web-guidance@latest search "responsive data table"` then
+`retrieve "responsive-table"`): its guides are the local standard and keep the
+dashboard free of a UI dependency. Any change to `frontend/`
 or to the dashboard handlers in `web.go` must also be driven with real browser or
 desktop automation (Playwright, cua-driver, the repo’s own E2E setup — whatever
 is available) before it is called done — open the page against a
@@ -709,6 +739,7 @@ green unit check does not cover the UI; skipping this step is not allowed.
 | a user-facing comment string | §18 (goes through `app.text` and `messages.go`) |
 | web routes or API payloads | §15 |
 | the dashboard frontend, its build output or `web.go` static serving | §1, §4, §15 and §17 |
+| dashboard design tokens, layout primitives or the vendored modern-web-guidance skill | §15, §17 and AGENTS.md “Dashboard design work” |
 | the login flow, token file or credential precedence | §3, §11, §15 and DEPLOY.md §2 |
 | reload/self-update behaviour | §16 |
 | new or renamed test files | §17 |

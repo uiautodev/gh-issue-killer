@@ -29,6 +29,8 @@ export function applyTheme(mode: ThemeMode): void {
 	}
 	document.documentElement.dataset.theme = theme.mode;
 	document.documentElement.classList.toggle('dark', isDark());
+	const scheme = document.querySelector('meta[name="color-scheme"]');
+	if (scheme) scheme.setAttribute('content', isDark() ? 'dark' : 'light');
 }
 
 // initTheme reads the stored mode and returns a cleanup for the media listener.
@@ -48,6 +50,8 @@ export function initTheme(): () => void {
 	const onChange = (event: MediaQueryListEvent) => {
 		theme.systemDark = event.matches;
 		document.documentElement.classList.toggle('dark', isDark());
+		const scheme = document.querySelector('meta[name="color-scheme"]');
+		if (scheme) scheme.setAttribute('content', isDark() ? 'dark' : 'light');
 	};
 	query.addEventListener('change', onChange);
 	return () => query.removeEventListener('change', onChange);
