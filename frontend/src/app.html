@@ -24,6 +24,10 @@
 					document.documentElement.lang = 'en';
 					document.title = 'gh-issue-killer · Dashboard';
 				}
+				// ghik-layout narrows the shell; set it before paint like the theme.
+				if (localStorage.getItem('ghik-layout') === 'narrow') {
+					document.documentElement.dataset.layout = 'narrow';
+				}
 			} catch (_) {
 				/* private mode */
 			}

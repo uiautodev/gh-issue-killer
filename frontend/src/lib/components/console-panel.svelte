@@ -46,7 +46,7 @@
 </script>
 
 <section
-	class="mx-auto w-full max-w-[1600px] px-4 pt-4 pb-6 sm:px-6"
+	class="page-shell px-4 pt-4 pb-6 sm:px-6"
 	data-testid="console"
 >
 	<div class="card overflow-hidden">

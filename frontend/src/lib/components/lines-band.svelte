@@ -38,7 +38,7 @@
 </script>
 
 <section
-	class="mx-auto w-full max-w-[1600px] px-4 pt-4 sm:px-6"
+	class="page-shell px-4 pt-4 sm:px-6"
 	data-testid="lines"
 >
 	<details class="card group overflow-hidden" open>

@@ -89,7 +89,8 @@ cards on narrow screens; the repo overview and console are collapsible cards, an
 the task/settings panels are native dialogs with keyboard focus handling. The
 board follows the system theme or can be pinned to light/dark, the interface
 switches between Chinese and English, and the header's icon toolbar links back
-to this repository and shows its star count; tasks can be filtered by project
+to this repository, shows its star count and switches the board between the wide
+and narrow layout; tasks can be filtered by project
 or free text or hide finished/cancelled work, the console
 colours the log by level, and the header counts the tasks waiting for you
 (approval, merge or unblock). The settings panel edits the repos, coding agent,

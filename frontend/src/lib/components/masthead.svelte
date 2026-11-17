@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import GalleryHorizontal from '@lucide/svelte/icons/gallery-horizontal';
 	import Languages from '@lucide/svelte/icons/languages';
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import Moon from '@lucide/svelte/icons/moon';
@@ -8,6 +9,7 @@
 	import { openExternal } from '#lib/api.ts';
 	import { dashboard } from '#lib/dashboard.svelte.ts';
 	import { applyLanguage, i18n, t } from '#lib/i18n.svelte.ts';
+	import { layout, toggleLayout } from '#lib/layout.svelte.ts';
 	import { applyTheme, theme, type ThemeMode } from '#lib/theme.svelte.ts';
 	import { cn, formatStars, humanAge } from '#lib/utils.ts';
 	import Button from '#lib/components/ui/button.svelte';
@@ -32,6 +34,11 @@
 	let stars = $state<number | null>(null);
 	let ThemeIcon = $derived(themeIcons[theme.mode]);
 	let themeLabel = $derived(t('theme.toggle', { mode: t(themeKey[theme.mode]) }));
+	let layoutLabel = $derived(
+		t('layout.toggle', {
+			mode: t(layout.width === 'narrow' ? 'layout.narrow' : 'layout.wide')
+		})
+	);
 
 	type StarCache = { count: number; at: number };
 
@@ -114,7 +121,7 @@
 	data-testid="masthead"
 >
 	<div
-		class="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3 sm:px-6"
+		class="page-shell flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3 sm:px-6"
 	>
 		<div class="flex min-w-0 items-center gap-3">
 			<img
@@ -198,6 +205,21 @@
 				variant="ghost"
 				size="icon"
 				class="size-9 text-muted-foreground hover:text-foreground"
+				aria-label={layoutLabel}
+				title={layoutLabel}
+				data-testid="layout-toggle"
+				data-layout={layout.width}
+				onclick={toggleLayout}
+			>
+				<GalleryHorizontal class="size-4" aria-hidden="true" />
+			</Button>
+
+			<span class="mx-0.5 h-5 w-px flex-none bg-border" aria-hidden="true"></span>
+
+			<Button
+				variant="ghost"
+				size="icon"
+				class="size-9 text-muted-foreground hover:text-foreground"
 				aria-label={themeLabel}
 				title={themeLabel}
 				data-testid="theme-toggle"
@@ -211,7 +233,7 @@
 
 	<div class="border-t border-border/60 bg-card/40">
 		<dl
-			class="mx-auto grid max-w-[1600px] grid-cols-3 gap-x-4 gap-y-2 px-4 py-2 sm:grid-cols-5 sm:px-6"
+			class="page-shell grid grid-cols-3 gap-x-4 gap-y-2 px-4 py-2 sm:grid-cols-5 sm:px-6"
 			data-testid="status-strip"
 		>
 			{#each stats as item}

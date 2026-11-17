@@ -31,7 +31,7 @@
 </script>
 
 <main
-	class="mx-auto w-full max-w-[1600px] flex-1 px-4 pt-4 pb-2 sm:px-6"
+	class="page-shell flex-1 px-4 pt-4 pb-2 sm:px-6"
 	data-testid="board"
 >
 	<div class="mb-3 flex flex-wrap items-center gap-2">

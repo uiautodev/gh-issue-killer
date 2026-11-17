@@ -169,7 +169,7 @@ dependencies.
 | `assets/sponsor.png` | WeChat reward QR code shown at the end of `README.zh-CN.md` (not part of the build) |
 | `desktop/` | separate Go module: Wails 3 shell (`main.go`, `engine.go`, `process_*.go`) and `build/` packaging (icon rendered from `frontend/static/logo.svg`, `.app`, DMG) |
 | `.agents/skills/modern-web-guidance/`, `skills-lock.json` | vendored GoogleChrome modern-web-guidance skill (SKILL.md + `guides/`) and its pinned commit, Apache-2.0 / CC-BY-4.0; search it before changing dashboard CSS, layout, tables, dialogs or theme handling |
-| `frontend/` | SvelteKit SPA for the dashboard: Tailwind v4 + shadcn-svelte tokens, zh/en strings, routes and `$lib` API/i18n/theme modules (`dialog.ts` wraps native dialogs and the light-dismiss fallback); `npm run build` writes `cmd/gh-issue-killer/web/dist` |
+| `frontend/` | SvelteKit SPA for the dashboard: Tailwind v4 + shadcn-svelte tokens, zh/en strings, routes and `$lib` API/i18n/theme/layout modules (`dialog.ts` wraps native dialogs and the light-dismiss fallback); `npm run build` writes `cmd/gh-issue-killer/web/dist` |
 
 ## 5. State model and phases
 
@@ -548,7 +548,13 @@ screens. The star count comes from one anonymous `api.github.com` request
 (`stargazers_count`), cached in `localStorage` under `ghik-stars` for 24 hours;
 a stale count is shown while it refreshes, and a failed or rate-limited request
 leaves the GitHub icon alone. `formatStars` keeps counts below 1000 exact and
-compacts the rest (`9.3k`). Version, pid, identity, transport and the config path
+compacts the rest (`9.3k`). The layout button (`gallery-horizontal`,
+`localStorage` key `ghik-layout`) mirrors shadcn-svelte's "Toggle layout": it
+flips the shell between the full 1600px board and a centred 1100px column.
+`app.css` keeps that width in `--page-max` and `.page-shell` is the single
+container class used by the masthead rows, the board, the LINES band and the
+console, so all of them move together. Version, pid, identity, transport and the
+config path
 moved into the settings dialog's System card so the header stays quiet. The
 masthead switches between Chinese (default) and English (`localStorage` key
 `ghik-lang`) and links to the project on GitHub. The theme button (`ghik-theme`)
