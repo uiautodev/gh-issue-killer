@@ -140,7 +140,7 @@
 	{#if open}
 		<div
 			id={listId}
-			class="absolute top-full left-0 z-50 mt-1 max-h-64 w-full min-w-[10rem] overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-float"
+			class="absolute top-full right-0 z-50 mt-1 max-h-64 w-max min-w-full max-w-[min(24rem,90vw)] overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-float"
 			role="listbox"
 			aria-label={label}
 			bind:this={list}
