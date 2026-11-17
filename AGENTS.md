@@ -49,6 +49,22 @@ Also keep in sync:
 
 A change that alters behaviour but leaves these files stale is incomplete.
 
+## Dashboard design work
+
+`frontend/` ships with GoogleChrome's modern-web-guidance skill in
+`.agents/skills/modern-web-guidance/` (vendored, Apache-2.0 / CC-BY-4.0, see its
+`ATTRIBUTION.md`). **Before changing CSS, layout, tables, dialogs or theme
+handling, search the skill first**, then follow the retrieved guide instead of a
+remembered pattern:
+
+```bash
+npx -y modern-web-guidance@latest search "responsive data table"
+npx -y modern-web-guidance@latest retrieve "responsive-table"
+```
+
+Keep the dashboard dependency-free: guides use platform HTML/CSS/JS, so adapt
+them to Svelte rather than adding a UI library.
+
 ## Code conventions
 
 - Standard library first. The only direct dependency is `fsnotify`; do not add
