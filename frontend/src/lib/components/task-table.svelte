@@ -8,6 +8,7 @@
 	import type { Task } from '#lib/types.ts';
 	import { cn, humanAge } from '#lib/utils.ts';
 	import Input from '#lib/components/ui/input.svelte';
+	import Select from '#lib/components/ui/select.svelte';
 	import Rail from './rail.svelte';
 
 	const filters: { id: Filter; label: string }[] = [
@@ -16,6 +17,17 @@
 		{ id: 'wait', label: 'filter.wait' },
 		{ id: 'blocked', label: 'filter.blocked' }
 	];
+
+	let repoFilterOptions = $derived.by(() => [
+		{
+			value: '',
+			label: `${t('filter.allProjects')} (${dashboard.data?.tasks.length ?? 0})`
+		},
+		...dashboard.repoOptions.map((option) => ({
+			value: option.name,
+			label: `${option.name} (${option.count})`
+		}))
+	]);
 
 	function isSelected(task: Task): boolean {
 		return (
@@ -60,17 +72,13 @@
 		</div>
 
 		<div class="ml-auto flex min-w-0 flex-wrap items-center gap-2 max-sm:w-full">
-			<select
-				class="h-9 min-w-[10rem] max-w-[16rem] flex-1 rounded-md border border-input bg-card px-2.5 text-sm max-sm:max-w-none"
-				aria-label={t('repo.aria')}
-				data-testid="repo-filter"
+			<Select
+				class="min-w-[10rem] max-w-[16rem] flex-1 max-sm:max-w-none"
+				options={repoFilterOptions}
+				label={t('repo.aria')}
+				testid="repo-filter"
 				bind:value={dashboard.repo}
-			>
-				<option value="">{t('filter.allProjects')} ({dashboard.data?.tasks.length ?? 0})</option>
-				{#each dashboard.repoOptions as option (option.name)}
-					<option value={option.name}>{option.name} ({option.count})</option>
-				{/each}
-			</select>
+			/>
 
 			<div class="relative min-w-[12rem] flex-1 sm:w-[18rem] sm:flex-none">
 				<Search

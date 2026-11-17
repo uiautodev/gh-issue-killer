@@ -23,6 +23,11 @@ export function formatStars(count: number): string {
 	return thousands.toFixed(1).replace(/\.0$/, '') + 'k';
 }
 
+/** Only a positive waiting count is a call to action; zero stays quiet. */
+export function waitingNeedsAttention(count: number | null | undefined): boolean {
+	return typeof count === 'number' && Number.isFinite(count) && count > 0;
+}
+
 export function fmtTime(raw: string | null | undefined, lang: string): string {
 	if (!raw) return '–';
 	const date = new Date(raw);
