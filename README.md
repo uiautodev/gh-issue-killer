@@ -104,10 +104,14 @@ and narrow layout; tasks can be filtered by project (a keyboard-friendly
 dropdown) or free text or hide finished/cancelled work, the console
 colours the log by level, and the header counts the tasks waiting for you
 (approval, merge or unblock), highlighting that number only when it is above
-zero. The settings panel edits the repos (a list with per-row removal and an
-add field), coding agent, model, proxy, update mirror and each project's release
-schedule, and shows the
-daemon's version, pid, identity, transport and config path. The board is a
+zero. The settings panel has three tabs (login, config, updates) that show one
+card at a time, and edits the repos (a list with per-row removal, a per-project
+coding-agent picker and an
+add field), the global coding agent, model, proxy, update mirror and each
+project's release schedule, and shows the
+daemon's version, pid, identity, transport and config path. Each project can pick
+its own coding agent, or follow the global one; picking "follow global" keeps the
+override out of the config file. The board is a
 SvelteKit app in `frontend/` (Tailwind + shadcn-svelte theme); release binaries
 embed its build output, and a source build needs
 `npm --prefix frontend run build` first.

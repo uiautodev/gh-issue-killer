@@ -1,7 +1,7 @@
 <script lang="ts">
 	import X from '@lucide/svelte/icons/x';
 	import Plus from '@lucide/svelte/icons/plus';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import {
 		getAuth,
 		getConfig,
@@ -18,7 +18,16 @@
 	import { dashboard } from '#lib/dashboard.svelte.ts';
 	import { showModalDialog } from '#lib/dialog.ts';
 	import { t } from '#lib/i18n.svelte.ts';
-	import { addRepoNames, parseRepoNames, removeRepoName } from '#lib/repos.ts';
+	import {
+		addRepoNames,
+		mutableRepoEntry,
+		parseRepoNames,
+		repoCodingAgent,
+		repoEntry,
+		repoObjects,
+		removeRepoName,
+		setRepoCodingAgents
+	} from '#lib/repos.ts';
 	import type {
 		AuthPayload,
 		ConfigPayload,
@@ -60,6 +69,21 @@
 		{ id: 'codex', name: 'Codex CLI' }
 	];
 
+	// The dialog is a tab interface, not one scrolling page: only the selected
+	// section is visible, and the vertical nav plus the horizontal row on narrow
+	// screens are one tablist driving the same `tab` value. Selection follows
+	// focus, as for native tabs.
+	const TABS = [
+		{ id: 'auth', label: 'settings.navAuth' },
+		{ id: 'config', label: 'settings.navConfig' },
+		{ id: 'update', label: 'settings.navUpdate' }
+	] as const;
+
+	type TabID = (typeof TABS)[number]['id'];
+
+	let tab = $state<TabID>('config');
+	let tabInitialised = $state(false);
+
 	let configDoc = $state<Record<string, unknown>>({});
 	let configDefaults = $state<Record<string, unknown>>({});
 	let configPath = $state('–');
@@ -69,6 +93,9 @@
 	let repoText = $state('');
 	let repoDraft = $state('');
 	let rows = $state<ReleaseRow[]>([]);
+	// Per-repo codingAgent: an empty string means "follow the global value",
+	// which is also what the saved config must express.
+	let repoAgents = $state<Record<string, string>>({});
 	let form = $state({ agent: 'opencode', model: '', proxy: '', webPort: '0', updateProxy: '', selfUpdate: false, followMaster: false });
 
 	let agents = $state<{ id: string; name?: string; version?: string }[]>([]);
@@ -99,6 +126,26 @@
 		dialog?.close();
 	}
 
+	function selectTab(id: TabID): void {
+		tab = id;
+		// The roving tabindex moves with the selection, so focus the new tab
+		// after the DOM update; keyboard and pointer both end up consistent.
+		void tick().then(() => document.getElementById('settings-tab-' + id)?.focus());
+	}
+
+	function onTabKeydown(event: KeyboardEvent): void {
+		const index = TABS.findIndex((section) => section.id === tab);
+		let next = index;
+		if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % TABS.length;
+		else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
+			next = (index - 1 + TABS.length) % TABS.length;
+		else if (event.key === 'Home') next = 0;
+		else if (event.key === 'End') next = TABS.length - 1;
+		else return;
+		event.preventDefault();
+		selectTab(TABS[next].id);
+	}
+
 	let repoNames = $derived(parseRepoNames(repoText));
 	let agentOptions = $derived.by<{ id: string; version?: string }[]>(() =>
 		agents.length ? agents : AGENT_FALLBACK
@@ -115,6 +162,16 @@
 		}
 		return options;
 	});
+
+	// A repo row starts with "follow global"; a repo may still name an agent
+	// this machine does not have, so that value stays selectable too.
+	function repoAgentOptions(agent: string) {
+		const options = [{ value: '', label: t('settings.agentFollowGlobal') }, ...agentSelectOptions];
+		if (agent && !options.some((option) => option.value === agent)) {
+			options.push({ value: agent, label: agent });
+		}
+		return options;
+	}
 
 	function parseRepos(text: string): string[] {
 		const names = parseRepoNames(text);
@@ -187,24 +244,9 @@
 		};
 	}
 
-	function repoEntry(doc: Record<string, unknown>, name: string): Record<string, unknown> | null {
-		const repos = doc.repos;
-		if (Array.isArray(repos)) {
-			const found = repos.find(
-				(item) => item && typeof item === 'object' && (item as { repo?: string }).repo === name
-			);
-			return found ? (found as Record<string, unknown>) : null;
-		}
-		if (repos && typeof repos === 'object') {
-			const entry = (repos as Record<string, unknown>)[name];
-			return entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : null;
-		}
-		return null;
-	}
-
 	function releaseValue(doc: Record<string, unknown>, name: string): ReleaseValue {
 		const base = releaseDefaults();
-		const entry = repoEntry(doc, name);
+		const entry = repoEntry(doc.repos, name);
 		const release =
 			entry && entry.release && typeof entry.release === 'object'
 				? (entry.release as Record<string, unknown>)
@@ -226,42 +268,6 @@
 			Number(value.intervalDays) !== defaults.intervalDays ||
 			value.time !== defaults.time
 		);
-	}
-
-	// repoObjects turns the array-of-names form into objects so a release block
-	// can sit next to codingAgent/model/language. The keyed object form and the
-	// array-of-objects form are already per-repo.
-	function repoObjects(doc: Record<string, unknown>, names: string[]): void {
-		const repos = doc.repos;
-		if (repos && !Array.isArray(repos) && typeof repos === 'object') return;
-		const existing = new Map<string, Record<string, unknown>>();
-		if (Array.isArray(repos)) {
-			for (const item of repos) {
-				if (item && typeof item === 'object' && typeof (item as { repo?: string }).repo === 'string') {
-					existing.set((item as { repo: string }).repo, { ...(item as Record<string, unknown>) });
-				} else if (typeof item === 'string') {
-					existing.set(item, { repo: item });
-				}
-			}
-		}
-		doc.repos = names.map((name) => existing.get(name) || { repo: name });
-	}
-
-	function mutableRepoEntry(doc: Record<string, unknown>, name: string): Record<string, unknown> | null {
-		const repos = doc.repos;
-		if (Array.isArray(repos)) {
-			return (
-				(repos.find(
-					(item) => item && typeof item === 'object' && (item as { repo?: string }).repo === name
-				) as Record<string, unknown> | undefined) || null
-			);
-		}
-		if (repos && typeof repos === 'object') {
-			const table = repos as Record<string, unknown>;
-			if (!table[name] || typeof table[name] !== 'object') table[name] = {};
-			return table[name] as Record<string, unknown>;
-		}
-		return null;
 	}
 
 	function applyReleases(doc: Record<string, unknown>, names: string[]): void {
@@ -317,6 +323,15 @@
 			const value = releaseValue(configDoc, name);
 			return { name, enabled: value.enabled, interval: String(value.intervalDays), time: value.time };
 		});
+		syncRepoAgents(names);
+	}
+
+	// syncRepoAgents drops selections of removed repos and seeds new repos from
+	// the saved config, so typing a name never loses a choice already made.
+	function syncRepoAgents(names: string[]): void {
+		const next: Record<string, string> = {};
+		for (const name of names) next[name] = repoAgents[name] ?? repoCodingAgent(configDoc.repos, name);
+		repoAgents = next;
 	}
 
 	// The list and the text field share repoText; adding or removing a name
@@ -349,10 +364,19 @@
 		configVersion = data.version || '–';
 		configProblem = data.configError || data.error || '';
 		repoText = repoList(configDoc).join('\n');
-		rows = repoList(configDoc).map((name) => {
+		const names = repoList(configDoc);
+		rows = names.map((name) => {
 			const value = releaseValue(configDoc, name);
 			return { name, enabled: value.enabled, interval: String(value.intervalDays), time: value.time };
 		});
+		repoAgents = {};
+		syncRepoAgents(names);
+		// Open on the login tab while there is no usable config; everything
+		// else starts on the config tab. A manual reload keeps the open tab.
+		if (!tabInitialised) {
+			tab = configProblem ? 'auth' : 'config';
+			tabInitialised = true;
+		}
 		const agent = String(pick(configDoc, 'codingAgent', 'opencode'));
 		form.agent = agent;
 		form.model = String(pick(configDoc, 'model', ''));
@@ -393,6 +417,7 @@
 		}
 		setRepoList(doc, repos);
 		applyReleases(doc, repos);
+		setRepoCodingAgents(doc, repos, repoAgents);
 		const assign = (key: string, value: unknown) => {
 			if (value === '' || value === null || value === undefined) delete doc[key];
 			else doc[key] = value;
@@ -628,30 +653,46 @@
 			</Button>
 		</header>
 
-		<div class="flex min-h-0 flex-1">
-			<nav
-				class="hidden w-40 flex-none flex-col gap-1 border-r p-3 md:flex"
+		<div class="flex min-h-0 flex-1 flex-col md:flex-row">
+			<!-- One tablist drives both layouts: a vertical column from md up, a
+			     horizontal scrolling row below it. No focusgroup dependency:
+			     roving tabindex plus the arrow keys works in every engine,
+			     including the desktop shell's WKWebView. -->
+			<div
+				class="flex flex-none gap-1 overflow-x-auto border-b p-3 md:w-40 md:flex-col md:overflow-visible md:border-r md:border-b-0"
+				role="tablist"
 				aria-label={t('settings.aria')}
+				data-testid="settings-tabs"
 			>
-				{#each [{ id: 'settings-auth', label: 'settings.navAuth' }, { id: 'settings-config', label: 'settings.navConfig' }, { id: 'settings-update', label: 'settings.navUpdate' }] as section}
-					<a
-						href={'#' + section.id}
-						class="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+				{#each TABS as section (section.id)}
+					<button
+						type="button"
+						role="tab"
+						id={'settings-tab-' + section.id}
+						aria-selected={tab === section.id}
+						tabindex={tab === section.id ? 0 : -1}
+						class={cn(
+							'rounded-md px-3 py-2 text-left text-sm whitespace-nowrap text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+							tab === section.id && 'bg-accent text-foreground'
+						)}
+						onclick={() => selectTab(section.id)}
+						onkeydown={onTabKeydown}
 					>
 						{t(section.label)}
-					</a>
+					</button>
 				{/each}
-			</nav>
+			</div>
 
 			<div class="min-h-0 flex-1 overflow-auto px-5 py-4">
-				<nav class="mb-4 flex flex-wrap gap-2 md:hidden" aria-label={t('settings.aria')}>
-					{#each [{ id: 'settings-auth', label: 'settings.navAuth' }, { id: 'settings-config', label: 'settings.navConfig' }, { id: 'settings-update', label: 'settings.navUpdate' }] as section}
-						<a class="chip" href={'#' + section.id}>{t(section.label)}</a>
-					{/each}
-				</nav>
-
 				<!-- login -->
-				<section id="settings-auth" class="flex scroll-mt-4 flex-col gap-2.5 rounded-lg border border-phase-work/30 bg-phase-work/5 p-4" data-testid="auth-panel">
+				<div
+					id="settings-auth"
+					role="tabpanel"
+					aria-labelledby="settings-tab-auth"
+					hidden={tab !== 'auth'}
+					class="flex flex-col gap-2.5 rounded-lg border border-phase-work/30 bg-phase-work/5 p-4"
+					data-testid="auth-panel"
+				>
 					<div class="flex flex-wrap items-baseline gap-2.5">
 						<span class="text-base tracking-[0.04em]">{t('auth.title')}</span>
 						<span
@@ -716,30 +757,42 @@
 							</Button>
 						</div>
 					</details>
-				</section>
+				</div>
 
-				{#if configProblem}
-					<div
-						class="border-l-2 border-phase-work bg-phase-work/10 px-2.5 py-2 text-sm whitespace-pre-wrap"
-						data-testid="settings-note"
-					>
-						{t('settings.setupHint')}
-						{configProblem}
-					</div>
-				{/if}
-
-				<section id="settings-config" class="mt-6 scroll-mt-4">
+				<div
+					id="settings-config"
+					role="tabpanel"
+					aria-labelledby="settings-tab-config"
+					hidden={tab !== 'config'}
+					class="flex flex-col gap-3"
+				>
+					{#if configProblem}
+						<div
+							class="border-l-2 border-phase-work bg-phase-work/10 px-2.5 py-2 text-sm whitespace-pre-wrap"
+							data-testid="settings-note"
+						>
+							{t('settings.setupHint')}
+							{configProblem}
+						</div>
+					{/if}
 					<h3 class="band-title mb-2">{t('settings.navConfig')}</h3>
 					<form id="settings-form" class="flex flex-col gap-4" autocomplete="off" onsubmit={saveSettings}>
 					<div class="flex flex-col gap-1" data-testid="repo-settings">
 						<span class="text-xs tracking-[0.04em] text-muted-foreground">{t('settings.repos')}</span>
 						<ul
-							class="flex flex-col divide-y divide-border/60 overflow-hidden rounded-md border"
+							class="flex flex-col divide-y divide-border/60 rounded-md border"
 							data-testid="repo-list"
 						>
 							{#each repoNames as name (name)}
 								<li class="flex min-w-0 items-center gap-2 px-2.5 py-1" data-repo={name}>
 									<span class="min-w-0 flex-1 truncate text-sm">{name}</span>
+									<Select
+										options={repoAgentOptions(repoAgents[name] || '')}
+										label={t('settings.repoAgent', { repo: name })}
+										testid="repo-agent"
+										class="w-36 flex-none"
+										bind:value={repoAgents[name]}
+									/>
 									<Button
 										type="button"
 										variant="ghost"
@@ -862,43 +915,49 @@
 					</div>
 
 					</form>
-				</section>
 
-				{#if detected}
-					<div class="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="settings-detected">
-						<div class="flex flex-wrap gap-3">
-							<span>{t('settings.detectedAgents')}:</span>
-							{#if detected.agents.length}
-								{#each detected.agents as agent (agent.id)}
-									<span class="text-phase-done">{agent.version ? agent.id + ' · ' + agent.version : agent.id}</span>
-								{/each}
-							{:else}
-								<span>{t('settings.noAgents')}</span>
+					{#if detected}
+						<div class="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="settings-detected">
+							<div class="flex flex-wrap gap-3">
+								<span>{t('settings.detectedAgents')}:</span>
+								{#if detected.agents.length}
+									{#each detected.agents as agent (agent.id)}
+										<span class="text-phase-done">{agent.version ? agent.id + ' · ' + agent.version : agent.id}</span>
+									{/each}
+								{:else}
+									<span>{t('settings.noAgents')}</span>
+								{/if}
+							</div>
+							{#if detected.proxy}
+								<div class="flex flex-wrap gap-3">
+									<span>{t('settings.detectedProxy')}:</span>
+									<span class="text-phase-done">{detected.proxy}</span>
+								</div>
+							{/if}
+							{#if detected.repos.length}
+								<div class="flex flex-wrap gap-3">
+									<span>{t('settings.detectedRepos')}:</span>
+									{#each detected.repos as repo (repo.repo)}
+										<span class={repo.permission === 'admin' || repo.permission === 'write' ? 'text-phase-done' : 'text-phase-blocked'}>
+											{repo.repo} · {repo.permission}{repo.error ? ' (' + repo.error + ')' : ''}
+										</span>
+									{/each}
+								</div>
+							{/if}
+							{#if detected.error}
+								<div class="flex flex-wrap gap-3"><span>!</span><span class="text-phase-blocked">{detected.error}</span></div>
 							{/if}
 						</div>
-						{#if detected.proxy}
-							<div class="flex flex-wrap gap-3">
-								<span>{t('settings.detectedProxy')}:</span>
-								<span class="text-phase-done">{detected.proxy}</span>
-							</div>
-						{/if}
-						{#if detected.repos.length}
-							<div class="flex flex-wrap gap-3">
-								<span>{t('settings.detectedRepos')}:</span>
-								{#each detected.repos as repo (repo.repo)}
-									<span class={repo.permission === 'admin' || repo.permission === 'write' ? 'text-phase-done' : 'text-phase-blocked'}>
-										{repo.repo} · {repo.permission}{repo.error ? ' (' + repo.error + ')' : ''}
-									</span>
-								{/each}
-							</div>
-						{/if}
-						{#if detected.error}
-							<div class="flex flex-wrap gap-3"><span>!</span><span class="text-phase-blocked">{detected.error}</span></div>
-						{/if}
-					</div>
-				{/if}
+					{/if}
+				</div>
 
-				<section id="settings-update" class="mt-6 scroll-mt-4">
+				<div
+					id="settings-update"
+					role="tabpanel"
+					aria-labelledby="settings-tab-update"
+					hidden={tab !== 'update'}
+					class="flex flex-col gap-3"
+				>
 					<h3 class="band-title mb-2">{t('settings.navUpdate')}</h3>
 					<div class="flex flex-col gap-3 rounded-lg border p-4" data-testid="update-card">
 						<div class="flex flex-wrap gap-4 text-sm text-muted-foreground">
@@ -944,7 +1003,7 @@
 							<dd class="break-all">{dashboard.data?.configFile || configPath}</dd>
 						</dl>
 					</div>
-				</section>
+				</div>
 			</div>
 		</div>
 

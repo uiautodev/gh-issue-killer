@@ -312,6 +312,15 @@ restarting the daemon. A row left off with the default values is not written, so
 the file stays free of no-op `release` blocks. An unusable `time` is rejected at
 load time and by the dashboard save instead of falling back silently.
 
+The same **Settings → Config** tab lets each repository pick its own coding
+agent from the select next to its name. The empty choice ("follow global")
+removes that repository's `codingAgent` key, so only a deliberate override lands
+in the file (`{"repos": {"me/app": {"codingAgent": "claude"}}}`); a plain
+`"owner/repo"` list is only rewritten as objects when at least one repository
+overrides the agent. The per-repo model still comes from the global `model`, so
+pair an agent with an empty model when the global one is specific to another
+CLI.
+
 The bump part is not configurable because it follows the conventional commits:
 a `feat`/`feature` subject (including `feat(scope):`) bumps the minor part,
 anything else bumps the patch part. A **major** release is a deliberate human

@@ -669,21 +669,32 @@ bar submits approve (and retry after `blocked`) on the first click, because it
 is the drawer's primary action; cancel keeps the native confirmation since it
 terminates work in progress. `app.css` also
 contains scroll chaining for the top layer. The settings button opens the
-dialog with a section nav (login / config / updates), a scrolling body and a
-sticky action bar: repos as a list with a per-row remove button and an
-owner/repo input plus Add button below it (array, array of objects or object
+dialog with three mutually exclusive tabs (login / config / updates), a
+scrolling body and a sticky action bar. One `role="tablist"` serves both
+layouts — a vertical column from `md` up and a single scrolling row below it —
+and drives the same selection; the tabs use the ARIA tabs pattern (tab
+buttons with `aria-selected`, roving tabindex, arrow/Home/End keys, selection
+following focus, panels as `role="tabpanel"` with `hidden`), written by hand
+instead of with `focusgroup` so the desktop shell's WKWebView gets the same
+behaviour without a polyfill. The config tab holds the form: repos as a list
+with a per-row remove button and a per-row coding-agent select plus an
+owner/repo input and Add button below it (array, array of objects or object
 form, with per-repo overrides preserved; adding normalises pasted URLs, drops
 duplicates and keeps the visible order), one release row per repo (`enabled`,
-`intervalDays`, `time`, a native `<input type="time">`),
-coding agent (the same select, populated from `/api/detect`, keeping a configured
-agent that is not installed), model, proxy, `webPort`,
+`intervalDays`, `time`, a native `<input type="time">`), coding agent (the same
+select, populated from `/api/detect`, keeping a configured agent that is not
+installed), model, proxy, `webPort`,
 `selfUpdate` and `updateProxy`, plus the version card, the update buttons and
-the System card. The first block is the GitHub login: it shows the one-time
+the System card in the updates tab. Each repo row may pick its own agent; the
+empty "follow global" choice deletes that repo's `codingAgent` instead of
+pinning today's global value, and a plain name list is only rewritten as
+objects when some repo actually overrides (helpers in `$lib/repos.ts`).
+The login tab is the GitHub login: it shows the one-time
 code and authorization link, polls `/api/auth/device`, and keeps a paste-token
 fallback; a successful login writes `~/.issuekiller/token` and restarts
 into the engine. When `/api/state` reports `configError` (first run, missing
-token or a broken edit) the panel opens by itself and the save button starts
-the real engine.
+token or a broken edit) the panel opens by itself on the login tab and the save
+button starts the real engine.
 
 ## 16. Reload and self-update
 

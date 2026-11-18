@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addRepoNames, parseRepoNames, removeRepoName } from './repos.ts';
+import {
+	addRepoNames,
+	parseRepoNames,
+	repoCodingAgent,
+	removeRepoName,
+	setRepoCodingAgents
+} from './repos.ts';
 
 test('parseRepoNames normalises URLs, .git suffixes and separators', () => {
 	assert.deepEqual(parseRepoNames('https://github.com/a/b.git, c/d; e/f\n'), [
@@ -25,4 +31,44 @@ test('removeRepoName removes only the requested repo', () => {
 	assert.equal(removeRepoName('a/b\nc/d\ne/f', 'c/d'), 'a/b\ne/f');
 	assert.equal(removeRepoName('a/b', 'a/b'), '');
 	assert.equal(removeRepoName('a/b', 'x/y'), 'a/b');
+});
+
+test('repoCodingAgent reads the override of every repos shape', () => {
+	assert.equal(repoCodingAgent(['a/b'], 'a/b'), '');
+	assert.equal(repoCodingAgent([{ repo: 'a/b', codingAgent: ' claude ' }], 'a/b'), 'claude');
+	assert.equal(repoCodingAgent({ 'a/b': { codingAgent: 'codex' } }, 'a/b'), 'codex');
+	assert.equal(repoCodingAgent({ 'a/b': {} }, 'a/b'), '');
+	assert.equal(repoCodingAgent(undefined, 'a/b'), '');
+});
+
+test('setRepoCodingAgents writes one agent per repo and keeps the others', () => {
+	const doc: Record<string, unknown> = {
+		repos: { 'a/b': { model: 'sonnet', language: 'en' }, 'c/d': {} }
+	};
+	setRepoCodingAgents(doc, ['a/b', 'c/d'], { 'a/b': 'claude', 'c/d': 'codex' });
+	const repos = doc.repos as Record<string, Record<string, unknown>>;
+	assert.deepEqual(repos['a/b'], { model: 'sonnet', language: 'en', codingAgent: 'claude' });
+	assert.equal(repos['c/d'].codingAgent, 'codex');
+});
+
+test('setRepoCodingAgents deletes the key for "follow global"', () => {
+	const doc: Record<string, unknown> = {
+		repos: [{ repo: 'a/b', codingAgent: 'claude', release: { enabled: true } }, { repo: 'c/d' }]
+	};
+	setRepoCodingAgents(doc, ['a/b', 'c/d'], { 'a/b': '', 'c/d': 'codex' });
+	const repos = doc.repos as Record<string, Record<string, unknown>>[];
+	assert.deepEqual(repos[0], { repo: 'a/b', release: { enabled: true } });
+	assert.equal(repos[1].codingAgent, 'codex');
+});
+
+test('setRepoCodingAgents leaves a plain name list alone without overrides', () => {
+	const doc: Record<string, unknown> = { repos: ['a/b', 'c/d'] };
+	setRepoCodingAgents(doc, ['a/b', 'c/d'], { 'a/b': '', 'c/d': '' });
+	assert.deepEqual(doc.repos, ['a/b', 'c/d']);
+});
+
+test('setRepoCodingAgents grows a name list into objects for one override', () => {
+	const doc: Record<string, unknown> = { repos: ['a/b', 'c/d'] };
+	setRepoCodingAgents(doc, ['a/b', 'c/d'], { 'a/b': 'claude', 'c/d': '' });
+	assert.deepEqual(doc.repos, [{ repo: 'a/b', codingAgent: 'claude' }, { repo: 'c/d' }]);
 });
