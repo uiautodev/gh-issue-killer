@@ -57,28 +57,34 @@ export function mutableRepoEntry(
 	return null;
 }
 
-/** A repo's own coding agent, or an empty string when it follows the global one. */
-export function repoCodingAgent(repos: unknown, name: string): string {
-	const value = repoEntry(repos, name)?.codingAgent;
+/** A repo's own value for one string key, or '' when it follows the global one. */
+export function repoString(repos: unknown, name: string, key: string): string {
+	const value = repoEntry(repos, name)?.[key];
 	return typeof value === 'string' ? value.trim() : '';
 }
 
-// setRepoCodingAgents writes one agent per repo and leaves the other overrides
-// alone. An empty agent means "follow global": the key is deleted so the repo
-// keeps following the top-level codingAgent. A plain name list only turns into
-// objects when at least one repo overrides the agent.
-export function setRepoCodingAgents(
+/** A repo's own coding agent, or an empty string when it follows the global one. */
+export function repoCodingAgent(repos: unknown, name: string): string {
+	return repoString(repos, name, 'codingAgent');
+}
+
+// setRepoStrings writes one string field per repo and leaves the other
+// overrides alone. An empty value means "follow global": the key is deleted so
+// the repo keeps following the top-level setting. A plain name list only turns
+// into objects when at least one repo overrides the field.
+export function setRepoStrings(
 	doc: Record<string, unknown>,
 	names: string[],
-	agents: Record<string, string>
+	key: string,
+	values: Record<string, string>
 ): void {
-	const values = names.map((name) => [name, (agents[name] || '').trim()] as const);
-	if (values.some(([, agent]) => agent)) repoObjects(doc, names);
-	for (const [name, agent] of values) {
+	const entries = names.map((name) => [name, (values[name] || '').trim()] as const);
+	if (entries.some(([, value]) => value)) repoObjects(doc, names);
+	for (const [name, value] of entries) {
 		const entry = mutableRepoEntry(doc, name);
 		if (!entry) continue;
-		if (agent) entry.codingAgent = agent;
-		else delete entry.codingAgent;
+		if (value) entry[key] = value;
+		else delete entry[key];
 	}
 }
 

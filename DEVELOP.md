@@ -669,28 +669,33 @@ bar submits approve (and retry after `blocked`) on the first click, because it
 is the drawer's primary action; cancel keeps the native confirmation since it
 terminates work in progress. `app.css` also
 contains scroll chaining for the top layer. The settings button opens the
-dialog with three mutually exclusive tabs (login / config / updates), a
-scrolling body and a sticky action bar. One `role="tablist"` serves both
-layouts — a vertical column from `md` up and a single scrolling row below it —
-and drives the same selection; the tabs use the ARIA tabs pattern (tab
+dialog with four mutually exclusive tabs (login / repositories / config /
+updates), a scrolling body and a sticky action bar. One `role="tablist"` serves
+both layouts — a vertical column from `md` up and a single scrolling row below
+it — and drives the same selection; the tabs use the ARIA tabs pattern (tab
 buttons with `aria-selected`, roving tabindex, arrow/Home/End keys, selection
 following focus, panels as `role="tabpanel"` with `hidden`), written by hand
 instead of with `focusgroup` so the desktop shell's WKWebView gets the same
 behaviour without a polyfill. The selected tab also carries a bar on its left
 edge (bottom edge in the narrow row) so the state is not signalled by colour
-alone. The config tab holds the form: repos as a list
-with a per-row remove button and a per-row coding-agent select plus an
-owner/repo input and Add button below it (array, array of objects or object
-form, with per-repo overrides preserved; adding normalises pasted URLs, drops
-duplicates and keeps the visible order), one release row per repo (`enabled`,
-`intervalDays`, `time`, a native `<input type="time">`), coding agent (the same
-select, populated from `/api/detect`, keeping a configured agent that is not
-installed), model, proxy, `webPort`,
-`selfUpdate` and `updateProxy`, plus the version card, the update buttons and
-the System card in the updates tab. Each repo row may pick its own agent; the
-empty "follow global" choice deletes that repo's `codingAgent` instead of
-pinning today's global value, and a plain name list is only rewritten as
-objects when some repo actually overrides (helpers in `$lib/repos.ts`).
+alone.
+
+The repositories tab is per-project: a defaults strip shows the global agent,
+model and proxy with a button into the config tab, a project dropdown lists
+every watched repo (a repo with overrides is marked), and the card under it
+edits only the selected project — coding agent, model and language (each with
+a "follow global" choice that deletes the key) plus its scheduled release
+(`enabled`, `intervalDays`, `time`, a native `<input type="time">`). Adding a
+repo selects it; removing one falls back to the first. The add field accepts
+pasted URLs, drops duplicates and keeps the visible order, and the three
+`repos` shapes (array, array of objects, object keyed by name) are preserved:
+a plain name list is only rewritten as objects when some repo actually
+overrides something (helpers in `$lib/repos.ts`).
+
+The config tab holds the global defaults and system knobs: coding agent (the
+same select, populated from `/api/detect`, keeping a configured agent that is
+not installed), model, proxy, `webPort`, `selfUpdate` and `updateProxy`, and the
+updates tab carries the version card, the update buttons and the System card.
 The login tab is the GitHub login: it shows the one-time
 code and authorization link, polls `/api/auth/device`, and keeps a paste-token
 fallback; a successful login writes `~/.issuekiller/token` and restarts
