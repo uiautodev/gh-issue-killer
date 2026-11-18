@@ -16,7 +16,24 @@ type LocalRepo struct {
 	HTTPSURL     string
 	Base         string
 	WorktreeRoot string
-	Env          []string
+	// proxy, identity and token rebuild the git environment per operation.
+	// The bot token rotates (GH refreshes it on 401), so an environment
+	// captured at startup would keep authenticating git with an expired
+	// token. token is a live source: GH.currentToken in production.
+	proxy    *Proxy
+	identity User
+	token    func() string
+}
+
+// gitEnv rebuilds the git environment with the current token. Git auth is a
+// one-shot http.extraheader, so every operation picks up the token as of
+// now instead of the one from daemon startup.
+func (l *LocalRepo) gitEnv() []string {
+	token := ""
+	if l.token != nil {
+		token = l.token()
+	}
+	return buildGitEnv(l.proxy, token, l.identity)
 }
 
 func gitBinary() (string, error) {
@@ -49,8 +66,8 @@ func buildGitEnv(proxy *Proxy, token string, identity User) []string {
 	return mergeEnv(os.Environ(), overrides, "GH_TOKEN", "GITHUB_TOKEN")
 }
 
-func resolveRepo(ctx context.Context, repo RepoConfig, info RepoInfo, identity User, token string, proxy *Proxy) (*LocalRepo, error) {
-	env := buildGitEnv(proxy, token, identity)
+func resolveRepo(ctx context.Context, repo RepoConfig, info RepoInfo, identity User, token func() string, proxy *Proxy) (*LocalRepo, error) {
+	env := buildGitEnv(proxy, token(), identity)
 	httpsURL := fmt.Sprintf("https://github.com/%s.git", repo.FullName)
 	cloneDir := filepath.Join(reposDir(), repo.Owner+"-"+repo.Name)
 	if err := os.MkdirAll(reposDir(), 0o755); err != nil {
@@ -99,7 +116,9 @@ func resolveRepo(ctx context.Context, repo RepoConfig, info RepoInfo, identity U
 		HTTPSURL:     httpsURL,
 		Base:         info.DefaultBranch,
 		WorktreeRoot: worktreeRoot,
-		Env:          env,
+		proxy:        proxy,
+		identity:     identity,
+		token:        token,
 	}, nil
 }
 
@@ -110,7 +129,7 @@ func gitRun(ctx context.Context, local *LocalRepo, timeout time.Duration, allowF
 	}
 	return runCmd(ctx, git, args, CmdOptions{
 		Cwd:          local.Dir,
-		Env:          local.Env,
+		Env:          local.gitEnv(),
 		Timeout:      timeout,
 		AllowFailure: allowFailure,
 	})
@@ -277,15 +296,15 @@ func gitOutput(ctx context.Context, dir string, env []string, timeout time.Durat
 }
 
 func logSinceBase(ctx context.Context, dir string, local *LocalRepo) string {
-	return gitOutput(ctx, dir, local.Env, time.Minute, "log", "--oneline", "origin/"+local.Base+"..HEAD")
+	return gitOutput(ctx, dir, local.gitEnv(), time.Minute, "log", "--oneline", "origin/"+local.Base+"..HEAD")
 }
 
 func diffStat(ctx context.Context, dir string, local *LocalRepo) string {
-	return gitOutput(ctx, dir, local.Env, time.Minute, "diff", "--stat", "origin/"+local.Base+"...HEAD")
+	return gitOutput(ctx, dir, local.gitEnv(), time.Minute, "diff", "--stat", "origin/"+local.Base+"...HEAD")
 }
 
 func changedFiles(ctx context.Context, dir string, local *LocalRepo) []string {
-	output := gitOutput(ctx, dir, local.Env, time.Minute, "diff", "--name-only", "origin/"+local.Base+"...HEAD")
+	output := gitOutput(ctx, dir, local.gitEnv(), time.Minute, "diff", "--name-only", "origin/"+local.Base+"...HEAD")
 	if output == "" {
 		return nil
 	}
@@ -300,7 +319,7 @@ func changedFiles(ctx context.Context, dir string, local *LocalRepo) []string {
 }
 
 func pushBranch(ctx context.Context, dir string, local *LocalRepo, branch string) error {
-	return pushBranchTo(ctx, dir, local.HTTPSURL, local.Env, branch, branch)
+	return pushBranchTo(ctx, dir, local.HTTPSURL, local.gitEnv(), branch, branch)
 }
 
 // pushBranchTo pushes a local branch to an explicit remote ref. The remote may

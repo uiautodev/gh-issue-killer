@@ -14,22 +14,41 @@ import (
 )
 
 type AppContext struct {
-	Cfg        *Config
-	Repo       RepoConfig
-	RepoInfo   RepoInfo
-	Local      *LocalRepo
-	Identity   User
-	Token      string
-	Proxy      *Proxy
-	GH         *GH
-	Store      *Store
-	Log        *Logger
-	Env        []string
+	Cfg      *Config
+	Repo     RepoConfig
+	RepoInfo RepoInfo
+	Local    *LocalRepo
+	Identity User
+	Token    string
+	Proxy    *Proxy
+	GH       *GH
+	Store    *Store
+	Log      *Logger
+	// AgentLogin is the login of the bot account running the daemon.
 	AgentLogin string
 	// EnqueueCI schedules the post-push CI wait on the router's CI queue so the
 	// implementation slot is released immediately. Nil when there is no router
 	// (tests).
 	EnqueueCI func(number int)
+}
+
+// Env rebuilds the child-process environment with the current token. The bot
+// token rotates (GH refreshes it on 401), so an environment captured at
+// startup would authenticate git and gh with an expired token. GH is the
+// live source in production; Token is the startup snapshot, kept only as a
+// fallback for contexts without a client (tests).
+func (a *AppContext) Env() []string {
+	token := a.Token
+	if a.GH != nil {
+		token = a.GH.currentToken()
+	}
+	overrides := goProxyEnv(a.Proxy)
+	// Agents and their tools may call gh directly. Give them the bot token
+	// instead of a separate config directory, so they can never fall back to
+	// the human account.
+	overrides["GH_TOKEN"] = token
+	overrides["GITHUB_TOKEN"] = token
+	return mergeEnv(buildGitEnv(a.Proxy, token, a.Identity), overrides)
 }
 
 // projectURL is shown on plan comments so readers can find the project.
@@ -257,7 +276,7 @@ func doPlan(ctx context.Context, app *AppContext, trigger Trigger, issue Issue) 
 		Prompt:  prompt,
 		Model:   app.Repo.Model,
 		RunDir:  runDir,
-		Env:     app.Env,
+		Env:     app.Env(),
 		Timeout: app.Cfg.PlanTimeout,
 		LogFile: filepath.Join(runDir, fmt.Sprintf("plan-%s.log", app.Repo.CodingAgent)),
 		Log:     app.Log,
@@ -416,7 +435,7 @@ func shouldBuildDirectly(ctx context.Context, app *AppContext, trigger Trigger, 
 		Prompt:  prompt,
 		Model:   app.Repo.Model,
 		RunDir:  runDir,
-		Env:     app.Env,
+		Env:     app.Env(),
 		Timeout: app.Cfg.PlanTimeout,
 		LogFile: filepath.Join(runDir, fmt.Sprintf("triage-%s.log", app.Repo.CodingAgent)),
 		Log:     app.Log,
@@ -436,7 +455,7 @@ func shouldBuildDirectly(ctx context.Context, app *AppContext, trigger Trigger, 
 
 func runChecksWithFixes(ctx context.Context, app *AppContext, runner CodingRunner, sessionID, worktree, runDir string) ([]CheckResult, bool) {
 	checks := loadChecks(worktree, runDir, app.Log)
-	checkResults, ok := runChecks(ctx, checks, worktree, runDir, app.Env, app.Log)
+	checkResults, ok := runChecks(ctx, checks, worktree, runDir, app.Env(), app.Log)
 	for attempt := 1; !ok && attempt <= app.Cfg.MaxFixRounds; attempt++ {
 		app.Log.Warn("checks failed, fix round %d/%d", attempt, app.Cfg.MaxFixRounds)
 		failures := make([]string, 0)
@@ -463,7 +482,7 @@ func runChecksWithFixes(ctx context.Context, app *AppContext, runner CodingRunne
 			SessionID: sessionID,
 			Model:     app.Repo.Model,
 			RunDir:    runDir,
-			Env:       app.Env,
+			Env:       app.Env(),
 			Timeout:   app.Cfg.ImplementTimeout,
 			LogFile:   filepath.Join(runDir, fmt.Sprintf("fix-%d-%s.log", attempt, app.Repo.CodingAgent)),
 			Log:       app.Log,
@@ -471,7 +490,7 @@ func runChecksWithFixes(ctx context.Context, app *AppContext, runner CodingRunne
 			app.Log.Error("fix round %d failed: %v", attempt, runErr)
 		}
 		checks = loadChecks(worktree, runDir, app.Log)
-		checkResults, ok = runChecks(ctx, checks, worktree, runDir, app.Env, app.Log)
+		checkResults, ok = runChecks(ctx, checks, worktree, runDir, app.Env(), app.Log)
 	}
 	return checkResults, ok
 }
@@ -557,7 +576,7 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		SessionID: st.SessionID,
 		Model:     app.Repo.Model,
 		RunDir:    runDir,
-		Env:       app.Env,
+		Env:       app.Env(),
 		Timeout:   app.Cfg.ImplementTimeout,
 		LogFile:   filepath.Join(runDir, fmt.Sprintf("revise-%s.log", app.Repo.CodingAgent)),
 		Log:       app.Log,
@@ -595,7 +614,7 @@ func doRevise(ctx context.Context, app *AppContext, trigger Trigger, issue Issue
 		reportCheckFailures(ctx, app, number, worktree, checkResults)
 		return
 	}
-	if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("chore: apply feedback for #%d", number)); err != nil {
+	if err := commitAll(ctx, worktree, app.Env(), fmt.Sprintf("chore: apply feedback for #%d", number)); err != nil {
 		blockIssue(ctx, app, number, fmt.Errorf("commit: %w", err))
 		return
 	}
@@ -722,7 +741,7 @@ func doReviewPR(ctx context.Context, app *AppContext, trigger Trigger, pr PullRe
 		Prompt:  prompt,
 		Model:   app.Repo.Model,
 		RunDir:  runDir,
-		Env:     app.Env,
+		Env:     app.Env(),
 		Timeout: app.Cfg.PlanTimeout,
 		LogFile: filepath.Join(runDir, fmt.Sprintf("review-%s.log", app.Repo.CodingAgent)),
 		Log:     app.Log,
@@ -1078,7 +1097,7 @@ func doModifyPR(ctx context.Context, app *AppContext, trigger Trigger, pr PullRe
 		Prompt:  prompt,
 		Model:   app.Repo.Model,
 		RunDir:  runDir,
-		Env:     app.Env,
+		Env:     app.Env(),
 		Timeout: app.Cfg.ImplementTimeout,
 		LogFile: filepath.Join(runDir, fmt.Sprintf("modify-pr-%s.log", app.Repo.CodingAgent)),
 		Log:     app.Log,
@@ -1086,7 +1105,7 @@ func doModifyPR(ctx context.Context, app *AppContext, trigger Trigger, pr PullRe
 		postReviewFailure(ctx, app, number, fmt.Errorf("modify agent: %w", err))
 		return
 	}
-	if gitStatus(ctx, worktree, app.Env) == "" {
+	if gitStatus(ctx, worktree, app.Env()) == "" {
 		_, _ = app.GH.PostComment(ctx, app.Repo.FullName, number, app.text(number, "modify.nochange"))
 		return
 	}
@@ -1101,11 +1120,11 @@ func doModifyPR(ctx context.Context, app *AppContext, trigger Trigger, pr PullRe
 		}, "\n"))
 		return
 	}
-	if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("chore: apply maintainer instructions for #%d", number)); err != nil {
+	if err := commitAll(ctx, worktree, app.Env(), fmt.Sprintf("chore: apply maintainer instructions for #%d", number)); err != nil {
 		postReviewFailure(ctx, app, number, fmt.Errorf("commit: %w", err))
 		return
 	}
-	if err := pushBranchTo(ctx, worktree, prPushURL(app, pr), app.Env, branch, pr.Head.Ref); err != nil {
+	if err := pushBranchTo(ctx, worktree, prPushURL(app, pr), app.Env(), branch, pr.Head.Ref); err != nil {
 		postReviewFailure(ctx, app, number, fmt.Errorf("push to %s: %w", pr.Head.Repo.FullName, err))
 		return
 	}
@@ -1311,7 +1330,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		Prompt:  prompt,
 		Model:   app.Repo.Model,
 		RunDir:  runDir,
-		Env:     app.Env,
+		Env:     app.Env(),
 		Timeout: app.Cfg.ImplementTimeout,
 		LogFile: filepath.Join(runDir, fmt.Sprintf("implement-%s.log", app.Repo.CodingAgent)),
 		Log:     app.Log,
@@ -1353,7 +1372,7 @@ func doImplement(ctx context.Context, app *AppContext, trigger Trigger, issue Is
 		return
 	}
 
-	if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("chore: finalize changes for #%d", number)); err != nil {
+	if err := commitAll(ctx, worktree, app.Env(), fmt.Sprintf("chore: finalize changes for #%d", number)); err != nil {
 		blockIssue(ctx, app, number, fmt.Errorf("commit: %w", err))
 		return
 	}
@@ -1854,14 +1873,14 @@ func ciGateWithRepairs(ctx context.Context, app *AppContext, issue Issue, st Iss
 // worktreeAheadOfPR reports whether the worktree HEAD is a descendant of the
 // given PR commit, i.e. it holds commits that were never pushed.
 func worktreeAheadOfPR(ctx context.Context, worktree string, local *LocalRepo, branch, prSHA string) (bool, string) {
-	head := headSHA(ctx, worktree, local.Env)
+	head := headSHA(ctx, worktree, local.gitEnv())
 	if head == "" || head == prSHA {
 		return false, ""
 	}
-	if _, err := gitWorktree(ctx, worktree, local.Env, 2*time.Minute, true, "fetch", local.HTTPSURL, branch); err != nil {
+	if _, err := gitWorktree(ctx, worktree, local.gitEnv(), 2*time.Minute, true, "fetch", local.HTTPSURL, branch); err != nil {
 		return false, ""
 	}
-	ancestor, err := gitWorktree(ctx, worktree, local.Env, 30*time.Second, true, "merge-base", "--is-ancestor", prSHA, "HEAD")
+	ancestor, err := gitWorktree(ctx, worktree, local.gitEnv(), 30*time.Second, true, "merge-base", "--is-ancestor", prSHA, "HEAD")
 	if err != nil || ancestor.Code != 0 {
 		return false, ""
 	}
@@ -1880,7 +1899,7 @@ func ciRepairRound(ctx context.Context, app *AppContext, issue Issue, st *IssueS
 	if _, err := os.Stat(filepath.Join(worktree, ".git")); err != nil {
 		return "", false, fmt.Errorf("worktree %s is gone: %w", worktree, err)
 	}
-	beforeHead := headSHA(ctx, worktree, app.Env)
+	beforeHead := headSHA(ctx, worktree, app.Env())
 	runDir := runDirFor(app, issue.Number)
 	_ = os.MkdirAll(filepath.Join(runDir, "screenshots"), 0o755)
 	runner, err := newCodingRunner(app.Repo.CodingAgent)
@@ -1911,7 +1930,7 @@ func ciRepairRound(ctx context.Context, app *AppContext, issue Issue, st *IssueS
 		SessionID: st.SessionID,
 		Model:     app.Repo.Model,
 		RunDir:    runDir,
-		Env:       app.Env,
+		Env:       app.Env(),
 		Timeout:   app.Cfg.ImplementTimeout,
 		LogFile:   filepath.Join(runDir, fmt.Sprintf("ci-fix-%d-%s.log", round, app.Repo.CodingAgent)),
 		Log:       app.Log,
@@ -1929,8 +1948,8 @@ func ciRepairRound(ctx context.Context, app *AppContext, issue Issue, st *IssueS
 	if issueCancelled(app, issue.Number) {
 		return "", false, nil
 	}
-	dirty := gitStatus(ctx, worktree, app.Env) != ""
-	head := headSHA(ctx, worktree, app.Env)
+	dirty := gitStatus(ctx, worktree, app.Env()) != ""
+	head := headSHA(ctx, worktree, app.Env())
 	if !dirty && head == beforeHead {
 		return "", false, nil
 	}
@@ -1941,12 +1960,12 @@ func ciRepairRound(ctx context.Context, app *AppContext, issue Issue, st *IssueS
 	if !ok {
 		return "", false, fmt.Errorf("local checks still fail after CI repair round %d", round)
 	}
-	if gitStatus(ctx, worktree, app.Env) != "" {
-		if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("fix: make CI green for #%d", issue.Number)); err != nil {
+	if gitStatus(ctx, worktree, app.Env()) != "" {
+		if err := commitAll(ctx, worktree, app.Env(), fmt.Sprintf("fix: make CI green for #%d", issue.Number)); err != nil {
 			return "", false, fmt.Errorf("commit CI repair: %w", err)
 		}
 	}
-	finalHead := headSHA(ctx, worktree, app.Env)
+	finalHead := headSHA(ctx, worktree, app.Env())
 	if finalHead == beforeHead {
 		return "", false, nil
 	}
@@ -2061,7 +2080,7 @@ func resolveMergeConflicts(ctx context.Context, app *AppContext, issue Issue, st
 		return pr, err
 	}
 	updated := pr
-	if head := headSHA(ctx, st.Worktree, app.Env); head != "" {
+	if head := headSHA(ctx, st.Worktree, app.Env()); head != "" {
 		if app.GH.HasWorkflows(ctx, app.Repo.FullName) {
 			// Give GitHub a moment to create the new head's check runs, so the
 			// merge gate does not read "not created yet" as "no CI".
@@ -2150,11 +2169,11 @@ func resolveConflictsIn(ctx context.Context, app *AppContext, target conflictTar
 	if err := fetchBase(ctx, app.Local); err != nil {
 		return fmt.Errorf("fetch %s: %w", app.Local.Base, err)
 	}
-	merge, err := gitWorktree(ctx, worktree, app.Env, 5*time.Minute, true, "merge", "--no-edit", "origin/"+app.Local.Base)
+	merge, err := gitWorktree(ctx, worktree, app.Env(), 5*time.Minute, true, "merge", "--no-edit", "origin/"+app.Local.Base)
 	if err != nil {
 		return fmt.Errorf("git merge %s: %w", app.Local.Base, err)
 	}
-	files := conflictedFiles(ctx, worktree, app.Env)
+	files := conflictedFiles(ctx, worktree, app.Env())
 	if merge.Code != 0 && len(files) == 0 {
 		return fmt.Errorf("git merge %s: %s", app.Local.Base, tailString(merge.Stderr, 10))
 	}
@@ -2186,7 +2205,7 @@ func resolveConflictsIn(ctx context.Context, app *AppContext, target conflictTar
 			SessionID: sessionID,
 			Model:     app.Repo.Model,
 			RunDir:    runDir,
-			Env:       app.Env,
+			Env:       app.Env(),
 			Timeout:   app.Cfg.ImplementTimeout,
 			LogFile:   filepath.Join(runDir, fmt.Sprintf("conflict-%d-%s.log", round, app.Repo.CodingAgent)),
 			Log:       app.Log,
@@ -2198,7 +2217,7 @@ func resolveConflictsIn(ctx context.Context, app *AppContext, target conflictTar
 		if sessionID != "" && target.RememberSession != nil {
 			target.RememberSession(sessionID)
 		}
-		if remaining := conflictedFiles(ctx, worktree, app.Env); len(remaining) > 0 {
+		if remaining := conflictedFiles(ctx, worktree, app.Env()); len(remaining) > 0 {
 			return fmt.Errorf("conflicts remain after the agent: %s", strings.Join(remaining, ", "))
 		}
 		if target.Cancelled != nil && target.Cancelled() {
@@ -2215,10 +2234,10 @@ func resolveConflictsIn(ctx context.Context, app *AppContext, target conflictTar
 	if !ok {
 		return fmt.Errorf("checks failed after resolving conflicts with %s", app.Local.Base)
 	}
-	if err := commitAll(ctx, worktree, app.Env, fmt.Sprintf("chore: resolve conflicts with %s for #%d", app.Local.Base, number)); err != nil {
+	if err := commitAll(ctx, worktree, app.Env(), fmt.Sprintf("chore: resolve conflicts with %s for #%d", app.Local.Base, number)); err != nil {
 		return fmt.Errorf("commit conflict resolution: %w", err)
 	}
-	if err := pushBranchTo(ctx, worktree, target.RemoteURL, app.Env, target.LocalBranch, target.RemoteBranch); err != nil {
+	if err := pushBranchTo(ctx, worktree, target.RemoteURL, app.Env(), target.LocalBranch, target.RemoteBranch); err != nil {
 		return fmt.Errorf("push conflict resolution: %w", err)
 	}
 	return nil

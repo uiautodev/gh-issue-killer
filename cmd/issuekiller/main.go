@@ -391,20 +391,12 @@ func main() {
 		if !info.Permissions.Push {
 			log.Warn("%s: the GitHub token has no push access; PRs/merges will fail", repo.FullName)
 		}
-		local, err := resolveRepo(ctx, repo, info, identity, token, proxy)
+		local, err := resolveRepo(ctx, repo, info, identity, gh.currentToken, proxy)
 		if err != nil {
 			log.Warn("repo %s: %v (skipping)", repo.FullName, err)
 			continue
 		}
 		gh.EnsureLabels(ctx, repo.FullName)
-
-		envOverrides := goProxyEnv(proxy)
-		// Agents and their tools may call gh directly. Give them the bot token
-		// instead of a separate config directory, so they can never fall back to
-		// the human account.
-		envOverrides["GH_TOKEN"] = token
-		envOverrides["GITHUB_TOKEN"] = token
-		childEnv := mergeEnv(buildGitEnv(proxy, token, identity), envOverrides)
 
 		contexts[repo.FullName] = &AppContext{
 			Cfg:        cfg,
@@ -417,7 +409,6 @@ func main() {
 			GH:         gh,
 			Store:      nil,
 			Log:        log,
-			Env:        childEnv,
 			AgentLogin: identity.Login,
 		}
 		log.Info("repo ready: %s clone=%s base=%s worktrees=%s approvers=%s", repo.FullName, local.Dir, local.Base, local.WorktreeRoot, strings.Join(repo.Approvers, ","))
@@ -477,7 +468,7 @@ func main() {
 	if cfg.FollowMaster {
 		env := os.Environ()
 		for _, app := range contexts {
-			env = app.Env
+			env = app.Env()
 			break
 		}
 		masterRestart = watchMaster(ctx, log, env)

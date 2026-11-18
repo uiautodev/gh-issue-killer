@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -41,5 +43,83 @@ func TestPushBranchToDifferentNames(t *testing.T) {
 	}
 	if got := gitOutput(ctx, remote, env, time.Minute, "rev-parse", "--verify", "refs/heads/main"); got != "" {
 		t.Fatal("push must not create the local branch name on the remote")
+	}
+}
+
+// extraheaderToken extracts the bot token from the one-shot http.extraheader
+// in a git environment built by buildGitEnv.
+func extraheaderToken(t *testing.T, env []string) string {
+	t.Helper()
+	for _, entry := range env {
+		rest, ok := strings.CutPrefix(entry, "GIT_CONFIG_VALUE_")
+		if !ok {
+			continue
+		}
+		if _, value, ok := strings.Cut(rest, "="); ok {
+			rest = value
+		}
+		basic, ok := strings.CutPrefix(rest, "AUTHORIZATION: basic ")
+		if !ok {
+			continue
+		}
+		decoded, err := base64.StdEncoding.DecodeString(basic)
+		if err != nil {
+			t.Fatalf("decode extraheader: %v", err)
+		}
+		token, ok := strings.CutPrefix(string(decoded), "x-access-token:")
+		if !ok {
+			t.Fatalf("extraheader = %q, want x-access-token: prefix", decoded)
+		}
+		return token
+	}
+	t.Fatal("no http.extraheader in git environment")
+	return ""
+}
+
+func envEntryValue(env []string, key string) string {
+	for _, entry := range env {
+		if k, value, ok := strings.Cut(entry, "="); ok && k == key {
+			return value
+		}
+	}
+	return ""
+}
+
+// The bot token rotates every few hours; a git environment built once at
+// startup kept authenticating with the expired token, so a fetch after a
+// rotation failed with 401. gitEnv must follow the live token.
+func TestLocalRepoGitEnvFollowsTokenRotation(t *testing.T) {
+	token := "gho_first"
+	local := &LocalRepo{token: func() string { return token }}
+	if got := extraheaderToken(t, local.gitEnv()); got != "gho_first" {
+		t.Fatalf("token = %q, want gho_first", got)
+	}
+	token = "gho_second"
+	if got := extraheaderToken(t, local.gitEnv()); got != "gho_second" {
+		t.Fatalf("token after rotation = %q, want gho_second", got)
+	}
+}
+
+// The same rotation applies to the child-process environment: agents and
+// their tools call gh with GH_TOKEN, and git with the extraheader, from
+// AppContext.Env.
+func TestAppContextEnvFollowsTokenRotation(t *testing.T) {
+	gh := &GH{Token: "gho_first", Log: NewSilentLogger()}
+	app := &AppContext{GH: gh, Identity: User{Login: "bot", ID: 1}}
+	if got := extraheaderToken(t, app.Env()); got != "gho_first" {
+		t.Fatalf("token = %q, want gho_first", got)
+	}
+	if got := envEntryValue(app.Env(), "GH_TOKEN"); got != "gho_first" {
+		t.Fatalf("GH_TOKEN = %q, want gho_first", got)
+	}
+	gh.Token = "gho_second"
+	if got := extraheaderToken(t, app.Env()); got != "gho_second" {
+		t.Fatalf("token after rotation = %q, want gho_second", got)
+	}
+	if got := envEntryValue(app.Env(), "GH_TOKEN"); got != "gho_second" {
+		t.Fatalf("GH_TOKEN after rotation = %q, want gho_second", got)
+	}
+	if got := envEntryValue(app.Env(), "GITHUB_TOKEN"); got != "gho_second" {
+		t.Fatalf("GITHUB_TOKEN after rotation = %q, want gho_second", got)
 	}
 }

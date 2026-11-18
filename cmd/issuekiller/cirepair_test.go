@@ -49,7 +49,7 @@ func TestWorktreeAheadOfPR(t *testing.T) {
 	mustGit(work, "commit", "-q", "-m", "local only")
 	localHead := gitOutput(ctx, work, env, time.Minute, "rev-parse", "HEAD")
 
-	local := &LocalRepo{HTTPSURL: remote, Env: env}
+	local := &LocalRepo{HTTPSURL: remote}
 	ahead, head := worktreeAheadOfPR(ctx, work, local, "main", remoteHead)
 	if !ahead {
 		t.Fatal("ahead = false, want true for an unpushed local commit")

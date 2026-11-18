@@ -491,8 +491,10 @@ are unavailable the poller is the fallback; both funnel into `Router.Handle*`.
   branch `agent/issue-<n>-<short id>`; removed with `--force` after merge or
   cancel.
 - Commits use the bot identity (`<id>+<login>@users.noreply.github.com`).
-- Push uses a one-shot `http.extraheader` with the token, built into
-  `LocalRepo.Env`; nothing is written to any gitconfig.
+- Push uses a one-shot `http.extraheader` with the token, rebuilt from the
+  live token (`GH.currentToken`) for every git operation and every child
+  process; nothing is written to any gitconfig. An environment captured at
+  startup would keep authenticating with the token from before its rotation.
 - `plan` uses a temporary detached worktree under `tmp/`.
 
 ## 13. Coding agents (`runner.go`)

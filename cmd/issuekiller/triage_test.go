@@ -216,7 +216,7 @@ func (f *fakeRunner) Run(context.Context, RunnerOptions) (RunnerResult, error) {
 
 // triageTestRepo creates a bare remote plus a clone so fetchBase and the
 // detached triage worktree exercise the real git path.
-func triageTestRepo(t *testing.T) (*LocalRepo, []string) {
+func triageTestRepo(t *testing.T) *LocalRepo {
 	t.Helper()
 	ctx := context.Background()
 	env := append(os.Environ(),
@@ -243,10 +243,10 @@ func triageTestRepo(t *testing.T) (*LocalRepo, []string) {
 	gitIn(work, "remote", "add", "origin", remote)
 	gitIn(work, "push", "-q", "origin", "master")
 	gitIn(root, "clone", "-q", remote, clone)
-	return &LocalRepo{Dir: clone, HTTPSURL: remote, Base: "master", WorktreeRoot: filepath.Join(root, "trees"), Env: env}, env
+	return &LocalRepo{Dir: clone, HTTPSURL: remote, Base: "master", WorktreeRoot: filepath.Join(root, "trees")}
 }
 
-func triageTestApp(t *testing.T, local *LocalRepo, env []string, comments []Comment) (*AppContext, *callLog) {
+func triageTestApp(t *testing.T, local *LocalRepo, comments []Comment) (*AppContext, *callLog) {
 	t.Helper()
 	gh, calls := newFakeAPI(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/comments") {
@@ -266,7 +266,6 @@ func triageTestApp(t *testing.T, local *LocalRepo, env []string, comments []Comm
 		GH:         gh,
 		Store:      store,
 		Log:        NewSilentLogger(),
-		Env:        env,
 		AgentLogin: "bot",
 	}, calls
 }
@@ -276,8 +275,8 @@ func TestShouldBuildDirectlyFollowsTheTriageAnswer(t *testing.T) {
 	stateDirOverride = t.TempDir()
 	t.Cleanup(func() { stateDirOverride = oldDir })
 
-	local, env := triageTestRepo(t)
-	app, _ := triageTestApp(t, local, env, nil)
+	local := triageTestRepo(t)
+	app, _ := triageTestApp(t, local, nil)
 	runner := &fakeRunner{text: "build"}
 	oldRunner := runnerFor
 	runnerFor = func(string) (CodingRunner, error) { return runner, nil }
@@ -307,8 +306,8 @@ func TestShouldBuildDirectlyHonoursAnExplicitPlanRequest(t *testing.T) {
 	stateDirOverride = t.TempDir()
 	t.Cleanup(func() { stateDirOverride = oldDir })
 
-	local, env := triageTestRepo(t)
-	app, _ := triageTestApp(t, local, env, []Comment{{Body: "先出个计划，确认后再实现"}})
+	local := triageTestRepo(t)
+	app, _ := triageTestApp(t, local, []Comment{{Body: "先出个计划，确认后再实现"}})
 	runner := &fakeRunner{text: "build"}
 	oldRunner := runnerFor
 	runnerFor = func(string) (CodingRunner, error) { return runner, nil }
