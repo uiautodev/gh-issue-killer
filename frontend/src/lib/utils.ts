@@ -28,6 +28,14 @@ export function waitingNeedsAttention(count: number | null | undefined): boolean
 	return typeof count === 'number' && Number.isFinite(count) && count > 0;
 }
 
+/**
+ * The drawer's primary action runs on the first click; cancelling terminates
+ * work in progress, so it keeps the native confirmation.
+ */
+export function needsConfirmation(action: 'approve' | 'cancel'): boolean {
+	return action === 'cancel';
+}
+
 export function fmtTime(raw: string | null | undefined, lang: string): string {
 	if (!raw) return '–';
 	const date = new Date(raw);

@@ -6,6 +6,7 @@ import {
 } from './api';
 import { t } from './i18n.svelte';
 import { needsMe, phaseMeta } from './phases';
+import { needsConfirmation } from './utils';
 import type { IssueState, Snapshot, Task } from './types';
 
 export type Filter = 'all' | 'active' | 'wait' | 'blocked';
@@ -200,9 +201,10 @@ class DashboardStore {
 	async runAction(action: 'approve' | 'cancel'): Promise<void> {
 		const task = this.selectedTask;
 		if (!task || this.actionBusy) return;
-		const question =
-			action === 'approve' ? t('action.confirmApprove') : t('action.confirmCancel');
-		if (!window.confirm(question)) return;
+		// Approving is the drawer's primary action and the owner asked for one
+		// click; cancelling kills work in progress, so it keeps the native
+		// confirmation.
+		if (needsConfirmation(action) && !window.confirm(t('action.confirmCancel'))) return;
 		this.actionBusy = true;
 		this.actionFeedback = { text: t('action.submitting'), kind: 'idle' };
 		try {

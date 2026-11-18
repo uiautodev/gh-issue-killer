@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatStars, waitingNeedsAttention } from './utils.ts';
+import { formatStars, needsConfirmation, waitingNeedsAttention } from './utils.ts';
 
 test('formatStars keeps counts below 1000 exact', () => {
 	assert.equal(formatStars(0), '0');
@@ -34,4 +34,9 @@ test('waitingNeedsAttention only highlights a positive count', () => {
 	assert.equal(waitingNeedsAttention(Number.NaN), false);
 	assert.equal(waitingNeedsAttention(null), false);
 	assert.equal(waitingNeedsAttention(undefined), false);
+});
+
+test('only cancelling asks for confirmation', () => {
+	assert.equal(needsConfirmation('approve'), false);
+	assert.equal(needsConfirmation('cancel'), true);
 });

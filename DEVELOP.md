@@ -664,7 +664,10 @@ by default, so the board opens on active work.
 The task drawer and the settings panel are native `<dialog>` elements opened
 with `showModal()`: the browser owns focus containment, `Esc`, focus return and
 the top layer, and `dialog.ts` only adds the outside-click fallback where
-`closedby="any"` is missing (WebKit in the desktop shell). `app.css` also
+`closedby="any"` is missing (WebKit in the desktop shell). The drawer's action
+bar submits approve (and retry after `blocked`) on the first click, because it
+is the drawer's primary action; cancel keeps the native confirmation since it
+terminates work in progress. `app.css` also
 contains scroll chaining for the top layer. The settings button opens the
 dialog with a section nav (login / config / updates), a scrolling body and a
 sticky action bar: repos as a list with a per-row remove button and an

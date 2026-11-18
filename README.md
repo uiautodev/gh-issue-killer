@@ -95,7 +95,8 @@ stage progress, PRs, checks, screenshots and the daemon log, with plans rendered
 as markdown. The task board keeps its columns on desktop and turns into labelled
 cards on narrow screens; the repo overview and console are collapsible cards
 that start collapsed, and the task/settings panels are native dialogs with
-keyboard focus handling. The
+keyboard focus handling; the drawer's approve button starts the work on the
+first click, while cancelling asks for confirmation. The
 board follows the system theme or can be pinned to light/dark, the interface
 switches between Chinese and English, and the header's icon toolbar links back
 to this repository, shows its star count and switches the board between the wide
