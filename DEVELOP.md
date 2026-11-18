@@ -676,7 +676,9 @@ and drives the same selection; the tabs use the ARIA tabs pattern (tab
 buttons with `aria-selected`, roving tabindex, arrow/Home/End keys, selection
 following focus, panels as `role="tabpanel"` with `hidden`), written by hand
 instead of with `focusgroup` so the desktop shell's WKWebView gets the same
-behaviour without a polyfill. The config tab holds the form: repos as a list
+behaviour without a polyfill. The selected tab also carries a bar on its left
+edge (bottom edge in the narrow row) so the state is not signalled by colour
+alone. The config tab holds the form: repos as a list
 with a per-row remove button and a per-row coding-agent select plus an
 owner/repo input and Add button below it (array, array of objects or object
 form, with per-repo overrides preserved; adding normalises pasted URLs, drops

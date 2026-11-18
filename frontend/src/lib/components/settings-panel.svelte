@@ -1048,4 +1048,27 @@
 		background: oklch(0 0 0 / 0.5);
 		backdrop-filter: blur(2px);
 	}
+
+	/* The selected tab must not be signalled by colour alone (WCAG 1.4.1), so
+	   it also carries a bar. The bar is a pseudo-element border, not a
+	   background, so forced-colours mode keeps it and the tab never resizes. */
+	[role='tab'] {
+		position: relative;
+	}
+
+	[role='tab'][aria-selected='true']::after {
+		content: '';
+		position: absolute;
+		inset: auto 0 0;
+		border-block-end: 2px solid currentColor;
+	}
+
+	/* md and up: the tablist is a column, so the bar moves to the left edge. */
+	@media (min-width: 48rem) {
+		[role='tab'][aria-selected='true']::after {
+			inset: 0 auto 0 0;
+			border-block-end: 0;
+			border-inline-start: 2px solid currentColor;
+		}
+	}
 </style>
