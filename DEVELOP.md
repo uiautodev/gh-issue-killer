@@ -226,6 +226,12 @@ is re-read from the API before acting, and deliveries are de-duplicated.
 | `apply`, `apply review`, `应用` (the target is a pull request) | apply the latest bot review's findings without a new review |
 | `<approval word> <free text>` (`ok`, `yes`, `go`, …) | approve **and** forward the rest as `ExtraNotes` to the implementation |
 
+Quoted lines are stripped before anything is parsed (`stripQuotedLines`):
+a quote-reply that ends in `@agent continue` parses as the command, and a
+mention that only exists inside the quote does not count as addressing the
+agent. The full body is still what the coding agent sees in the issue
+comments, so quoted context is not lost from the work itself.
+
 Other rules:
 
 - A mention on an issue in phase `new`/empty starts planning; `bug`-labelled
@@ -284,6 +290,17 @@ Other rules:
   `Store.IssueNumbers` instead of listing every open issue: with 7 repos the
   listing alone cost ~3200 requests/hour, the token hit its 5000/h core limit,
   and for the rest of that hour polls returned 403 so a 👍 stayed invisible.
+- The bot answers instead of staying silent. 👀 means "seen": every approver
+  comment on a tracked issue gets one, and so does any @-mention from anyone
+  else. A text reply or an action still needs an approver @-mention
+  (`handleUnroutedComment`): a question on a blocked issue is answered with
+  the stored failure reason, other instructions on a blocked issue are filed
+  as `ExtraNotes` for the retry, comments while work runs or merges get a
+  short acknowledgment, and comments on a done or cancelled issue explain
+  how to continue. A comment that is only a quote has nothing new to answer
+  and stays silent. Reply bodies come from the `router.reply.*` scaffold
+  keys, never from the comment text, so a stranger's words can never steer
+  what the bot writes.
 
 ## 7. Job scheduler (`router.go`)
 
@@ -776,7 +793,8 @@ keeps tests quiet. Notable coverage:
 | `router_ci_test.go` | the CI queue does not block work; cancel stops CI jobs |
 | `gh_test.go` | label transitions and GitHub helpers |
 | `release_test.go` | version tag parsing, bump rules, commit classification, due check (calendar days and configured time), time parsing/defaults, release request body, disabled/not-due/no-commit skips |
-| `main_test.go` | proxy/env parsing, repo normalization (names, objects, object arrays), mentions and commands, closable phases, state-dir adoption of `~/.gh-issue-killer`, legacy env fallbacks |
+| `main_test.go` | proxy/env parsing, repo normalization (names, objects, object arrays), mentions and commands, quote stripping, question heuristic, closable phases, state-dir adoption of `~/.gh-issue-killer`, legacy env fallbacks |
+| `comment_reply_test.go` | quote-reply commands, fall-through replies (blocked question/notes, running/done/cancelled), non-approver mentions get 👀 only |
 | `prompts_test.go` | every embedded prompt loads and keeps its placeholders |
 | `triage_test.go` | mode normalization, plan/build routing, triage answer parsing, explicit plan requests, direct-build start |
 | `runner_test.go` | per-agent argv construction, overlong-record draining, stage timeout and stall kill |

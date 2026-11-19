@@ -204,9 +204,13 @@ Open an issue that mentions the bot (or assign it to the bot). Then:
 Every accepted 👍 gets an 👀 reaction immediately, so you can see the daemon
 picked it up while the work is still running.
 
-Commands must come from an approver, mention the agent, and be the **whole
-comment**. Approval words, status labels and review rules live in
-[DEPLOY.md](DEPLOY.md) and [DEVELOP.md](DEVELOP.md).
+Commands must come from an approver and mention the agent. Quoted lines are
+ignored when parsing, so a quote-reply that ends in a command works. The bot
+also answers approver comments that are not commands instead of staying
+silent: a question on a blocked task is answered with the failure reason,
+other notes are filed for the retry. @-mentions from anyone else only get an
+👀 acknowledgment, never an action. Approval words, status labels and review
+rules live in [DEPLOY.md](DEPLOY.md) and [DEVELOP.md](DEVELOP.md).
 
 ## Configuration
 

@@ -100,6 +100,14 @@ var scaffoldZH = map[string]string{
 	"modify.done.hint":          "继续修改直接 `@%s <指令>`。",
 
 	"router.review_not_pr": "`review` 只用于 pull request；要让 agent 实现这个 issue，直接 @%s 描述需求即可。",
+
+	"router.reply.ack":            "收到，有什么需要我做的就说一声。",
+	"router.reply.notes_saved":    "收到，补充记下了，重试时会带上；回复 `@%s continue` 或给失败通知点 👍 即可重试。",
+	"router.reply.blocked_reason": "上次失败的原因是：\n\n```\n%s\n```\n\n回复 `@%s continue` 或给失败通知点 👍 可以重试。",
+	"router.reply.working":        "收到，这轮还在处理中，有进展我会在这里更新。",
+	"router.reply.merging":        "收到，正在合并，等它跑完。",
+	"router.reply.done":           "这个 issue 已经完成了；如果还有后续需求，重新打开 issue 或提一个新 issue，我来处理。",
+	"router.reply.cancelled":      "这个 issue 的任务已经取消了；要重新开始的话，把 issue 关掉再重新打开，我会重新规划。",
 }
 
 var scaffoldEN = map[string]string{
@@ -192,6 +200,14 @@ var scaffoldEN = map[string]string{
 	"modify.done.hint":          "For further edits just `@%s <instruction>`.",
 
 	"router.review_not_pr": "`review` only applies to pull requests; mention @%s with your request to implement this issue instead.",
+
+	"router.reply.ack":            "Got it — let me know if there's anything you'd like me to do.",
+	"router.reply.notes_saved":    "Noted — I'll carry this into the retry; reply `@%s continue` or add 👍 to the failure notice to retry.",
+	"router.reply.blocked_reason": "The last failure was:\n\n```\n%s\n```\n\nReply `@%s continue` or add 👍 to the failure notice to retry.",
+	"router.reply.working":        "Got it — this round is still running; I'll post an update here when there's progress.",
+	"router.reply.merging":        "Got it — the merge is running; I'll report back when it finishes.",
+	"router.reply.done":           "This issue is already done; if there's follow-up work, reopen the issue or open a new one and I'll pick it up.",
+	"router.reply.cancelled":      "This issue's task was cancelled; to start over, close the issue and reopen it and I'll plan it again.",
 }
 
 // language is the concrete scaffolding language for a task: an explicit

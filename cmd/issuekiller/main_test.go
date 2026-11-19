@@ -115,6 +115,14 @@ func TestIsMentionAndCommands(t *testing.T) {
 		"@my-agent 样式有点丑，合并到 input-group 里": "",
 		"@my-agent 继续改":           "",
 		"@my-agent 这个方案 lgtm，but": "",
+		// Quoted lines are stripped before parsing: a quote-reply that ends
+		// in a command parses, and a mention that only exists inside the
+		// quote does not count.
+		"> ### 🤖 流程出错\n> ```\n> fetch base: git fetch failed (exit 128)\n> ```\n> \n> 回复 `@my-agent continue` 重试。\n\n@my-agent continue": "approve",
+		"@my-agent continue\n> some quoted noise": "approve",
+		"> 回复 `@my-agent continue` 重试。":           "",
+		"> @my-agent lgtm":                        "",
+		"> ### 🤖 流程出错\n> ```\n> boom\n> ```":      "",
 	}
 	for input, expected := range cases {
 		if got := resolveCommand(input, true, "my-agent"); got != expected {
@@ -123,6 +131,43 @@ func TestIsMentionAndCommands(t *testing.T) {
 	}
 	if got := resolveCommand("@my-agent lgtm", false, "my-agent"); got != "" {
 		t.Fatalf("non-approver command = %q, want empty", got)
+	}
+}
+
+func TestStripQuotedLines(t *testing.T) {
+	cases := map[string]string{
+		"@bot continue":                     "@bot continue",
+		"> quoted\n\n@bot continue":         "@bot continue",
+		"> a\n> b\n\n@bot lgtm\n> trailing": "@bot lgtm",
+		"> only a quote":                    "",
+		"> nested\n>> deeper\n\ntext":       "text",
+		"  > indented quote\ntext":          "text",
+		"":                                  "",
+	}
+	for input, expected := range cases {
+		if got := stripQuotedLines(input); got != expected {
+			t.Fatalf("stripQuotedLines(%q) = %q, want %q", input, got, expected)
+		}
+	}
+}
+
+func TestLooksLikeQuestion(t *testing.T) {
+	cases := map[string]bool{
+		"为什么失败了？":       true,
+		"为什么失败了":        true,
+		"怎么做":           true,
+		"好了吗":           true,
+		"is this done?": true,
+		"can you retry": true,
+		"顺便把超时也修了":      false,
+		"继续":            false,
+		"ok":            false,
+		"收到":            false,
+	}
+	for input, expected := range cases {
+		if got := looksLikeQuestion(input); got != expected {
+			t.Fatalf("looksLikeQuestion(%q) = %v, want %v", input, got, expected)
+		}
 	}
 }
 
@@ -562,6 +607,10 @@ func TestApprovalWithNotes(t *testing.T) {
 		{"@bot ok, but keep it small", true, "but keep it small"},
 		{"@bot OK 不过...", true, "不过..."},
 		{"lgtm 但没有提到我", false, ""},
+		// A quote-reply: the approval word must be in the author's own
+		// words, not in the quoted text.
+		{"> ### 🤖 流程出错\n> 回复 `@bot continue` 重试。\n\n@bot ok 顺便把超时修了", true, "顺便把超时修了"},
+		{"> @bot ok 补个单测", false, ""},
 	}
 	for _, c := range cases {
 		ok, notes := approvalWithNotes(c.body, "bot")

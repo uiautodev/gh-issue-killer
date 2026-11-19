@@ -169,8 +169,11 @@ go build -o bin/issuekiller ./cmd/issuekiller
 
 每个被接受的 👍 都会立刻收到一个 👀 回应，任务还在排队或执行时也能看到已经收到。
 
-命令必须来自 approver、@ 了 agent，并且**整条评论就是命令**。批准词、状态标签
-和 review 的完整规则见 [DEPLOY.md](DEPLOY.md) 和 [DEVELOP.md](DEVELOP.md)。
+命令必须来自 approver、@ 了 agent。解析时会忽略引用行，所以引用回复末尾
+跟一条命令也能生效。bot 也会回复那些不是命令的 approver 评论，而不是沉默：
+blocked 任务上的问题会用失败原因作答，其他补充会记下来留给重试。其他人
+@ bot 只会得到一个 👀 确认，不会触发任何动作。批准词、状态标签和 review
+的完整规则见 [DEPLOY.md](DEPLOY.md) 和 [DEVELOP.md](DEVELOP.md)。
 
 ## 配置
 

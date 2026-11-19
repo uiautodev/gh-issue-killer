@@ -18,11 +18,32 @@ func isMention(text, login string) bool {
 	return pattern.MatchString(text)
 }
 
+// stripQuotedLines drops the lines a GitHub quote-reply wraps in "> " (and the
+// blank lines around them), so the daemon parses what the author actually
+// wrote instead of the quoted text. A quote-reply that ends in
+// "@agent continue" therefore parses as a command, and a mention that only
+// exists inside the quote does not count as addressing the agent. A line
+// that merely looks like a quote (">5", a shell redirect) is dropped from
+// parsing too; the full body is still what the coding agent sees in the
+// issue comments, so nothing is lost there.
+func stripQuotedLines(body string) string {
+	lines := strings.Split(body, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimLeft(line, " \t"), ">") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Trim(strings.Join(kept, "\n"), " \t\r\n")
+}
+
 // resolveCommand returns the command a comment carries. Only approvers can
-// command the agent, the comment must mention it, and the whole comment must
-// be the command itself. Prose like "把按钮合并到 input-group 里" therefore
-// never merges a PR by accident.
+// command the agent, the comment must mention it, and the author's own words
+// (quoted lines stripped) must be the command itself. Prose like
+// "把按钮合并到 input-group 里" therefore never merges a PR by accident.
 func resolveCommand(body string, isApprover bool, agentLogin string) string {
+	body = stripQuotedLines(body)
 	if !isApprover || !isMention(body, agentLogin) {
 		return ""
 	}
@@ -57,6 +78,7 @@ var approvalWords = []string{"okay", "continue", "approve", "lgtm", "yes", "ok",
 // the mention. The word must be the first token and must not run into another
 // Latin word ("good" is not "go").
 func approvalWithNotes(body, agentLogin string) (bool, string) {
+	body = stripQuotedLines(body)
 	if !isMention(body, agentLogin) {
 		return false, ""
 	}
@@ -86,6 +108,30 @@ func stripMention(text, login string) string {
 	}
 	pattern := regexp.MustCompile(`(?i)@` + regexp.QuoteMeta(login))
 	return pattern.ReplaceAllString(text, " ")
+}
+
+// looksLikeQuestion is the heuristic the fall-through reply uses to tell a
+// question ("why did it fail?") from an instruction ("also fix the
+// timeout"). It only decides which canned reply fits; it never starts work.
+func looksLikeQuestion(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if strings.Contains(trimmed, "?") || strings.Contains(trimmed, "？") {
+		return true
+	}
+	lower := strings.ToLower(trimmed)
+	for _, prefix := range []string{"为什么", "怎么", "怎样", "如何", "什么", "为啥",
+		"why", "how", "what", "when", "where", "who", "which",
+		"can ", "could ", "should ", "is ", "are ", "do ", "does ", "did "} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	for _, suffix := range []string{"吗", "呢", "么"} {
+		if strings.HasSuffix(trimmed, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // isAgentComment reports whether a comment is daemon output rather than a
@@ -1059,7 +1105,11 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		r.store.MarkCommentProcessed(fullName, trigger.IssueNumber, trigger.CommentID)
 
 		st := r.store.Issue(fullName, trigger.IssueNumber)
-		mentioned := isMention(trigger.CommentBody, r.agentLogin)
+		// Only the author's own words count: quoted lines (usually the
+		// bot's own failure notice, which itself contains an "@agent
+		// continue" hint) must not address the agent or carry a command.
+		unquoted := stripQuotedLines(trigger.CommentBody)
+		mentioned := isMention(unquoted, r.agentLogin)
 		isApprover := selfComment
 		for _, login := range app.Repo.Approvers {
 			if strings.EqualFold(login, trigger.Sender) {
@@ -1067,8 +1117,11 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 				break
 			}
 		}
-		command := resolveCommand(trigger.CommentBody, isApprover, r.agentLogin)
-		if !selfComment && isApprover && st.Phase != "" {
+		command := resolveCommand(unquoted, isApprover, r.agentLogin)
+		// 👀 means "seen": every approver comment on a tracked issue gets
+		// one, and so does any @-mention from anyone else. What the bot
+		// writes or does beyond that still needs an approver mention.
+		if !selfComment && st.Phase != "" && (isApprover || mentioned) {
 			react(ctx, app, trigger, "eyes")
 		}
 		r.log.Info("comment trigger %s#%d from @%s mentioned=%v command=%s", fullName, trigger.IssueNumber, trigger.Sender, mentioned, firstNonEmpty(command, "-"))
@@ -1206,7 +1259,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 		// "<approval word> <instructions>" on a pending plan starts the work and
 		// forwards the rest of the comment to the coding stage.
 		if command == "" && mentioned && isApprover && (st.Phase == "awaiting_approval" || st.Phase == "blocked") {
-			if approved, notes := approvalWithNotes(trigger.CommentBody, r.agentLogin); approved {
+			if approved, notes := approvalWithNotes(unquoted, r.agentLogin); approved {
 				app.GH.SetAgentState(ctx, fullName, trigger.IssueNumber, workingLabel)
 				app.Store.UpdateIssue(fullName, trigger.IssueNumber, func(state *IssueState) {
 					state.Phase = "implementing"
@@ -1275,7 +1328,7 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 			return
 		}
 
-		r.log.Info("comment on %s#%d ignored (phase=%s)", fullName, trigger.IssueNumber, firstNonEmpty(st.Phase, "none"))
+		r.handleUnroutedComment(ctx, app, fullName, trigger, st, unquoted, mentioned, isApprover)
 		return
 	}
 
@@ -1318,6 +1371,71 @@ func (r *Router) HandleTrigger(ctx context.Context, fullName string, trigger Tri
 			}
 			r.startPlanOrBuild(jobCtx, app, trigger, issue)
 		})
+	}
+}
+
+// replyToComment posts a short collaborator reply on the issue. The body
+// comes from the scaffold catalogs, never from the comment text, so a
+// stranger's words can never steer what the bot writes.
+func (r *Router) replyToComment(ctx context.Context, app *AppContext, trigger Trigger, key string, args ...any) {
+	body := app.text(trigger.IssueNumber, key, args...)
+	if _, err := app.GH.PostComment(ctx, app.Repo.FullName, trigger.IssueNumber, body); err != nil {
+		r.log.Warn("reply to comment %d on %s#%d: %v", trigger.CommentID, app.Repo.FullName, trigger.IssueNumber, err)
+		return
+	}
+	r.log.Info("replied to comment %d on %s#%d (%s)", trigger.CommentID, app.Repo.FullName, trigger.IssueNumber, key)
+}
+
+// handleUnroutedComment answers an approver comment that matched no command
+// and no task route, so the daemon never silently ignores the owner. It only
+// ever replies or files notes: it never starts work, and a non-approver
+// never reaches it (their @-mentions get the 👀 above and nothing else).
+// A comment that is only a quote has nothing new to answer and stays silent.
+func (r *Router) handleUnroutedComment(ctx context.Context, app *AppContext, fullName string, trigger Trigger, st IssueState, unquoted string, mentioned, isApprover bool) {
+	if !isApprover || !mentioned {
+		r.log.Info("comment on %s#%d ignored (phase=%s)", fullName, trigger.IssueNumber, firstNonEmpty(st.Phase, "none"))
+		return
+	}
+	if strings.TrimSpace(unquoted) == "" {
+		r.log.Info("comment on %s#%d ignored (quote only)", fullName, trigger.IssueNumber)
+		return
+	}
+	words := strings.TrimSpace(stripMention(unquoted, r.agentLogin))
+	if words == "" {
+		r.replyToComment(ctx, app, trigger, "router.reply.ack")
+		return
+	}
+	switch st.Phase {
+	case "blocked":
+		if looksLikeQuestion(words) {
+			if strings.TrimSpace(st.BlockedReason) != "" {
+				r.replyToComment(ctx, app, trigger, "router.reply.blocked_reason", st.BlockedReason, r.agentLogin)
+			} else {
+				r.replyToComment(ctx, app, trigger, "router.reply.ack")
+			}
+			return
+		}
+		// Extra instructions for the retry: the implement prompt renders
+		// ExtraNotes, so they are carried into the next run.
+		note := strings.TrimSpace(words)
+		app.Store.UpdateIssue(fullName, trigger.IssueNumber, func(state *IssueState) {
+			if strings.TrimSpace(state.ExtraNotes) == "" {
+				state.ExtraNotes = note
+			} else {
+				state.ExtraNotes = strings.TrimSpace(state.ExtraNotes) + "\n" + note
+			}
+		})
+		r.replyToComment(ctx, app, trigger, "router.reply.notes_saved", r.agentLogin)
+	case "planning", "implementing":
+		r.replyToComment(ctx, app, trigger, "router.reply.working")
+	case "merging":
+		r.replyToComment(ctx, app, trigger, "router.reply.merging")
+	case "done":
+		r.replyToComment(ctx, app, trigger, "router.reply.done")
+	case "cancelled":
+		r.replyToComment(ctx, app, trigger, "router.reply.cancelled")
+	default:
+		r.replyToComment(ctx, app, trigger, "router.reply.ack")
 	}
 }
 
